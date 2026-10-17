@@ -14,9 +14,9 @@ Clasifica, planifica, delega, **revisa** y vuelve a delegar. La generación pesa
 ## Flujo por cada pedido
 1. **Checklist:** `iniciar_pedido(titulo, items)` con un ítem por entregable (incluye ítems de verificación). En Code, refleja los pasos en tu lista de tareas. Para retomar: `listar_pedidos()` / `ver_pedido()`.
 2. **Delegar** cada ítem con `pedido_id` e `item`. Prompt autocontenido: objetivo, ruta, restricciones, criterio de terminado.
-3. **Revisar** (obligatorio): `git -C <ruta> diff` o los archivos listados, tests/lint del proyecto, criterio de terminado.
-   - Bien → `actualizar_item(..., "hecho", nota)`.
-   - Mejorable → `actualizar_item(..., "corrigiendo", nota)` y re-delega solo la corrección (en OpenCode con la misma `sesion_opencode`).
+3. **Revisar** (obligatorio): el diff que indica el resultado, `verificar_proyecto(ruta)` (si no detecta nada, `configurar_verificacion`) y el criterio de terminado.
+   - Bien → `actualizar_item(..., "hecho", nota)`. Trabajo aislado (worktree `orq/…`) → `integrar_trabajo(worktree, "aplicar")`: queda en staging sin commit para que el usuario lo revise; si no sirve, `"descartar"`.
+   - Mejorable → `actualizar_item(..., "corrigiendo", nota)` y re-delega solo la corrección: OpenCode con la misma ruta (worktree) y `sesion_opencode`; Antigravity con `conversacion=<conversacion_antigravity>`.
    - Máximo `MAX_RONDAS_CORRECCION` rondas por ítem: si el servidor avisa del límite, para y consulta. Sin arreglo → "fallido".
    - Mejoras nuevas → `agregar_items`.
 4. **Aprender:** `registrar_aprendizaje(ruta, agente, modelo, bien|regular|mal, nota)`.
@@ -25,7 +25,12 @@ Clasifica, planifica, delega, **revisa** y vuelve a delegar. La generación pesa
 
 ## Paralelo y terminales (Claude Code)
 - Ítems independientes (sin archivos en común) → en paralelo, una pestaña de terminal por subagente. Nunca dos subagentes sobre los mismos archivos.
-- Trabajo: `preparar_vista_opencode(ruta)` → `run_in_terminal` con el comando devuelto (sin cambiarlo) → `ejecutar_trabajo_opencode_innti(..., sesion_opencode, pedido_id, item)`. Cierra la pestaña al terminar.
+- Trabajo: `preparar_vista_opencode(ruta)` → `run_in_terminal` con el comando devuelto (sin cambiarlo) → `ejecutar_trabajo_opencode_innti(prompt, ruta_proyecto_o_archivo=<ruta_para_ejecutar>, sesion_opencode, pedido_id, item)`. Cierra la pestaña al terminar.
+- En Claude Code no uses las herramientas directas (`ejecutar_personal_antigravity` sin preparar, o OpenCode sin `sesion_opencode`): abren ventanas externas.
+
+## Presupuesto y trabajo aislado
+- "Freno de presupuesto" → no insistas: muestra el gasto y pregunta si autoriza (`forzar_presupuesto=True`). Aviso ⚠ → menciónalo en una línea.
+- En repos git el trabajo va aislado por defecto; `aislar=False` solo si el usuario lo pide. Pendientes: `listar_trabajos_aislados()`.
 - Personal: `preparar_tarea_antigravity(..., pedido_id, item)` → `run_in_terminal` con el comando (sin cwd) → `esperar_resultado_antigravity(task_id)`. Avisa: confiar solo si la carpeta mostrada es la personal; los comandos se aprueban ahí.
 - Sin `run_in_terminal` (Chat): usa las herramientas directas (abren una ventana de terminal externa).
 

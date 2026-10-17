@@ -34,6 +34,7 @@ load_dotenv(BASE_DIR / ".env")
 
 import plataforma  # noqa: E402
 import registro  # noqa: E402  (después de cargar .env: lee TAREAS_DIR, MAX_RONDAS_CORRECCION, etc.)
+import control  # noqa: E402
 
 
 def _env(name: str, default: str = "") -> str:
@@ -79,6 +80,7 @@ ANTIGRAVITY_FALLBACK_MODELS = [
 ANTIGRAVITY_TIMEOUT = int(_env("ANTIGRAVITY_TIMEOUT_SECONDS", "600"))
 
 MAX_RETURN_CHARS = int(_env("MAX_RETURN_CHARS", "1500"))
+AISLAR_TRABAJO = _env("AISLAR_TRABAJO", "1") not in ("0", "false", "no")
 PANEL_URL = _env("PANEL_URL")
 SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "dist", "build", "target", ".next", "__pycache__", ".angular",
              ".pytest_cache", ".mypy_cache", ".ruff_cache", ".gradle", ".idea", ".vscode"}
@@ -352,13 +354,32 @@ def _work_cwd(target: Path) -> Path:
     return target
 
 
+def _aislar(target: Path, aislar: bool | None, texto: str) -> tuple[Path, dict | None, str]:
+    """Si corresponde, mueve la tarea a un worktree aislado. Devuelve (target, info del worktree, aviso)."""
+    info = control.worktree_info(target)
+    if info:  # ya está en un worktree del orquestador (ronda de corrección)
+        return target, info, ""
+    if not (AISLAR_TRABAJO if aislar is None else aislar):
+        return target, None, ""
+    try:
+        nuevo = control.crear_worktree(target, f"{datetime.now():%m%d-%H%M%S}-{_slug(texto, 20)}", TRABAJO_DIR)
+    except (RuntimeError, OSError, subprocess.SubprocessError) as e:
+        return target, None, f"(No se pudo aislar: {e}. Se trabaja directo en el repo.)\n"
+    if not nuevo:  # no es un repo git (o no tiene commits): se trabaja directo
+        return target, None, ""
+    _live(f"  aislado en {nuevo['worktree']} (rama {nuevo['rama']})")
+    return nuevo["target"], control.worktree_info(nuevo["worktree"]), ""
+
+
 @mcp.tool()
-async def preparar_vista_opencode(ruta_proyecto_o_archivo: str = "", titulo: str = "") -> str:
+async def preparar_vista_opencode(ruta_proyecto_o_archivo: str = "", titulo: str = "",
+                                  aislar: bool | None = None) -> str:
     """SOLO EN CLAUDE CODE (terminal interna). Paso 1 de 2 para una tarea de TRABAJO.
 
-    Crea la sesión en el servidor de OpenCode y devuelve su session_id y el comando de la TUI oficial.
-    Ejecuta el comando tal cual con run_in_terminal (título 'OpenCode'), y luego llama
-    ejecutar_trabajo_opencode_innti con sesion_opencode=<session_id> y la misma ruta.
+    Crea la sesión en el servidor de OpenCode (en un worktree aislado si es repo git y AISLAR_TRABAJO=1) y
+    devuelve session_id, ruta_para_ejecutar y el comando de la TUI oficial. Ejecuta el comando tal cual con
+    run_in_terminal (título 'OpenCode'), y luego llama ejecutar_trabajo_opencode_innti con
+    sesion_opencode=<session_id> y ruta_proyecto_o_archivo=<ruta_para_ejecutar>.
     """
     target = _resolve_under(TRABAJO_DIR, ruta_proyecto_o_archivo)
     if not _inside(target, TRABAJO_DIR):
@@ -369,6 +390,7 @@ async def preparar_vista_opencode(ruta_proyecto_o_archivo: str = "", titulo: str
         return f"Error: no se encontró OpenCode ('{OPENCODE_CLI_PATH}'). Revisa OPENCODE_CLI_PATH en .env."
     if not await _ensure_opencode_server(cli):
         return f"Error: el servidor de OpenCode no respondió en {OPENCODE_SERVER_URL}."
+    target, wt, aviso = _aislar(target, aislar, titulo or target.name)
     cwd = _work_cwd(target)
     session_id = await _create_session(cwd, f"Claude → {titulo or cwd.name}"[:80])
     if not session_id:
@@ -376,7 +398,9 @@ async def preparar_vista_opencode(ruta_proyecto_o_archivo: str = "", titulo: str
     # oc_attach.py lee la contraseña del .env: no aparece en el comando ni en el chat.
     cmd = plataforma.run_line(sys.executable, plataforma.quote_path(BASE_DIR / "oc_attach.py"),
                               "--dir", plataforma.quote_path(cwd), "--session", session_id)
-    return (f"session_id: {session_id}\ncarpeta: {cwd}\n"
+    aislado = (f"Trabajo aislado: rama {wt['rama']} en el worktree {wt['worktree']} (tu repo no se toca).\n"
+               if wt else "")
+    return (f"session_id: {session_id}\nruta_para_ejecutar: {target}\n{aislado}{aviso}"
             f"comando (ejecútalo con run_in_terminal, una sola línea, sin cambios):\n{cmd}")
 
 
@@ -388,9 +412,15 @@ async def ejecutar_trabajo_opencode_innti(
     sesion_opencode: str = "",
     pedido_id: str = "",
     item: int = 0,
+    aislar: bool | None = None,
+    forzar_presupuesto: bool = False,
 ) -> str:
     """CONTEXTO TRABAJO (Innti/corporativo). Delega la tarea a OpenCode con un modelo Innti.
     OpenCode edita los archivos directamente; aquí solo vuelve un resumen de estado, tokens y costo.
+
+    aislar: en repos git trabaja en un worktree con rama orq/… (por defecto AISLAR_TRABAJO=1). Para una ronda
+        de corrección pasa como ruta el mismo worktree. Al aprobar: integrar_trabajo(worktree, 'aplicar').
+    forzar_presupuesto: solo si el usuario autorizó pasar el límite de presupuesto.
 
     sesion_opencode: session_id de preparar_vista_opencode (TUI en la terminal de Claude) o de una delegación
         anterior: reutilizarla en una RONDA DE CORRECCIÓN conserva el contexto del agente y cuesta menos.
@@ -420,6 +450,13 @@ async def ejecutar_trabajo_opencode_innti(
     if "/" not in modelo:
         modelo = f"{INNTI_PROVIDER}/{modelo}"
 
+    bloqueado, presupuesto = control.estado_presupuesto()
+    if bloqueado and not forzar_presupuesto:
+        _live(f"  ⛔ freno de presupuesto: {presupuesto}")
+        return (f"Freno de presupuesto: {presupuesto}\nNo se delegó nada. Pide autorización al usuario y, si la da, "
+                "repite con forzar_presupuesto=True (o ajusta PRESUPUESTO_DIA_USD / PRESUPUESTO_MES_USD en .env).")
+
+    target, wt, aviso_aislar = _aislar(target, aislar, prompt_tarea)
     cwd = _work_cwd(target)
     if pedido_id and item:
         registro.actualizar_item(pedido_id, item, "en_curso", agente="OpenCode", modelo=modelo.split("/")[-1])
@@ -448,7 +485,7 @@ async def ejecutar_trabajo_opencode_innti(
         cmd += ["--attach", OPENCODE_SERVER_URL, "--dir", str(cwd), "--session", session_id]
     else:
         _live("  servidor OpenCode no disponible: se ejecuta sin ventana")
-    checkpoint = _git_checkpoint(cwd)
+    checkpoint = "" if wt else _git_checkpoint(cwd)
     before = _snapshot(cwd)
     inicio_ms = int(time.time() * 1000)
     code, output = await _run([*cmd, prompt], cwd, OPENCODE_TIMEOUT)
@@ -474,7 +511,17 @@ async def ejecutar_trabajo_opencode_innti(
                f"{tokens.get('output', 0) + tokens.get('reasoning', 0):,} salida · ≈ US$ {costo:.4f}").replace(",", ".")
     _live(f"■ {estado} | {len(changed)} archivos | {tok_txt} | resumen devuelto a Claude")
     vinculo = registro.vincular_delegacion(pedido_id, item, "OpenCode", modelo.split("/")[-1], costo, estado)
-    revisar = f"Revisa con: git -C \"{cwd}\" diff" if checkpoint else "Revisa los archivos listados."
+    if wt:
+        w = wt["worktree"]
+        sha = control.confirmar_cambios(Path(w), f"orq: {prompt_tarea[:80]}")
+        revisar = (f"Trabajo aislado en la rama {wt['rama']} (worktree {w}); tu repo no se tocó.\n"
+                   f"Esta ronda: git -C \"{w}\" show --stat {sha or 'HEAD'} · todo: git -C \"{w}\" diff {wt['base'][:10]}\n"
+                   f"Verifica con verificar_proyecto(\"{target}\"). Ronda de corrección: misma ruta y sesion_opencode. "
+                   f"Al aprobar: integrar_trabajo(\"{w}\", \"aplicar\") (cambios en staging, sin commit) o \"descartar\".")
+    else:
+        revisar = f"Revisa con: git -C \"{cwd}\" diff" if checkpoint else "Revisa los archivos listados."
+    _, presupuesto = control.estado_presupuesto()
+    alerta = f"\n{presupuesto}" if presupuesto.startswith(("⚠", "⛔")) else ""
     return (
         f"{estado}: OpenCode usando el modelo {modelo} de Innti en {target}.\n"
         f"Archivos modificados: {len(changed)} | Líneas procesadas: {_count_lines(changed)} | Tokens: {tok_txt}\n"
@@ -482,7 +529,8 @@ async def ejecutar_trabajo_opencode_innti(
         + (f"sesion_opencode: {session_id} (pásala en una ronda de corrección para conservar el contexto)\n"
            if session_id else "")
         + (f"Punto de retorno: {checkpoint}\n" if checkpoint else "")
-        + f"{revisar}\nLog completo: {log_file}{vinculo}\n\nResumen de OpenCode:\n{_tail(output)}"
+        + aviso_aislar
+        + f"{revisar}\nLog completo: {log_file}{vinculo}{alerta}\n\nResumen de OpenCode:\n{_tail(output)}"
     )
 
 
@@ -494,10 +542,13 @@ async def ejecutar_personal_antigravity(
     modelo_antigravity: str = "",
     pedido_id: str = "",
     item: int = 0,
+    conversacion: str = "",
 ) -> str:
     """CONTEXTO PERSONAL (proyectos propios, aprendizaje, automatizaciones caseras, análisis).
     Delega al agente de Antigravity (CLI `agy`, cuenta Pro): trabaja en la carpeta, crea/edita archivos
     y aquí vuelve solo una síntesis. En Claude Code prefiere preparar_tarea_antigravity (terminal interna).
+
+    conversacion: en una ronda de corrección, la conversacion_antigravity del resultado anterior.
 
     pedido_id, item: vinculan la delegación al checklist (el ítem pasa a 'revisando').
 
@@ -536,7 +587,7 @@ async def ejecutar_personal_antigravity(
     else:
         principal = (modelo_antigravity or ANTIGRAVITY_AGY_MODEL).strip()
         if SHOW_CONSOLE and ANTIGRAVITY_VISTA == "tui":
-            res = await _personal_agy_tui(instruccion, contexto_adicional, target, folder, principal)
+            res = await _personal_agy_tui(instruccion, contexto_adicional, target, folder, principal, conversacion)
             return _cierre_personal(res, pedido_id, item, principal, folder)
     base.with_suffix(".meta").write_text(f"{principal}\n{instruccion[:300].replace(chr(10), ' ')}\n", encoding="utf-8")
     _open_console(f"Antigravity · {principal}",
@@ -545,7 +596,8 @@ async def ejecutar_personal_antigravity(
     if ANTIGRAVITY_MODE == "api":
         res = await _personal_api(instruccion, contexto_adicional, target, principal, events_file, done_file)
     else:
-        res = await _personal_agy(instruccion, contexto_adicional, target, folder, principal, events_file, done_file)
+        res = await _personal_agy(instruccion, contexto_adicional, target, folder, principal, events_file, done_file,
+                                  conversacion)
     return _cierre_personal(res, pedido_id, item, principal, folder)
 
 
@@ -627,13 +679,33 @@ async def _agy_wait(task: dict, via: str) -> str:
     resumen = m.group(1).strip() if m else _tail(content, 800)
     shown = "\n".join(f"  - {p}" for p in changed[:15]) + (f"\n  … y {len(changed) - 15} más" if len(changed) > 15 else "")
     _live(f"■ Éxito con {model} ({via}) | {len(changed)} archivos | síntesis devuelta a Claude")
+    conv = _agy_conversacion(folder)
     return (f"Éxito: Antigravity ({model}, CLI oficial) completó la tarea en {folder}.\n"
             f"Archivos creados/modificados: {len(changed)}\n{shown}\nLog: {log_file}\n"
-            f"La terminal de Antigravity sigue abierta por si quieres continuar la conversación ahí.\n\n"
+            + (f"conversacion_antigravity: {conv} (pásala en una ronda de corrección para conservar el contexto)\n"
+               if conv else "")
+            + f"La terminal de Antigravity sigue abierta por si quieres continuar la conversación ahí.\n\n"
             f"Síntesis:\n{_tail(resumen)}")
 
 
-async def _personal_agy_tui(instruccion: str, contexto: str, target: Path, folder: Path, model: str) -> str:
+def _agy_conversacion(folder: Path) -> str:
+    """Última conversación de agy en esa carpeta (agy la guarda en ~/.gemini/antigravity-cli/cache)."""
+    f = Path.home() / ".gemini" / "antigravity-cli" / "cache" / "last_conversations.json"
+    try:
+        data = json.loads(f.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    clave = os.path.normcase(os.path.normpath(str(folder)))
+    return next((v for k, v in data.items() if os.path.normcase(os.path.normpath(k)) == clave), "")
+
+
+def _conv_valida(conv: str) -> str:
+    """Solo IDs con forma de UUID: el valor termina en una línea de comandos."""
+    return conv if re.fullmatch(r"[0-9a-fA-F-]{8,64}", conv or "") else ""
+
+
+async def _personal_agy_tui(instruccion: str, contexto: str, target: Path, folder: Path, model: str,
+                            conversacion: str = "") -> str:
     """Ejecuta la tarea en la TUI oficial de Antigravity (`agy -i`) en una ventana de terminal externa."""
     agy = _agy_cmd()
     if not agy:
@@ -644,7 +716,9 @@ async def _personal_agy_tui(instruccion: str, contexto: str, target: Path, folde
         # Windows Terminal separa comandos con ';' y reinterpreta comillas: se neutralizan en el prompt.
         prompt = prompt.replace(";", ",").replace('"', "'")
     _live(f"  modelo: {model} | TUI oficial de agy en {folder}")
-    _open_console(f"Antigravity · {model}", [agy, "-i", prompt, "--model", model, "--mode", "accept-edits"], folder)
+    conv = ["--conversation", conversacion] if _conv_valida(conversacion) else []
+    _open_console(f"Antigravity · {model}",
+                  [agy, *conv, "-i", prompt, "--model", model, "--mode", "accept-edits"], folder)
     return await _agy_wait(task, "ventana externa")
 
 
@@ -656,9 +730,12 @@ async def preparar_tarea_antigravity(
     modelo_antigravity: str = "",
     pedido_id: str = "",
     item: int = 0,
+    conversacion: str = "",
 ) -> str:
     """SOLO EN CLAUDE CODE (terminal interna). Paso 1 de 2 para una tarea PERSONAL en Antigravity.
     Para trabajar en paralelo, prepara varias tareas (carpetas distintas) y abre una terminal por cada una.
+    conversacion: en una RONDA DE CORRECCIÓN, la conversacion_antigravity del resultado anterior (misma carpeta):
+        Antigravity continúa con todo el contexto y solo necesita la instrucción de corrección.
 
     Mismos parámetros y reglas de modelo que ejecutar_personal_antigravity. Devuelve un task_id y un comando:
     ejecútalo tal cual con run_in_terminal (título 'Antigravity', sin cwd: el comando ya entra a la carpeta).
@@ -683,7 +760,8 @@ async def preparar_tarea_antigravity(
     _live(f"▶ PERSONAL → Antigravity (terminal de Claude) | {folder} | {model}")
     # Entra primero a la carpeta personal: agy toma el directorio actual como espacio de trabajo y pide
     # confiar en él (sin esto pediría confiar en la carpeta de la sesión de Claude, p. ej. la de trabajo).
-    cmd = plataforma.run_line(agy, "-i", plataforma.quote_prompt(_ascii(task["prompt"])), "--model", model,
+    conv = ["--conversation", conversacion] if _conv_valida(conversacion) else []
+    cmd = plataforma.run_line(agy, *conv, "-i", plataforma.quote_prompt(_ascii(task["prompt"])), "--model", model,
                               "--mode", "accept-edits", cwd=folder)
     return (f"task_id: {task['id']}\ncarpeta: {folder}\n"
             f"comando (ejecútalo con run_in_terminal, una sola línea, sin cambios):\n{cmd}")
@@ -709,7 +787,7 @@ def _step_label(info: dict) -> str:
 
 
 async def _personal_agy(instruccion: str, contexto: str, target: Path, folder: Path, principal: str,
-                        events_file: Path, done_file: Path) -> str:
+                        events_file: Path, done_file: Path, conversacion: str = "") -> str:
     agy = _agy_cmd()
     if not agy:
         done_file.write_text("✖ No se encontró el CLI de Antigravity (agy)", encoding="utf-8")
@@ -738,6 +816,8 @@ async def _personal_agy(instruccion: str, contexto: str, target: Path, folder: P
             _emit(events_file, {"event": "restart", "model": model})
         cmd = [agy, "-p", prompt, "--model", model,
                "--output-format", "stream-json", "--print-timeout", f"{ANTIGRAVITY_TIMEOUT}s"]
+        if _conv_valida(conversacion):
+            cmd += ["--conversation", conversacion]
         # Por defecto solo edita archivos. Con permisos saltados también ejecuta comandos (terminal en sandbox,
         # pero sus herramientas de archivos pueden escribir fuera de la carpeta: por eso es opcional).
         cmd += ["--dangerously-skip-permissions", "--sandbox"] if ANTIGRAVITY_SKIP_PERMISSIONS else ["--mode", "accept-edits"]
@@ -821,7 +901,9 @@ async def _personal_agy(instruccion: str, contexto: str, target: Path, folder: P
     done_file.write_text(f"✓ {model} · {len(changed)} archivos en {folder} · síntesis enviada a Claude", encoding="utf-8")
     return (f"Éxito: Antigravity ({model}{aviso}) completó la tarea en {folder}.\n"
             f"Archivos creados/modificados: {len(changed)} | Tokens: {tokens}\n{shown}\n"
-            f"Log completo: {log_file}\n\nSíntesis:\n{_tail(resumen)}")
+            + (f"conversacion_antigravity: {result.get('conversation_id')} (pásala en una ronda de corrección)\n"
+               if result.get("conversation_id") else "")
+            + f"Log completo: {log_file}\n\nSíntesis:\n{_tail(resumen)}")
 
 
 async def _personal_api(instruccion: str, contexto: str, target: Path, principal: str,
@@ -904,6 +986,49 @@ def ver_configuracion() -> str:
             f"modo {ANTIGRAVITY_MODE}/{ANTIGRAVITY_VISTA} · modelo {ANTIGRAVITY_AGY_MODEL}\n"
             f"Checklists: {registro.TAREAS_DIR} · logs: {LOGS_DIR} · panel: {'configurado' if PANEL_URL else 'sin PANEL_URL'}\n"
             f"Rondas de corrección máximas: {registro.MAX_RONDAS}")
+
+
+# ----------------------------------------------------------------------------- verificación, aislamiento y presupuesto
+
+@mcp.tool()
+async def verificar_proyecto(ruta: str, comandos: list[str] | None = None) -> str:
+    """Corre los tests/lint del proyecto que contiene `ruta` y devuelve VERDE/ROJO con el final de cada salida.
+    Usa los comandos guardados con configurar_verificacion o los detecta (Maven, Gradle, npm, pytest, Go).
+    Úsala en cada revisión de una delegación de trabajo (también dentro del worktree aislado)."""
+    target = _resolve_under(TRABAJO_DIR, ruta)
+    if not _inside(target, TRABAJO_DIR, PERSONAL_DIR, UNIVERSIDAD_DIR):
+        return f"Rechazado: {target} está fuera de las carpetas configuradas."
+    tope = next((b for b in (TRABAJO_DIR, PERSONAL_DIR, UNIVERSIDAD_DIR) if _inside(target, b)), TRABAJO_DIR)
+    _live(f"▶ VERIFICACIÓN en {target}")
+    res = await control.verificar(target, tope, comandos, LOGS_DIR / "verificacion")
+    _live(f"■ {res.splitlines()[0]}")
+    return res
+
+
+@mcp.tool()
+def configurar_verificacion(proyecto: str, comandos: list[str]) -> str:
+    """Guarda cómo se verifica un proyecto (nombre de la carpeta de primer nivel o ruta absoluta), p. ej.
+    configurar_verificacion('ssdd-back', ['mvn -q -B test']). Lista vacía = quitar la configuración."""
+    return control.guardar_verificacion(proyecto, comandos)
+
+
+@mcp.tool()
+def integrar_trabajo(worktree: str, accion: str = "aplicar") -> str:
+    """Cierra un trabajo aislado. accion: 'aplicar' (squash al repo original: cambios en staging SIN commit),
+    'descartar' (borra worktree y rama, el repo no cambia) o 'conservar'."""
+    return control.integrar(worktree, accion)
+
+
+@mcp.tool()
+def listar_trabajos_aislados() -> str:
+    """Worktrees del orquestador pendientes de aplicar o descartar."""
+    return control.listar_worktrees()
+
+
+@mcp.tool()
+def estado_presupuesto() -> str:
+    """Gasto de Innti de hoy y del mes frente a PRESUPUESTO_DIA_USD / PRESUPUESTO_MES_USD."""
+    return control.estado_presupuesto()[1]
 
 
 # ----------------------------------------------------------------------------- checklist, costos y aprendizajes

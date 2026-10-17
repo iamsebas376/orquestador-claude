@@ -122,5 +122,6 @@ def test_todas_las_herramientas_registradas():
                  "ejecutar_personal_antigravity", "preparar_tarea_antigravity", "esperar_resultado_antigravity",
                  "iniciar_pedido", "actualizar_item", "agregar_items", "cerrar_pedido", "ver_pedido",
                  "listar_pedidos", "resumen_costos", "registrar_aprendizaje", "consultar_aprendizajes",
-                 "exportar_panel", "ver_configuracion"}
+                 "exportar_panel", "ver_configuracion", "verificar_proyecto", "configurar_verificacion",
+                 "integrar_trabajo", "listar_trabajos_aislados", "estado_presupuesto"}
     assert esperadas <= nombres

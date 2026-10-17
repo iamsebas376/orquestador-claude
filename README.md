@@ -14,6 +14,10 @@ Servidor MCP que convierte a Claude en el **cerebro** de un equipo de agentes: c
 - **Checklist por pedido** (`tareas/`), con estados, rondas de corrección (límite configurable) y notas de revisión.
 - **Costos:** tokens reales de OpenCode × tu tabla de precios (`precios.json`); resumen por día, agente y modelo.
 - **Aprendizajes por proyecto:** qué modelo funcionó bien o mal, para elegir mejor la próxima vez.
+- **Verificación por proyecto:** detecta y corre tests/lint (Maven, Gradle, npm, pytest, Go) o los comandos que configures.
+- **Trabajo aislado:** en repos git, OpenCode trabaja en un worktree con rama `orq/…`; al aprobar, los cambios pasan a tu repo en staging, sin commit.
+- **Presupuesto:** límite diario y mensual de gasto en el proveedor, con aviso y freno.
+- **Correcciones con memoria:** OpenCode reutiliza la sesión y Antigravity la conversación.
 - **Panel de control:** artefacto de claude.ai con filtros por fecha que Claude sincroniza al cerrar cada pedido (`config/panel.html`).
 - **Seguridad:** el servidor de OpenCode exige contraseña; Antigravity solo edita archivos salvo que lo permitas.
 
@@ -60,7 +64,9 @@ Publica `config/panel.html` como artefacto en claude.ai con la capacidad `db` (p
 | `preparar_vista_opencode` → `ejecutar_trabajo_opencode_innti` | Tarea de trabajo (con TUI en la terminal de Claude Code) |
 | `ejecutar_personal_antigravity` / `preparar_tarea_antigravity` → `esperar_resultado_antigravity` | Tarea personal en Antigravity |
 | `iniciar_pedido`, `actualizar_item`, `agregar_items`, `cerrar_pedido`, `ver_pedido`, `listar_pedidos` | Checklist |
-| `resumen_costos`, `registrar_aprendizaje`, `consultar_aprendizajes`, `exportar_panel` | Control |
+| `verificar_proyecto`, `configurar_verificacion` | Tests/lint en cada revisión |
+| `integrar_trabajo`, `listar_trabajos_aislados` | Aplicar o descartar trabajo aislado |
+| `estado_presupuesto`, `resumen_costos`, `registrar_aprendizaje`, `consultar_aprendizajes`, `exportar_panel` | Control |
 
 ## Desarrollo
 
