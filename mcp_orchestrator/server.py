@@ -312,11 +312,11 @@ def _git_checkpoint(cwd: Path) -> str:
     """Commit actual y cambios previos sin commit, para poder deshacer lo que haga el subagente."""
     try:
         head = subprocess.run(["git", "-C", str(cwd), "rev-parse", "--short", "HEAD"],
-                              capture_output=True, text=True, timeout=10)
+                              capture_output=True, text=True, timeout=10, stdin=subprocess.DEVNULL)
         if head.returncode != 0:
             return ""
         status = subprocess.run(["git", "-C", str(cwd), "status", "--porcelain"],
-                                capture_output=True, text=True, timeout=10)
+                                capture_output=True, text=True, timeout=10, stdin=subprocess.DEVNULL)
         previos = len([l for l in status.stdout.splitlines() if l.strip()])
         return (f"commit {head.stdout.strip()}" + (f" (+{previos} cambios previos sin commit)" if previos else "") +
                 f". Para deshacer solo lo del agente: git -C \"{cwd}\" diff y revierte esos archivos.")

@@ -23,8 +23,10 @@ def _now() -> str:
 
 
 def _git(args: list[str], cwd: Path, timeout: int = 60) -> subprocess.CompletedProcess:
+    # stdin vacío: dentro del servidor MCP, git heredaba su canal de entrada (stdio JSON-RPC) y se quedaba
+    # esperando hasta el timeout, bloqueando todas las demás herramientas.
     return subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, text=True, timeout=timeout,
-                          encoding="utf-8", errors="replace")
+                          encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL)
 
 
 # ----------------------------------------------------------------------------- verificación por proyecto
