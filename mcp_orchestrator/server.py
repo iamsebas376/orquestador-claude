@@ -591,7 +591,7 @@ async def ejecutar_personal_antigravity(
             return _cierre_personal(res, pedido_id, item, principal, folder)
     base.with_suffix(".meta").write_text(f"{principal}\n{instruccion[:300].replace(chr(10), ' ')}\n", encoding="utf-8")
     _open_console(f"Antigravity · {principal}",
-                  [sys.executable, str(BASE_DIR / "ver_gemini.py"), str(events_file)], BASE_DIR)
+                  [sys.executable, str(BASE_DIR / "visor_antigravity.py"), str(events_file)], BASE_DIR)
 
     if ANTIGRAVITY_MODE == "api":
         res = await _personal_api(instruccion, contexto_adicional, target, principal, events_file, done_file)

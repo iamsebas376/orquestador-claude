@@ -1,6 +1,7 @@
-"""Consola en vivo de una tarea de Antigravity, con estilo de TUI de agente (la abre el orquestador).
+"""Visor propio para el modo ANTIGRAVITY_VISTA=visor (agy sin ventana) y el modo api de respaldo.
 
-Uso: python ver_gemini.py <archivo.events>
+En el modo por defecto (tui) no se usa: la tarea corre en el CLI oficial de Antigravity.
+Uso: python visor_antigravity.py <archivo.events>
 El servidor escribe <base>.meta (modelo, instrucción), va agregando eventos JSON (formato stream-json de
 `agy`) a <base>.events y crea <base>.done con una línea de estado al terminar.
 """
