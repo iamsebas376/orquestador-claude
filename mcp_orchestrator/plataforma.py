@@ -82,6 +82,44 @@ def _applescript_string(text: str) -> str:
     return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
+# ----------------------------------------------------------------------------- notificaciones del sistema
+
+_TOAST_PS = r"""
+[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
+[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
+$x = New-Object Windows.Data.Xml.Dom.XmlDocument
+$x.LoadXml("<toast><visual><binding template='ToastGeneric'><text>$env:ORQ_TITULO</text><text>$env:ORQ_MENSAJE</text></binding></visual></toast>")
+$app = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe'
+[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($app).Show((New-Object Windows.UI.Notifications.ToastNotification $x))
+"""
+
+
+def _xml(s: str) -> str:
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("'", "&apos;").replace('"', "&quot;")
+
+
+def notificar(titulo: str, mensaje: str) -> None:
+    """Notificación nativa (toast en Windows, Centro de notificaciones en macOS, notify-send en Linux).
+    No bloquea y nunca falla: si el sistema no la soporta, no pasa nada."""
+    if os.getenv("NOTIFICAR", "1").lower() in ("0", "false", "no"):
+        return
+    titulo, mensaje = titulo[:80], mensaje[:220]
+    try:
+        if IS_WINDOWS:
+            # El texto viaja por variables de entorno (no se interpola en el script): sin inyección.
+            env = {**os.environ, "ORQ_TITULO": _xml(titulo), "ORQ_MENSAJE": _xml(mensaje)}
+            subprocess.Popen(["powershell", "-NoProfile", "-NonInteractive", "-Command", _TOAST_PS], env=env,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        elif IS_MAC:
+            osa = f"display notification {_applescript_string(mensaje)} with title {_applescript_string(titulo)}"
+            subprocess.Popen(["osascript", "-e", osa], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        elif shutil.which("notify-send"):
+            subprocess.Popen(["notify-send", titulo, mensaje], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError:
+        pass
+
+
 # ----------------------------------------------------------------------------- comandos para el panel de Claude
 
 def _ps(s: str) -> str:
