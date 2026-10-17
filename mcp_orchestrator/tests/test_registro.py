@@ -1,0 +1,103 @@
+import json
+from datetime import datetime, timedelta
+
+import pytest
+
+import registro
+from conftest import pedido_id
+
+
+@pytest.fixture
+def precios(tmp_path, monkeypatch):
+    f = tmp_path / "precios.json"
+    f.write_text(json.dumps({"mod-a": [1.00, 0.10, 3.00], "mod-b": [0.20, 0.02, 0.50]}), encoding="utf-8")
+    monkeypatch.setattr(registro, "PRECIOS_FILE", f)
+
+
+def test_costo_por_millon_de_tokens(precios):
+    # 100.000 de entrada y 5.000 de salida a 1,00 / 3,00 por millón = US$ 0,115
+    assert round(registro.costo_innti("proveedor/mod-a", {"input": 100_000, "output": 5_000}), 5) == 0.115
+
+
+def test_costo_cuenta_razonamiento_como_salida_y_cache_aparte(precios):
+    c = registro.costo_innti("mod-b", {"input": 1_000_000, "reasoning": 1_000_000, "cache_read": 1_000_000})
+    assert round(c, 4) == round(0.20 + 0.50 + 0.02, 4)
+
+
+def test_costo_modelo_desconocido_es_cero():
+    assert registro.costo_innti("modelo-que-no-existe", {"input": 10_000}) == 0.0
+
+
+def test_ciclo_de_un_pedido(tmp_registro):
+    pid = pedido_id(registro.iniciar_pedido("Prueba", ["A", "B"], "ctx"))
+    assert (registro.TAREAS_DIR / f"{pid}.md").exists()
+    out = registro.actualizar_item(pid, 1, "hecho", "ok")
+    assert "1. ✅ A" in out
+    assert "progreso: 1/2" in out
+    out = registro.cerrar_pedido(pid, "listo")
+    assert "**cerrado**" in out and "listo" in out
+
+
+def test_limite_de_rondas_avisa_al_pasarse(tmp_registro):
+    pid = pedido_id(registro.iniciar_pedido("Rondas", ["A"]))
+    assert "Límite" not in registro.actualizar_item(pid, 1, "corrigiendo")
+    assert "Límite" not in registro.actualizar_item(pid, 1, "corrigiendo")
+    assert "Límite alcanzado" in registro.actualizar_item(pid, 1, "corrigiendo")
+
+
+def test_errores_de_estado_e_item(tmp_registro):
+    pid = pedido_id(registro.iniciar_pedido("Errores", ["A"]))
+    assert registro.actualizar_item(pid, 1, "inventado").startswith("Error")
+    assert registro.actualizar_item(pid, 5, "hecho").startswith("Error")
+    assert registro.actualizar_item("no-existe", 1, "hecho").startswith("Error")
+
+
+def test_vincular_delegacion_pasa_a_revisando_y_suma_costo(tmp_registro):
+    pid = pedido_id(registro.iniciar_pedido("Vínculo", ["A"]))
+    msg = registro.vincular_delegacion(pid, 1, "OpenCode", "innti-dsp", 0.5, "Éxito")
+    assert "revisando" in msg
+    data = json.loads((registro.TAREAS_DIR / f"{pid}.json").read_text(encoding="utf-8"))
+    assert data["items"][0]["estado"] == "revisando"
+    assert data["items"][0]["costo_usd"] == 0.5
+    assert registro.vincular_delegacion("", 0, "x", "y", 0, "z") == ""
+
+
+def test_costos_diarios_agrupa_por_dia_y_modelo(tmp_registro):
+    registro.registrar_costo("opencode", "innti-dsp", {"input": 100, "output": 10}, 0.1)
+    registro.registrar_costo("opencode", "innti-dsp", {"input": 50, "reasoning": 5}, 0.2)
+    registro.registrar_costo("antigravity", "gemini-3.8-flash-low", {}, 0.0)
+    filas = registro.costos_diarios()
+    dsp = next(f for f in filas if f["modelo"] == "innti-dsp")
+    assert dsp["tareas"] == 2 and dsp["tokens_entrada"] == 150 and dsp["tokens_salida"] == 15
+    assert round(dsp["costo_usd"], 4) == 0.3
+    assert dsp["dia"] == datetime.now().date().isoformat()
+
+
+def test_datos_panel_incluye_fechas_y_respeta_tamano(tmp_registro):
+    for i in range(3):
+        registro.iniciar_pedido(f"Pedido {i}", ["x" * 50] * 5)
+    data = registro.datos_panel()
+    assert len(data["pedidos"]) == 3
+    assert all(p["creado"] for p in data["pedidos"])
+    assert "costos_diarios" in data and data["dias"] == registro.PANEL_DIAS
+    assert len(json.dumps(data).encode()) <= 240_000
+
+
+def test_resumen_costos_filtra_por_dias(tmp_registro):
+    registro.LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    viejo = (datetime.now() - timedelta(days=10)).isoformat(timespec="seconds")
+    with open(registro.COSTOS_FILE, "a", encoding="utf-8") as fh:
+        fh.write(json.dumps({"ts": viejo, "agente": "opencode", "modelo": "innti-dsp", "tokens": {},
+                             "costo_usd": 9.0}) + "\n")
+    registro.registrar_costo("opencode", "innti-dsf", {}, 0.01)
+    assert "US$ 0.0100" in registro.resumen_costos(1)
+    assert "US$ 9.0100" in registro.resumen_costos(30)
+
+
+def test_aprendizajes_por_proyecto(tmp_registro, monkeypatch):
+    ws = tmp_registro / "workspaces"
+    monkeypatch.setenv("TRABAJO_DIR", str(ws))
+    registro.registrar_aprendizaje(str(ws / "ssdd-back" / "src"), "OpenCode", "innti-dsp", "bien", "ok")
+    registro.registrar_aprendizaje("otro", "OpenCode", "innti-dsf", "mal", "falló")
+    out = registro.consultar_aprendizajes(str(ws / "ssdd-back"))
+    assert "ssdd-back" in out and "innti-dsp" in out and "innti-dsf" not in out

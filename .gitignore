@@ -1,0 +1,18 @@
+# Secretos y configuración local
+mcp_orchestrator/.env
+mcp_orchestrator/precios.json
+*.bak*
+
+# Documentos personales (guía con datos internos)
+config/orquestador.html
+
+# Entornos y binarios instalados
+mcp_orchestrator/.venv/
+tools/
+__pycache__/
+.pytest_cache/
+
+# Datos de ejecución (checklists, costos, logs, aprendizajes)
+logs/
+tareas/
+aprendizajes.jsonl

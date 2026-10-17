@@ -1,0 +1,6 @@
+{
+  "_info": "Copia este archivo como precios.json (no se sube al repo) y pon los precios de tus modelos.",
+  "_columnas": ["entrada", "cache_lectura", "salida"],
+  "_unidad": "US$ por millón de tokens. La clave es el nombre del modelo en OpenCode (sin el proveedor).",
+  "modelo-ejemplo": [1.00, 0.10, 3.00]
+}
