@@ -18,7 +18,6 @@ Servidor MCP que convierte a Claude en el **cerebro** de un equipo de agentes: c
 - **Trabajo aislado:** en repos git, OpenCode trabaja en un worktree con rama `orq/…`; al aprobar, los cambios pasan a tu repo en staging, sin commit.
 - **Presupuesto:** límite diario y mensual de gasto en el proveedor, con aviso y freno.
 - **Correcciones con memoria:** OpenCode reutiliza la sesión y Antigravity la conversación.
-- **Notificaciones del sistema** (Windows, macOS, Linux) al terminar una delegación, al frenar por presupuesto o si Antigravity espera una aprobación.
 
 ### Hook opcional para el panel (Claude Code)
 

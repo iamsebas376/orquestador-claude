@@ -11,9 +11,8 @@ import server  # noqa: E402
 
 @pytest.fixture(autouse=True)
 def sin_efectos_externos(tmp_path, monkeypatch):
-    """Ningún test escribe en el log real ni muestra notificaciones o ventanas."""
+    """Ningún test escribe en el log real ni abre ventanas."""
     monkeypatch.setattr(server, "LIVE_LOG", tmp_path / "en-vivo.log")
-    monkeypatch.setattr(server.plataforma, "notificar", lambda *a, **k: None)
     monkeypatch.setattr(server, "SHOW_CONSOLE", False)
 
 

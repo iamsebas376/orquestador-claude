@@ -81,8 +81,6 @@ ANTIGRAVITY_TIMEOUT = int(_env("ANTIGRAVITY_TIMEOUT_SECONDS", "600"))
 
 MAX_RETURN_CHARS = int(_env("MAX_RETURN_CHARS", "1500"))
 AISLAR_TRABAJO = _env("AISLAR_TRABAJO", "1") not in ("0", "false", "no")
-# Avisa (notificación del sistema) si Antigravity tarda más que esto: suele estar esperando una aprobación.
-AVISO_ESPERA_SEGUNDOS = int(_env("AVISO_ESPERA_SEGUNDOS", "120"))
 PANEL_URL = _env("PANEL_URL")
 SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "dist", "build", "target", ".next", "__pycache__", ".angular",
              ".pytest_cache", ".mypy_cache", ".ruff_cache", ".gradle", ".idea", ".vscode"}
@@ -403,7 +401,7 @@ async def preparar_vista_opencode(ruta_proyecto_o_archivo: str = "", titulo: str
     aislado = (f"Trabajo aislado: rama {wt['rama']} en el worktree {wt['worktree']} (tu repo no se toca).\n"
                if wt else "")
     return (f"session_id: {session_id}\nruta_para_ejecutar: {target}\n{aislado}{aviso}"
-            f"comando (ejecútalo con run_in_terminal, una sola línea, sin cambios):\n{cmd}")
+            f"comando (ejecútalo con run_in_terminal, una sola línea, sin cambios; luego muestra la pestaña con show_pane):\n{cmd}")
 
 
 @mcp.tool()
@@ -457,7 +455,6 @@ async def ejecutar_trabajo_opencode_innti(
     bloqueado, presupuesto = control.estado_presupuesto()
     if bloqueado and not forzar_presupuesto:
         _live(f"  ⛔ freno de presupuesto: {presupuesto}")
-        plataforma.notificar("Presupuesto de Innti alcanzado", "Claude necesita tu autorización para seguir delegando.")
         return (f"Freno de presupuesto: {presupuesto}\nNo se delegó nada. Pide autorización al usuario y, si la da, "
                 "repite con forzar_presupuesto=True (o ajusta PRESUPUESTO_DIA_USD / PRESUPUESTO_MES_USD en .env).")
 
@@ -515,8 +512,6 @@ async def ejecutar_trabajo_opencode_innti(
     tok_txt = (f"{tokens.get('input', 0) + tokens.get('cache_read', 0):,} entrada · "
                f"{tokens.get('output', 0) + tokens.get('reasoning', 0):,} salida · ≈ US$ {costo:.4f}").replace(",", ".")
     _live(f"■ {estado} | {len(changed)} archivos | {tok_txt} | resumen devuelto a Claude")
-    plataforma.notificar(f"OpenCode: {estado}", f"{len(changed)} archivos en {cwd.name} · ≈ US$ {costo:.4f} · "
-                                                "Claude lo está revisando")
     vinculo = registro.vincular_delegacion(pedido_id, item, "OpenCode", modelo.split("/")[-1], costo, estado)
     if wt:
         w = wt["worktree"]
@@ -657,15 +652,9 @@ def _agy_prepare(instruccion: str, contexto: str, target: Path, folder: Path, mo
 
 async def _agy_wait(task: dict, via: str) -> str:
     folder, result_file, model = task["folder"], task["result"], task["model"]
-    inicio = time.monotonic()
-    deadline, last_size, avisado = inicio + ANTIGRAVITY_TIMEOUT, -1, False
+    deadline, last_size = time.monotonic() + ANTIGRAVITY_TIMEOUT, -1
     while time.monotonic() < deadline:
         await asyncio.sleep(2)
-        if not avisado and time.monotonic() - inicio > AVISO_ESPERA_SEGUNDOS:
-            avisado = True  # un solo aviso por tarea
-            plataforma.notificar("Antigravity sigue trabajando",
-                                 f"Lleva más de {AVISO_ESPERA_SEGUNDOS // 60} min en {folder.name}. "
-                                 "Revisa su terminal por si espera una aprobación.")
         if result_file.exists():
             size = result_file.stat().st_size
             if size and size == last_size:  # espera a que termine de escribirse
@@ -673,7 +662,6 @@ async def _agy_wait(task: dict, via: str) -> str:
             last_size = size
     else:
         _live("■ Timeout esperando el resultado de Antigravity")
-        plataforma.notificar("Antigravity sin resultado", f"No terminó en {folder.name}; revisa su terminal.")
         return (f"Sin resultado: Antigravity no escribió {result_file.name} en {ANTIGRAVITY_TIMEOUT}s. Su terminal "
                 f"sigue abierta; revisa si espera una aprobación o si sigue trabajando. task_id: {task['id']}")
 
@@ -693,7 +681,6 @@ async def _agy_wait(task: dict, via: str) -> str:
     resumen = m.group(1).strip() if m else _tail(content, 800)
     shown = "\n".join(f"  - {p}" for p in changed[:15]) + (f"\n  … y {len(changed) - 15} más" if len(changed) > 15 else "")
     _live(f"■ Éxito con {model} ({via}) | {len(changed)} archivos | síntesis devuelta a Claude")
-    plataforma.notificar("Antigravity terminó", f"{len(changed)} archivos en {folder.name} · Claude lo está revisando")
     conv = _agy_conversacion(folder)
     return (f"Éxito: Antigravity ({model}, CLI oficial) completó la tarea en {folder}.\n"
             f"Archivos creados/modificados: {len(changed)}\n{shown}\nLog: {log_file}\n"
@@ -779,7 +766,7 @@ async def preparar_tarea_antigravity(
     cmd = plataforma.run_line(agy, *conv, "-i", plataforma.quote_prompt(_ascii(task["prompt"])), "--model", model,
                               "--mode", "accept-edits", cwd=folder)
     return (f"task_id: {task['id']}\ncarpeta: {folder}\n"
-            f"comando (ejecútalo con run_in_terminal, una sola línea, sin cambios):\n{cmd}")
+            f"comando (ejecútalo con run_in_terminal, una sola línea, sin cambios; luego muestra la pestaña con show_pane):\n{cmd}")
 
 
 @mcp.tool()
@@ -913,7 +900,6 @@ async def _personal_agy(instruccion: str, contexto: str, target: Path, folder: P
     aviso = f" (se pidió {principal}; antes fallaron: {', '.join(fallos)})" if fallos else ""
     shown = "\n".join(f"  - {p}" for p in changed[:15]) + (f"\n  … y {len(changed) - 15} más" if len(changed) > 15 else "")
     _live(f"■ Éxito con {model} | {len(changed)} archivos | tokens {tokens} | síntesis devuelta a Claude")
-    plataforma.notificar("Antigravity terminó", f"{len(changed)} archivos en {folder.name} · Claude lo está revisando")
     done_file.write_text(f"✓ {model} · {len(changed)} archivos en {folder} · síntesis enviada a Claude", encoding="utf-8")
     return (f"Éxito: Antigravity ({model}{aviso}) completó la tarea en {folder}.\n"
             f"Archivos creados/modificados: {len(changed)} | Tokens: {tokens}\n{shown}\n"

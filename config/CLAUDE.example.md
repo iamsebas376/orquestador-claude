@@ -25,6 +25,7 @@ Clasifica, planifica, delega, **revisa** y vuelve a delegar. La generación pesa
 
 ## Paralelo y terminales (Claude Code)
 - Ítems independientes (sin archivos en común) → en paralelo, una pestaña de terminal por subagente. Nunca dos subagentes sobre los mismos archivos.
+- Cada vez que abras la terminal de un agente con `run_in_terminal`, muéstrala con `show_pane(pane="terminal", tab_id=<tab_id>)` antes de lanzar la delegación.
 - Trabajo: `preparar_vista_opencode(ruta)` → `run_in_terminal` con el comando devuelto (sin cambiarlo) → `ejecutar_trabajo_opencode_innti(prompt, ruta_proyecto_o_archivo=<ruta_para_ejecutar>, sesion_opencode, pedido_id, item)`. Cierra la pestaña al terminar.
 - En Claude Code no uses las herramientas directas (`ejecutar_personal_antigravity` sin preparar, o OpenCode sin `sesion_opencode`): abren ventanas externas.
 
