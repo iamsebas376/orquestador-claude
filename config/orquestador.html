@@ -1,0 +1,345 @@
+<title>Enrutador de Tareas Claude</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: columna de lectura única (~68ch) con tablas que pueden desbordar en su propio scroll; dos colores de contexto (trabajo / personal) codifican el enrutamiento en toda la página */
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --fg: #1b2230;
+  --muted: #5b6577;
+  --line: #dde1e8;
+  --work: #2348a8;
+  --work-soft: #e6ecfa;
+  --personal: #2f7a4e;
+  --personal-soft: #e3f2e9;
+  --ok: #2f7a4e;
+  --warn: #9a6200;
+  --warn-soft: #fbf0dc;
+  --code-bg: #eef0f4;
+  --f-display: "Archivo", "Segoe UI", system-ui, sans-serif;
+  --f-body: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12161d; --surface: #1a2029; --fg: #e4e8ef; --muted: #9aa4b5; --line: #2c3442;
+    --work: #8eaaf5; --work-soft: #1f2b47; --personal: #7fcf9f; --personal-soft: #1b3326;
+    --ok: #7fcf9f; --warn: #e8b45a; --warn-soft: #3a2d14; --code-bg: #222a35; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12161d; --surface: #1a2029; --fg: #e4e8ef; --muted: #9aa4b5; --line: #2c3442;
+  --work: #8eaaf5; --work-soft: #1f2b47; --personal: #7fcf9f; --personal-soft: #1b3326;
+  --ok: #7fcf9f; --warn: #e8b45a; --warn-soft: #3a2d14; --code-bg: #222a35; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg);
+  font: 16px/1.6 var(--f-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 40px 72px;
+}
+.wrap { max-width: 880px; margin: 0 auto; display: flex; flex-direction: column; gap: 48px; }
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; line-height: 1.15; margin: 0; }
+h1 { font-size: clamp(2rem, 5vw, 2.8rem); font-weight: 800; letter-spacing: -0.02em; }
+h2 { font-size: 1.45rem; font-weight: 700; }
+h3 { font-size: 1.05rem; font-weight: 700; }
+p { margin: 0; max-width: 68ch; }
+section { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.eyebrow { font: 600 .75rem/1 var(--f-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.lede { font-size: 1.12rem; color: var(--muted); }
+header { display: flex; flex-direction: column; gap: 14px; }
+code, .mono { font-family: var(--f-mono); font-size: .86em; }
+code { background: var(--code-bg); padding: 1px 6px; border-radius: 4px; overflow-wrap: anywhere; }
+a { color: var(--work); }
+
+/* Enrutamiento */
+.route { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.lane { border-radius: 10px; padding: 20px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.lane.work { background: var(--work-soft); }
+.lane.personal { background: var(--personal-soft); }
+.lane .tag { font: 700 .78rem/1 var(--f-mono); letter-spacing: .06em; text-transform: uppercase; }
+.lane.work .tag { color: var(--work); }
+.lane.personal .tag { color: var(--personal); }
+.lane .path { font: 600 1.05rem/1.3 var(--f-mono); overflow-wrap: anywhere; }
+.lane ul { margin: 0; padding-left: 18px; color: var(--fg); }
+.arrow { font-family: var(--f-mono); font-size: .9rem; color: var(--muted); }
+.brain { text-align: center; font: 600 .95rem/1.4 var(--f-body); color: var(--muted); }
+.brain strong { color: var(--fg); }
+
+/* Tablas */
+.table-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; min-width: 620px; font-size: .94rem; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font: 600 .74rem/1.2 var(--f-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); background: var(--bg); }
+tr:last-child td { border-bottom: 0; }
+td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-space: nowrap; font-size: .86rem; }
+.pill { display: inline-block; font: 600 .72rem/1 var(--f-mono); padding: 4px 8px; border-radius: 999px; white-space: nowrap; }
+.pill.ok { background: var(--personal-soft); color: var(--ok); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.pill.work { background: var(--work-soft); color: var(--work); }
+.pill.muted { background: var(--code-bg); color: var(--muted); }
+tr.pick td:first-child { box-shadow: inset 3px 0 0 var(--work); }
+
+/* Bloques de código */
+.code { position: relative; background: var(--code-bg); border-radius: 8px; min-width: 0; }
+.code pre { margin: 0; padding: 14px 16px; padding-right: 84px; overflow-x: auto; font: .84rem/1.55 var(--f-mono); white-space: pre; }
+.code button {
+  position: absolute; top: 8px; right: 8px; font: 600 .74rem/1 var(--f-body);
+  background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: 6px;
+  padding: 6px 10px; cursor: pointer;
+}
+.code button:hover { border-color: var(--muted); }
+.code button:focus-visible, a:focus-visible { outline: 2px solid var(--work); outline-offset: 2px; }
+.code .label { display: block; padding: 10px 16px 0; font: 600 .72rem/1 var(--f-mono); color: var(--muted); letter-spacing: .05em; text-transform: uppercase; }
+
+/* Notas */
+.note { border-left: 3px solid var(--warn); background: var(--warn-soft); padding: 12px 16px; border-radius: 0 8px 8px 0; }
+.note p { max-width: none; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.card p { color: var(--muted); font-size: .95rem; }
+dl { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; font-size: .94rem; }
+dt { font-family: var(--f-mono); font-size: .84rem; color: var(--muted); }
+dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+ol.steps { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 8px; max-width: 68ch; }
+.tree { font: .86rem/1.6 var(--f-mono); }
+footer { color: var(--muted); font-size: .88rem; border-top: 1px solid var(--line); padding-top: 16px; }
+
+@media (max-width: 640px) {
+  .route, .grid2 { grid-template-columns: 1fr; }
+  dl { grid-template-columns: 1fr; gap: 2px; }
+  dd { margin-bottom: 8px; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+
+<header>
+  <span class="eyebrow">MCP · Windows · D:\claude</span>
+  <h1>Enrutador de Tareas Claude</h1>
+  <p class="lede">Claude clasifica cada pedido y lo delega. El trabajo va a OpenCode con modelos Innti y lo personal va al CLI oficial de Antigravity con tu plan Pro. Los resultados largos se guardan en disco y a Claude solo vuelve un resumen corto, para ahorrar tokens.</p>
+</header>
+
+<section aria-labelledby="h-route">
+  <h2 id="h-route">Cómo se enruta</h2>
+  <p class="brain"><strong>Claude</strong> decide por la ruta del proyecto. Si no hay ruta y es ambiguo, pregunta: «¿Trabajo, personal o universidad?»</p>
+  <div class="route">
+    <div class="lane work">
+      <span class="tag">Trabajo</span>
+      <span class="path">D:\workspaces</span>
+      <span class="arrow">→ ejecutar_trabajo_opencode_innti</span>
+      <ul>
+        <li>Proyectos de Innti y Quipux, código corporativo</li>
+        <li>OpenCode edita los archivos del repo directamente</li>
+        <li>Rechaza cualquier ruta fuera de <code>D:\workspaces</code></li>
+      </ul>
+    </div>
+    <div class="lane personal">
+      <span class="tag">Personal</span>
+      <span class="path">D:\personal · D:\universidad</span>
+      <span class="arrow">→ ejecutar_personal_antigravity</span>
+      <ul>
+        <li>Proyectos propios, automatizaciones caseras, estudio</li>
+        <li>El resultado completo queda en un <code>.md</code>; a Claude solo vuelve la síntesis</li>
+        <li>Rechaza rutas de trabajo</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section aria-labelledby="h-flujo">
+  <h2 id="h-flujo">Cómo trabaja el cerebro</h2>
+  <ol class="steps">
+    <li><strong>Checklist:</strong> por cada pedido, Claude crea un checklist con un ítem por entregable y por verificación (<code>iniciar_pedido</code>). Queda en <code>D:\claude\tareas</code> y, en Code, también en la lista de tareas bajo sus mensajes.</li>
+    <li><strong>Delegar:</strong> cada ítem va al subagente que corresponde, vinculado al checklist. Los ítems independientes corren en paralelo, cada uno en su pestaña de terminal.</li>
+    <li><strong>Revisar:</strong> Claude revisa el diff, corre los tests y prueba casos borde. Si algo falla, devuelve solo la corrección concreta (en OpenCode, en la misma sesión). Máximo 2 rondas por ítem; después te consulta.</li>
+    <li><strong>Aprender:</strong> registra qué modelo funcionó bien o mal en cada proyecto y lo consulta antes de elegir la próxima vez.</li>
+    <li><strong>Cerrar:</strong> cierra el pedido con un resumen y sincroniza el <a href="https://claude.ai/artifact/Req7satjgULss34xqDHckb">Panel del Orquestador</a>, que muestra estado, rondas y costos.</li>
+  </ol>
+  <p>Probado de punta a punta: dos validadores en paralelo con <code>innti-dsf</code>. Claude encontró que el de correo aceptaba direcciones inválidas, lo devolvió una ronda y quedó con 14 tests en verde, por unos US$ 0,01. Costo de Innti: tokens reales de OpenCode × la tabla de precios de tu guía (<code>precios_innti.json</code>, actualízala cuando cambien).</p>
+</section>
+
+<section aria-labelledby="h-live">
+  <h2 id="h-live">Verlo trabajar</h2>
+  <p>En la <strong>pestaña Code</strong>, el CLI oficial corre en una pestaña del panel de terminal de Claude: el orquestador prepara la sesión o la tarea, Claude ejecuta el comando ahí y luego recoge el resumen. En la <strong>pestaña Chat</strong>, que no tiene terminal, se abre una ventana de Windows Terminal. En los dos casos Claude solo recibe el resumen final.</p>
+  <div class="note"><p>La primera vez en cada carpeta, Antigravity pregunta si confías en ella. Confirma solo si la ruta que muestra es tu carpeta personal o de universidad. Si alguna vez muestra <code>D:\workspaces</code>, elige «No, exit».</p></div>
+  <div class="grid2">
+    <div class="card"><h3>Trabajo: la TUI real de OpenCode</h3><p>El orquestador mantiene un servidor de OpenCode en <code>127.0.0.1:4096</code> (se inicia solo) y la terminal muestra <code>opencode attach</code> pegado a la sesión de la tarea. Ves lo mismo que en su CLI: archivos leídos, ediciones con diff y comandos.</p></div>
+    <div class="card"><h3>Personal: el CLI oficial de Antigravity</h3><p>La tarea corre en <code>agy -i</code>, en su propia ventana: ves al agente leer, crear y editar archivos. Si pide aprobar un comando, lo apruebas ahí. Al terminar la ventana queda abierta por si quieres seguir conversando con él.</p></div>
+  </div>
+  <p>Para no abrir ventanas, pon <code>MOSTRAR_CONSOLA=0</code> en el <code>.env</code>. Si cambias <code>opencode.jsonc</code>, cierra el proceso <code>opencode serve</code> para que recargue la configuración.</p>
+</section>
+
+<section aria-labelledby="h-status">
+  <h2 id="h-status">Estado</h2>
+  <p>Las tres herramientas se probaron con llamadas reales el 16 de octubre de 2026.</p>
+  <div class="table-scroll">
+    <table>
+      <thead><tr><th>Herramienta</th><th>Qué hace</th><th>Prueba</th><th>Estado</th></tr></thead>
+      <tbody>
+        <tr><td><code>listar_modelos_innti</code></td><td>Lee los modelos del proveedor <code>litellm-proxy</code> en la config de OpenCode</td><td>Encontró los 7 modelos configurados</td><td><span class="pill ok">Funciona</span></td></tr>
+        <tr><td><code>ejecutar_trabajo_opencode_innti</code></td><td>Ejecuta <code>opencode run --model litellm-proxy/&lt;modelo&gt;</code> en la carpeta del proyecto</td><td>Creó un archivo de 7 líneas con <code>innti-dev</code>; por defecto ahora usa <code>innti-dsp</code></td><td><span class="pill ok">Funciona</span></td></tr>
+        <tr><td><code>ejecutar_personal_antigravity</code></td><td>Ejecuta la tarea en el CLI oficial de Antigravity (<code>agy</code>) con tu plan Pro</td><td>Creó <code>clima.py</code> y su README con <code>gemini-3.8-flash-medium</code> en la ventana oficial</td><td><span class="pill ok">Funciona</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section aria-labelledby="h-models">
+  <h2 id="h-models">Qué modelo Innti pedir</h2>
+  <p>Basado en tu guía de modelos Innti (precios del 9 de octubre de 2026, en US$ por millón de tokens de entrada / salida). La columna OpenCode indica si el modelo ya está en tu <code>opencode.jsonc</code>; si no está, la herramienta no puede usarlo todavía.</p>
+  <div class="table-scroll">
+    <table>
+      <thead><tr><th>Modelo</th><th>Úsalo para</th><th>Evita</th><th>Entrada / salida</th><th>OpenCode</th></tr></thead>
+      <tbody>
+        <tr class="pick"><td><code>innti-dsp</code></td><td>Lógica y casos borde, revisar diffs, auditar seguridad. La opción si dudas.</td><td>Imágenes. Razonamientos muy largos pueden dar error 504 a los 300 s.</td><td class="num">1,12 / 3,05</td><td><span class="pill ok">Sí</span></td></tr>
+        <tr class="pick"><td><code>innti-dsf-last</code></td><td>Explorar el repo y cambios mecánicos. Acertó 14 de 14 pruebas.</td><td>Imágenes</td><td class="num">0,29 / 1,18</td><td><span class="pill warn">No</span></td></tr>
+        <tr><td><code>innti-gpt</code></td><td>Planificar, preguntas generales. Ve imágenes.</td><td>Sustituir a Pro en implementaciones complejas</td><td class="num">0,20 / 1,20</td><td><span class="pill ok">Sí</span></td></tr>
+        <tr><td><code>innti-dev</code></td><td>Documentación, README, changelogs, mensajes de commit. Ve imágenes.</td><td>Código con lógica delicada</td><td class="num">0,30 / 1,20</td><td><span class="pill ok">Sí</span></td></tr>
+        <tr><td><code>innti-dsf</code></td><td>Títulos y resúmenes muy cortos</td><td>Tareas difíciles</td><td class="num">0,15 / 0,49</td><td><span class="pill ok">Sí</span></td></tr>
+        <tr><td><code>innti-terra</code></td><td>Arquitectura, contratos, modelado de dominio. Pide respuestas cortas.</td><td>Generar código (salida muy cara)</td><td class="num">2,00 / 12,00</td><td><span class="pill warn">No</span></td></tr>
+        <tr><td><code>innti-nova-flash</code></td><td>Tareas sencillas sobre capturas</td><td>Tareas largas o críticas</td><td class="num">0,19 / 0,50</td><td><span class="pill warn">No</span></td></tr>
+        <tr><td><code>innti-dev-nova</code></td><td>Analizar un cuello de botella o un SQL complejo, una vez y en primer plano</td><td>Construir. Gastó de 11 a 27 veces más que Pro.</td><td class="num">1,21 / 3,88</td><td><span class="pill ok">Sí</span></td></tr>
+        <tr><td><code>innti-g4</code></td><td>Solo con un motivo concreto</td><td>Usarlo por defecto (casi el doble que Pro)</td><td class="num">2,00 / 6,00</td><td><span class="pill ok">Sí</span></td></tr>
+        <tr><td><code>innti-k3</code></td><td>Nada que otro modelo no cubra más barato</td><td>Todo; es el más caro</td><td class="num">3,00 / 15,00</td><td><span class="pill ok">Sí</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note">
+    <p><strong>Modelo por defecto del orquestador:</strong> <code>innti-dsp</code>. Claude pide <code>innti-dev</code> solo para documentación y commits, e <code>innti-gpt</code> para planificar o cuando hay capturas. Para usar <code>innti-dsf-last</code>, <code>innti-terra</code> o <code>innti-nova-flash</code> hay que agregarlos antes a <code>opencode.jsonc</code>.</p>
+  </div>
+  <div class="grid2">
+    <div class="card"><h3>Reglas de la guía</h3><p>Limita cada tarea a unos cinco archivos y divide las grandes: el costo depende sobre todo del contexto. No envíes capturas a DeepSeek, que las descarta sin avisar. <code>innti-dev-nova</code> e <code>innti-k3</code> nunca en tandas desatendidas.</p></div>
+    <div class="card"><h3>Nada de secretos en prompts</h3><p>El proxy de Innti guarda el texto completo de cada prompt. Al delegar trabajo, Claude no debe incluir claves, contraseñas ni datos sensibles en <code>prompt_tarea</code>.</p></div>
+  </div>
+</section>
+
+<section aria-labelledby="h-gemini">
+  <h2 id="h-gemini">Lado personal: Antigravity Pro</h2>
+  <p>La herramienta usa <code>agy</code>, el CLI oficial de Antigravity que la propia app instala en <code>~/.gemini/bin</code>. Usa tu cuenta y tu plan Pro, no la cuota gratuita de la API. La tarea corre en la ventana del CLI: el agente crea y edita archivos solo (aprobado automáticamente) y, si necesita un comando, te lo pide ahí. Al terminar escribe un resumen que el orquestador lee y entrega a Claude.</p>
+  <div class="table-scroll">
+    <table>
+      <thead><tr><th>Tarea</th><th>Modelo que elige Claude</th><th>Nota</th></tr></thead>
+      <tbody>
+        <tr><td>Simple: resúmenes, listas, reformatear</td><td><code>gemini-3.8-flash-low</code></td><td>El más rápido</td></tr>
+        <tr class="pick"><td>Normal: código personal, planes, explicaciones</td><td><code>gemini-3.8-flash-medium</code></td><td>Por defecto (campo vacío). Probado: creó un proyecto de 3 archivos con tests en verde.</td></tr>
+        <tr><td>Complejo: varios archivos, depuración difícil</td><td><code>gemini-4-argon-medium</code></td><td>Más capaz, más lento</td></tr>
+        <tr><td>Muy exigente, o si lo pides</td><td><code>gemini-4-argon-high</code></td><td>Máximo razonamiento</td></tr>
+        <tr><td>Solo si lo pides</td><td>Claude Opus/Sonnet 5.5, GPT-OSS 120B</td><td>También incluidos en tu plan de Antigravity</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Modos alternativos en el <code>.env</code>: <code>ANTIGRAVITY_VISTA=visor</code> ejecuta <code>agy</code> sin ventana y muestra un visor propio con pasos y tokens. <code>ANTIGRAVITY_MODE=api</code> vuelve a la API de Gemini con la clave de AI Studio (solo texto, cuota gratuita). <code>ANTIGRAVITY_SKIP_PERMISSIONS=1</code> deja que ejecute comandos sin preguntar en el modo sin ventana; es riesgoso porque sus herramientas de archivos pueden escribir fuera de la carpeta.</p>
+</section>
+
+<section aria-labelledby="h-files">
+  <h2 id="h-files">Dónde está cada cosa</h2>
+  <div class="code"><pre class="tree">D:\claude\
+├─ mcp_orchestrator\     server.py · ver_gemini.py · probar.py · .env · setup.ps1 · set-key.ps1 · .venv\
+├─ config\               PROJECT_INSTRUCTIONS.md · claude_desktop_config.snippet.json · orquestador.html
+├─ tools\opencode\       OpenCode 1.19.3 (binario nativo opencode.exe)
+└─ logs\trabajo\         log completo de cada ejecución de OpenCode
+
+D:\workspaces\           proyectos de trabajo        → OpenCode
+D:\personal\             proyectos propios           → Antigravity   (por defecto: _antigravity\)
+D:\universidad\          estudio                     → Antigravity</pre></div>
+  <div class="card">
+    <h3>Variables del .env</h3>
+    <dl>
+      <dt>TRABAJO_DIR</dt><dd><code>D:\workspaces</code></dd>
+      <dt>PERSONAL_DIR · UNIVERSIDAD_DIR</dt><dd><code>D:\personal</code> · <code>D:\universidad</code></dd>
+      <dt>OPENCODE_CLI_PATH</dt><dd>Binario nativo dentro de <code>D:\claude\tools\opencode</code></dd>
+      <dt>INNTI_PROVIDER</dt><dd><code>litellm-proxy</code></dd>
+      <dt>INNTI_DEFAULT_MODEL</dt><dd><code>innti-dsp</code></dd>
+      <dt>ANTIGRAVITY_MODE · VISTA</dt><dd><code>agy</code> · <code>tui</code> (CLI oficial en su ventana)</dd>
+      <dt>ANTIGRAVITY_AGY_MODEL</dt><dd><code>gemini-3.8-flash-medium</code></dd>
+      <dt>ANTIGRAVITY_API_KEY</dt><dd>Solo para el modo <code>api</code> de respaldo; se guarda con <code>set-key.ps1</code></dd>
+      <dt>MAX_RETURN_CHARS</dt><dd><code>1500</code>, el tope de texto que vuelve a Claude</dd>
+    </dl>
+  </div>
+</section>
+
+<section aria-labelledby="h-setup">
+  <h2 id="h-setup">Configuración de Claude</h2>
+  <ol class="steps">
+    <li>Cierra Claude Desktop por completo (también desde la bandeja del sistema) y ábrelo de nuevo.</li>
+    <li>En la pestaña Chat, crea un Proyecto y pega las instrucciones de abajo.</li>
+    <li>Prueba con «lista los modelos de Innti».</li>
+  </ol>
+  <div class="code">
+    <span class="label">Instrucciones de proyecto</span>
+    <button type="button" data-copy="pi">Copiar</button>
+<pre id="pi">Eres mi CEREBRO ORQUESTADOR. No ejecutas trabajo pesado: clasificas, delegas y resumes.
+
+1. Clasifica cada solicitud antes de actuar (la ruta del proyecto manda):
+   - TRABAJO: todo lo que está en D:\workspaces (Innti, Quipux, código corporativo). Usa `ejecutar_trabajo_opencode_innti` con la ruta del proyecto (p.ej. D:\workspaces\ssdd-back). Modelo: deja `modelo_innti` vacío para usar innti-dsp (código, lógica, revisión, seguridad); usa innti-dev para documentación, README y commits; innti-gpt para planificar o si hay capturas. Nunca innti-k3 ni innti-dev-nova salvo que yo lo pida. No incluyas secretos en el prompt (el proxy guarda el texto).
+   - PERSONAL: lo que está en D:\personal (proyectos propios, automatizaciones caseras, análisis) o en D:\universidad (cursos, tareas, estudio). Usa `ejecutar_personal_antigravity` (CLI oficial de Antigravity, plan Pro) con la ruta de salida dentro de esas carpetas y elige `modelo_antigravity`: gemini-3.8-flash-low para lo simple; vacío (gemini-3.8-flash-medium) para lo normal; gemini-4-argon-medium para proyectos de varios archivos o depuración difícil; gemini-4-argon-high solo para análisis muy exigentes o si lo pido.
+   - Si no hay ruta y es ambiguo, pregúntame en una línea: "¿Trabajo, personal o universidad?".
+2. Nunca generes código largo (>20 líneas) ni documentos extensos tú mismo: redacta un prompt preciso y autocontenido (objetivo, ruta, restricciones, criterio de terminado) y delega.
+3. Responde con el resumen de la herramienta en 3–5 líneas: estado, ruta del resultado y siguiente paso. No pegues el contenido de los archivos generados salvo que te lo pida.
+4. Solo respondes directamente preguntas cortas de conversación o aclaraciones que no requieran generar contenido.</pre>
+  </div>
+  <div class="code">
+    <span class="label">%APPDATA%\Claude\claude_desktop_config.json (ya registrado)</span>
+    <button type="button" data-copy="cfg">Copiar</button>
+<pre id="cfg">{
+  "mcpServers": {
+    "orchestrator": {
+      "command": "D:\\claude\\mcp_orchestrator\\.venv\\Scripts\\python.exe",
+      "args": ["D:\\claude\\mcp_orchestrator\\server.py"]
+    }
+  }
+}</pre>
+  </div>
+  <h3>Pestaña Code (todas las sesiones)</h3>
+  <p>Claude Code lee otra configuración. El servidor está registrado en <code>~/.claude.json</code> (copia previa en <code>.claude.json.bak-20261016</code>) y la regla de enrutamiento está en <code>~/.claude/CLAUDE.md</code>, que se carga en cada sesión. En Code, Claude delega lo que supere unas 20 líneas de código o un documento extenso, y hace él mismo las lecturas, ediciones puntuales y comandos rápidos.</p>
+</section>
+
+<section aria-labelledby="h-ops">
+  <h2 id="h-ops">Mantenimiento</h2>
+  <div class="code">
+    <span class="label">Reinstalar todo (carpetas, entorno, OpenCode, registro)</span>
+    <button type="button" data-copy="c1">Copiar</button>
+<pre id="c1">powershell -ExecutionPolicy Bypass -File D:\claude\mcp_orchestrator\setup.ps1 -InstallOpenCode</pre>
+  </div>
+  <div class="code">
+    <span class="label">Cambiar la clave de Gemini del modo api de respaldo (sin mostrarla en pantalla)</span>
+    <button type="button" data-copy="c2">Copiar</button>
+<pre id="c2">powershell -ExecutionPolicy Bypass -File D:\claude\mcp_orchestrator\set-key.ps1</pre>
+  </div>
+  <div class="code">
+    <span class="label">Registro de texto de todas las delegaciones (opcional)</span>
+    <button type="button" data-copy="c3">Copiar</button>
+<pre id="c3">Get-Content D:\claude\logs\en-vivo.log -Wait -Tail 0 -Encoding UTF8</pre>
+  </div>
+  <div class="code">
+    <span class="label">Probar una herramienta sin Claude (mismo código del servidor)</span>
+    <button type="button" data-copy="c4">Copiar</button>
+<pre id="c4">D:\claude\mcp_orchestrator\.venv\Scripts\python.exe D:\claude\mcp_orchestrator\probar.py listar_modelos_innti</pre>
+  </div>
+  <div class="grid2">
+    <div class="card"><h3>Prueba del 16 de octubre</h3><p>Trabajo: <code>innti-dsp</code> creó un módulo de dígito de verificación de NIT con 7 tests en verde. Personal: Antigravity (CLI oficial, plan Pro) creó un proyecto de lista de tareas con 3 tests en verde y un script con README desde su propia ventana. OpenCode ya no lee <code>~/.claude/CLAUDE.md</code> y tiene prohibido instalar paquetes globales.</p></div>
+    <div class="card"><h3>Por qué OpenCode está en D:\claude\tools</h3><p>Tu Node es la versión 10 y no puede ejecutar el instalador de <code>opencode-ai</code>. Se instaló sin scripts y se usa el <code>.exe</code> nativo directamente. Quedaron tres archivos sueltos en <code>C:\Program Files\nodejs</code> (<code>opencode</code>, <code>.cmd</code>, <code>.ps1</code>) que se pueden borrar a mano.</p></div>
+    <div class="card"><h3>Seguridad y respaldo</h3><p>El servidor de OpenCode exige contraseña (<code>OPENCODE_SERVER_PASSWORD</code> en el <code>.env</code>, generada al azar); la pestaña se abre con <code>oc_attach.py</code> para no mostrarla. <code>D:\claude</code> es un repositorio git local (sin <code>.env</code>, logs ni checklists); hay un <code>.env.example</code> sin claves. Pruebas: <code>.venv\Scripts\python.exe -m pytest tests</code> (23 en verde).</p></div>
+    <div class="card"><h3>Cambios fuera de D:\claude</h3><p>En <code>opencode.jsonc</code> el <code>shell</code> pasó de <code>zsh</code> a <code>pwsh</code>; la copia original está en <code>opencode.jsonc.bak-20261016</code>. El paquete <code>mcp</code> está fijado por debajo de la versión 2 porque la 2.x renombró FastMCP.</p></div>
+  </div>
+</section>
+
+<footer>Configurado el 16 de octubre de 2026. Los precios de Innti vienen de tu guía de modelos y cambian con frecuencia; compruébalos antes de decisiones importantes.</footer>
+</div>
+
+<script>
+document.querySelectorAll("button[data-copy]").forEach(function (btn) {
+  btn.addEventListener("click", function () {
+    var el = document.getElementById(btn.getAttribute("data-copy"));
+    var done = function () { btn.textContent = "Copiado"; setTimeout(function () { btn.textContent = "Copiar"; }, 1600); };
+    var select = function () { var r = document.createRange(); r.selectNodeContents(el); var s = getSelection(); s.removeAllRanges(); s.addRange(r); btn.textContent = "Seleccionado"; };
+    try { navigator.clipboard.writeText(el.textContent).then(done, select); } catch (e) { select(); }
+  });
+});
+</script>

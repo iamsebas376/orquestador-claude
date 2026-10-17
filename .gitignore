@@ -1,10 +1,6 @@
-# Secretos y configuración local
+# Secretos (claves y contraseña): lo único que no se sube
 mcp_orchestrator/.env
-mcp_orchestrator/precios.json
 *.bak*
-
-# Documentos personales (guía con datos internos)
-config/orquestador.html
 
 # Entornos y binarios instalados
 mcp_orchestrator/.venv/
