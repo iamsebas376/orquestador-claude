@@ -27,8 +27,9 @@
     {"desde": "2026-12-01", "precio": [2.00, 0.20, 10.00]}
   ],
   "gemini-3.1-pro": [2.00, 0.20, 12.00],
-  "_claude": "Claude Code va por tu suscripción (sin cobro por token): se muestra como 'equivalente API'. Escribir caché cuesta 1,25x la entrada (5 min) o 2x (1 h). Precios supuestos: confírmalos en la página de precios de Anthropic.",
-  "claude-opus-5-5": [5.00, 0.50, 25.00],
-  "claude-sonnet-5-5": [3.00, 0.30, 15.00],
-  "claude-haiku-5-5": [1.00, 0.10, 5.00]
+  "_claude": "Claude Code va por tu suscripción (sin cobro por token): se muestra como 'equivalente API'. Fuente: claude.com/pricing (18-oct-2026). Escribir caché cuesta 1,25x la entrada (5 min, oficial) o 2x (1 h, supuesto: la página no lo publica). Haiku 5.5 usa el tramo de prompts <= 100K tokens.",
+  "claude-fable-5-1": [10.00, 0.25, 50.00],
+  "claude-opus-5-5": [4.00, 0.20, 20.00],
+  "claude-sonnet-5-5": [2.00, 0.10, 10.00],
+  "claude-haiku-5-5": [0.10, 0.01, 0.50]
 }
