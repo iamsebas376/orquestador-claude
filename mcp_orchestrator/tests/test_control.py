@@ -201,6 +201,28 @@ def test_conversacion_de_agy_por_carpeta(tmp_path, monkeypatch):
     assert server._agy_conversacion(tmp_path / "otra") == ""
 
 
+def test_tokens_de_agy_desde_el_transcript(tmp_path, monkeypatch):
+    conv = "c78222c8-dcb8-4882-9c5c-97e052c3aba0"
+    logs = tmp_path / ".gemini" / "antigravity-cli" / "brain" / conv / ".system_generated" / "logs"
+    logs.mkdir(parents=True)
+    filas = [
+        {"type": "USER_INPUT", "created_at": "2026-10-17T15:55:40Z"},
+        {"type": "PLANNER_RESPONSE", "created_at": "2026-10-17T15:55:50Z", "input_tokens": 100, "output_tokens": 10,
+         "cache_read_tokens": 5},
+        {"type": "PLANNER_RESPONSE", "created_at": "2026-10-17T16:10:00Z", "input_tokens": 200, "output_tokens": 20,
+         "cache_read_tokens": 0},
+    ]
+    (logs / "transcript_full.jsonl").write_text("\n".join(json.dumps(f) for f in filas), encoding="utf-8")
+    monkeypatch.setattr(server.Path, "home", classmethod(lambda cls: tmp_path))
+    from datetime import timezone
+    todo = server._agy_tokens(conv, datetime(2000, 1, 1, tzinfo=timezone.utc))
+    assert todo == {"input": 300, "output": 30, "cache_read": 5}
+    # una ronda de corrección posterior solo cuenta sus propias respuestas
+    ronda = server._agy_tokens(conv, datetime(2026, 10, 17, 16, 0, tzinfo=timezone.utc))
+    assert ronda == {"input": 200, "output": 20, "cache_read": 0}
+    assert server._agy_tokens("no-valida; rm", datetime(2000, 1, 1, tzinfo=timezone.utc)) == {}
+
+
 def test_conversacion_invalida_se_ignora(tmp_dirs, monkeypatch):
     monkeypatch.setattr(server, "_agy_cmd", lambda: "agy")
     ok = run(server.preparar_tarea_antigravity("Corrige", "", "p", "m", conversacion="c78222c8-dcb8-4882-9c5c-97e052c3aba0"))

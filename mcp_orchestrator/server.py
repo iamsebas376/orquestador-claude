@@ -20,7 +20,7 @@ import subprocess
 import sys
 import time
 import unicodedata
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import httpx
@@ -645,7 +645,7 @@ def _agy_prepare(instruccion: str, contexto: str, target: Path, folder: Path, mo
         "'## RESUMEN' de máximo 8 viñetas: lo realizado, los archivos creados o modificados y cómo probarlo."
     )
     task = {"id": task_id, "folder": folder, "result": result_file, "model": model, "instruccion": instruccion,
-            "prompt": prompt, "before": _snapshot(folder)}
+            "prompt": prompt, "before": _snapshot(folder), "inicio": datetime.now(timezone.utc)}
     _AGY_TASKS[task_id] = task
     return task
 
@@ -680,10 +680,13 @@ async def _agy_wait(task: dict, via: str) -> str:
     m = re.search(r"##\s*RESUMEN\s*(.+)$", content, flags=re.S | re.I)
     resumen = m.group(1).strip() if m else _tail(content, 800)
     shown = "\n".join(f"  - {p}" for p in changed[:15]) + (f"\n  … y {len(changed) - 15} más" if len(changed) > 15 else "")
-    _live(f"■ Éxito con {model} ({via}) | {len(changed)} archivos | síntesis devuelta a Claude")
     conv = _agy_conversacion(folder)
+    tokens = _agy_tokens(conv, task["inicio"]) if conv else {}
+    tok_txt = (f"Tokens: {tokens['input'] + tokens['cache_read']:,} entrada / {tokens['output']:,} salida\n"
+               .replace(",", ".") if tokens else "")
+    _live(f"■ Éxito con {model} ({via}) | {len(changed)} archivos | {tok_txt.strip()} | síntesis devuelta a Claude")
     return (f"Éxito: Antigravity ({model}, CLI oficial) completó la tarea en {folder}.\n"
-            f"Archivos creados/modificados: {len(changed)}\n{shown}\nLog: {log_file}\n"
+            f"Archivos creados/modificados: {len(changed)}\n{shown}\n{tok_txt}Log: {log_file}\n"
             + (f"conversacion_antigravity: {conv} (pásala en una ronda de corrección para conservar el contexto)\n"
                if conv else "")
             + f"La terminal de Antigravity sigue abierta por si quieres continuar la conversación ahí.\n\n"
@@ -699,6 +702,39 @@ def _agy_conversacion(folder: Path) -> str:
         return ""
     clave = os.path.normcase(os.path.normpath(str(folder)))
     return next((v for k, v in data.items() if os.path.normcase(os.path.normpath(k)) == clave), "")
+
+
+def _agy_tokens(conv: str, desde: datetime) -> dict:
+    """Tokens que gastó agy en esa conversación desde `desde` (UTC): suma las respuestas del modelo del
+    transcript local (~/.gemini/antigravity-cli/brain/<id>). Así una ronda de corrección no recuenta las anteriores."""
+    if not _conv_valida(conv):
+        return {}
+    f = (Path.home() / ".gemini" / "antigravity-cli" / "brain" / conv / ".system_generated" / "logs"
+         / "transcript_full.jsonl")
+    tot = {"input": 0, "output": 0, "cache_read": 0}
+    try:
+        lineas = f.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return {}
+    for line in lineas:
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            continue
+        if ev.get("type") != "PLANNER_RESPONSE":
+            continue
+        try:
+            ts = datetime.fromisoformat(str(ev.get("created_at", "")).replace("Z", "+00:00"))
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+        except ValueError:
+            ts = None
+        if ts and ts < desde - timedelta(seconds=5):
+            continue
+        tot["input"] += int(ev.get("input_tokens") or 0)
+        tot["output"] += int(ev.get("output_tokens") or 0)
+        tot["cache_read"] += int(ev.get("cache_read_tokens") or 0)
+    return tot
 
 
 def _conv_valida(conv: str) -> str:
