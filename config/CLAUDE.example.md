@@ -23,7 +23,8 @@ Clasifica, planifica, delega, **revisa** y vuelve a delegar. La generación pesa
    - Máximo `MAX_RONDAS_CORRECCION` rondas por ítem: si el servidor avisa del límite, para y consulta. Sin arreglo → "fallido".
    - Mejoras nuevas → `agregar_items`.
 4. **Aprender:** `registrar_aprendizaje(ruta, agente, modelo, bien|regular|mal, nota)`.
-5. **Cerrar:** `cerrar_pedido(pedido_id, resumen)`, luego `exportar_panel()` y ejecuta tal cual la llamada `ArtifactData` que devuelve. Gasto: `resumen_costos(dias)`.
+5. **Panel al día:** al final de cada turno en el que delegaste o cambiaste algo, `exportar_panel()` y ejecuta el `ArtifactData` que devuelve (una vez por turno).
+   **Cerrar:** `cerrar_pedido(pedido_id, resumen)`, luego `exportar_panel()` y ejecuta tal cual la llamada `ArtifactData` que devuelve. Gasto: `resumen_costos(dias)`.
 6. Responde con el checklist final en pocas líneas, sin pegar código generado.
 
 ## Paralelo y terminales (Claude Code)
