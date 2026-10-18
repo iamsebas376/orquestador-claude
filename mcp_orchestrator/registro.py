@@ -330,9 +330,10 @@ def costos_diarios(dias: int = PANEL_DIAS) -> list[dict]:
             k = (ts.date().isoformat(), r["agente"], r["modelo"])
             t = r.get("tokens") or {}
             a = agg.setdefault(k, {"dia": k[0], "agente": k[1], "modelo": k[2], "tareas": 0,
-                                   "tokens_entrada": 0, "tokens_salida": 0, "costo_usd": 0.0,
+                                   "tokens_entrada": 0, "tokens_cache": 0, "tokens_salida": 0, "costo_usd": 0.0,
                                    "costo_equivalente_usd": 0.0, "sesiones": []})
             a["tareas"] += 1
+            a["tokens_cache"] += t.get("cache_read", 0)
             # Sin sesión registrada (filas antiguas sin recuperar): cada ítem del pedido cuenta como una.
             ses = (r.get("sesion") or f"{r.get('pedido_id') or r['ts']}:{r.get('item', 0)}")[:12]
             if ses not in a["sesiones"]:
@@ -425,7 +426,7 @@ def consumo_claude(dias: int = PANEL_DIAS) -> list[dict]:
         t = r["tokens"]
         filas.append({"ts": r["ts"], "modelo": r["modelo"], "sesion": r["sesion"],
                       "entrada": t["input"] + t["cache_read"] + t["cache_write_5m"] + t["cache_write_1h"],
-                      "salida": t["output"], "equivalente": costo_claude(r["modelo"], t, r["ts"].isoformat())})
+                      "cache": t["cache_read"], "salida": t["output"], "equivalente": costo_claude(r["modelo"], t, r["ts"].isoformat())})
     return filas
 
 
@@ -458,12 +459,13 @@ def datos_panel() -> dict:
     for r in consumo_claude():
         k = (r["ts"].date().isoformat(), r["modelo"])
         a = claude_dia.setdefault(k, {"dia": k[0], "agente": "claude", "modelo": k[1], "tareas": 0,
-                                      "tokens_entrada": 0, "tokens_salida": 0, "costo_usd": 0.0,
+                                      "tokens_entrada": 0, "tokens_cache": 0, "tokens_salida": 0, "costo_usd": 0.0,
                                       "costo_equivalente_usd": 0.0, "sesiones": []})
         a["tareas"] += 1  # respuestas del modelo; el panel muestra las sesiones distintas
         if r["sesion"][:12] not in a["sesiones"]:
             a["sesiones"].append(r["sesion"][:12])
         a["tokens_entrada"] += r["entrada"]
+        a["tokens_cache"] += r["cache"]
         a["tokens_salida"] += r["salida"]
         a["costo_equivalente_usd"] += r["equivalente"]
         pid = _pedido_de(r["ts"], ventanas)

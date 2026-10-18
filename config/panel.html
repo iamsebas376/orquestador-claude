@@ -48,6 +48,10 @@ header { display: flex; flex-wrap: wrap; align-items: end; justify-content: spac
 .sync { font: 600 .78rem/1.3 var(--f-mono); color: var(--muted); }
 .sync .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); margin-right: 6px; vertical-align: 1px; }
 .sync.off .dot { background: var(--idle); }
+.paginador { display: flex; align-items: center; justify-content: center; gap: 12px; font-size: .84rem; color: var(--muted); padding-top: 4px; }
+.paginador button { font: 600 .84rem var(--f-body); color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 99px; padding: 5px 12px; cursor: pointer; }
+.paginador button:disabled { color: var(--muted); opacity: .5; cursor: default; }
+.paginador button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .sync.stale { color: var(--review); } .sync.stale .dot { background: var(--review); }
 .ias { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: .86rem; color: var(--muted); }
 .ias button { font: 600 .84rem var(--f-body); color: var(--muted); background: var(--bg); border: 1px solid var(--line); border-radius: 99px; padding: 5px 12px; cursor: pointer; }
@@ -229,11 +233,11 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     <h2 id="h-cost" style="margin-bottom:12px">Consumo del período por modelo</h2>
     <div class="table-scroll">
       <table>
-        <thead><tr><th data-k="agente"><button type="button">Agente</button></th><th data-k="modelo"><button type="button">Modelo</button></th><th class="n" data-k="sesiones"><button type="button">Sesiones</button></th><th class="n" data-k="tokens_entrada"><button type="button">Tokens entrada</button></th><th class="n" data-k="tokens_salida"><button type="button">Tokens salida</button></th><th class="n" data-k="costo"><button type="button">Costo</button></th></tr></thead>
-        <tbody id="costos"><tr><td colspan="6" class="muted">Sin delegaciones registradas.</td></tr></tbody>
+        <thead><tr><th data-k="agente"><button type="button">Agente</button></th><th data-k="modelo"><button type="button">Modelo</button></th><th class="n" data-k="sesiones"><button type="button">Actividad</button></th><th class="n" data-k="nueva" title="Tokens de entrada nuevos (incluye escritura en caché)"><button type="button">Entrada nueva</button></th><th class="n" data-k="tokens_cache" title="Contexto que el modelo vuelve a leer en cada paso: barato y por eso enorme en sesiones largas"><button type="button">Caché leída</button></th><th class="n" data-k="tokens_salida"><button type="button">Salida</button></th><th class="n" data-k="costo"><button type="button">Costo</button></th></tr></thead>
+        <tbody id="costos"><tr><td colspan="7" class="muted">Sin delegaciones registradas.</td></tr></tbody>
       </table>
     </div>
-    <p class="muted" style="margin-top:8px;font-size:.84rem">Innti: costo estimado con la tabla de precios de la guía. Antigravity: tokens leídos del registro local de cada conversación; tu plan Pro no cobra por token, el equivalente es lo que costaría por la API de Gemini. Claude: tokens leídos de los registros locales de Claude Code (subagentes incluidos); en cada pedido se cuenta lo que Claude trabajó mientras estaba abierto. Tu suscripción no cobra por token: el equivalente es lo que costaría por la API de Anthropic.</p>
+    <p class="muted" style="margin-top:8px;font-size:.84rem">Innti: costo estimado con la tabla de precios de la guía. Antigravity: tokens leídos del registro local de cada conversación; tu plan Pro no cobra por token, el equivalente es lo que costaría por la API de Gemini. Claude: tokens leídos de los registros locales de Claude Code (subagentes incluidos); en cada pedido se cuenta lo que Claude trabajó mientras estaba abierto. Tu suscripción no cobra por token: el equivalente es lo que costaría por la API de Anthropic. Una sesión de Claude dura horas y tiene cientos de respuestas; en cada una vuelve a leer toda la conversación desde la caché, por eso «Caché leída» suma millones aunque sea la parte más barata.</p>
   </section>
 
   <footer>Datos escritos por Claude desde el registro local (<span class="mono">D:\claude\tareas</span>). Esta página solo los muestra.</footer>
@@ -321,6 +325,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
 
   // IA visibles (se recuerdan) y orden de la tabla de consumo
   var iasOn = { innti: true, agy: true, cl: true }, orden = { k: "costo", asc: false };
+  var POR_PAGINA = 8, pagina = 0;
   try { var g = JSON.parse(localStorage.getItem("panel-ias") || "null"); if (g) iasOn = g; } catch (e) {}
 
   // ---------------------------------------------------------------- piezas
@@ -544,19 +549,34 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
         "Prueba con «Todos» o amplía el período."));
       cont.appendChild(e);
     } else {
-      lista.forEach(function (p) { cont.appendChild(renderPedido(p)); });
+      var paginas = Math.ceil(lista.length / POR_PAGINA);
+      if (pagina >= paginas) pagina = paginas - 1;
+      lista.slice(pagina * POR_PAGINA, (pagina + 1) * POR_PAGINA).forEach(function (p) { cont.appendChild(renderPedido(p)); });
+      if (paginas > 1) {
+        var nav = el("nav", "paginador"); nav.setAttribute("aria-label", "Páginas de pedidos");
+        var ant = el("button", null, "‹ Anterior"), sig = el("button", null, "Siguiente ›");
+        ant.type = sig.type = "button"; ant.disabled = pagina === 0; sig.disabled = pagina === paginas - 1;
+        ant.addEventListener("click", function () { pagina--; render(); document.getElementById("h-ped").scrollIntoView(); });
+        sig.addEventListener("click", function () { pagina++; render(); document.getElementById("h-ped").scrollIntoView(); });
+        nav.appendChild(ant);
+        nav.appendChild(el("span", "mono", (pagina + 1) + " de " + paginas + " · " + lista.length + " pedidos"));
+        nav.appendChild(sig);
+        cont.appendChild(nav);
+      }
     }
 
     var agg = {};
     costos.forEach(function (c) {
       var k = c.agente + "|" + c.modelo;
-      var a = agg[k] || (agg[k] = { agente: c.agente, modelo: c.modelo, tareas: 0, tokens_entrada: 0, tokens_salida: 0, costo_usd: 0, costo_equivalente_usd: 0, sesiones: {} });
+      var a = agg[k] || (agg[k] = { agente: c.agente, modelo: c.modelo, tareas: 0, tokens_entrada: 0, tokens_cache: 0, tokens_salida: 0, costo_usd: 0, costo_equivalente_usd: 0, sesiones: {} });
+      a.tokens_cache += c.tokens_cache || 0;
       (c.sesiones || []).forEach(function (s) { a.sesiones[s] = 1; });
       a.tareas += c.tareas || 0; a.tokens_entrada += c.tokens_entrada || 0; a.tokens_salida += c.tokens_salida || 0; a.costo_usd += c.costo_usd || 0;
       a.costo_equivalente_usd += c.costo_equivalente_usd || 0;
     });
     function valor(m) {
       return orden.k === "costo" ? m.costo_usd + m.costo_equivalente_usd : orden.k === "sesiones" ? Object.keys(m.sesiones).length
+        : orden.k === "nueva" ? m.tokens_entrada - m.tokens_cache
         : orden.k === "agente" || orden.k === "modelo" ? String(m[orden.k]) : m[orden.k];
     }
     var filas = Object.keys(agg).map(function (k) { return agg[k]; }).sort(function (a, b) {
@@ -571,7 +591,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     tb.textContent = "";
     if (!filas.length) {
       var tr0 = el("tr"), td0 = el("td", "muted", "Sin delegaciones en este período.");
-      td0.colSpan = 6; tr0.appendChild(td0); tb.appendChild(tr0);
+      td0.colSpan = 7; tr0.appendChild(td0); tb.appendChild(tr0);
     }
     filas.forEach(function (m) {
       var tr = el("tr");
@@ -582,11 +602,14 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
       tr.appendChild(el("td", "mono", m.modelo));
       // Misma unidad para todas las IA: sesiones distintas (OpenCode: sesión, Antigravity: conversación,
       // Claude: sesión de Claude Code). Al pasar el mouse, las delegaciones o respuestas que hubo en ellas.
-      var tdS = el("td", "n", num(Object.keys(m.sesiones).length));
-      tdS.title = num(m.tareas) + (m.agente === "claude" ? " respuestas del modelo" : m.tareas === 1 ? " delegación" : " delegaciones");
+      var nS = Object.keys(m.sesiones).length;
+      var tdS = el("td", "n");
+      tdS.appendChild(el("div", null, num(nS) + (nS === 1 ? " sesión" : " sesiones")));
+      tdS.appendChild(el("div", "it-sub", num(m.tareas) + (m.agente === "claude" ? " respuestas" : m.tareas === 1 ? " delegación" : " delegaciones")));
       tr.appendChild(tdS);
-      tr.appendChild(el("td", "n", num(m.tokens_entrada)));
-      tr.appendChild(el("td", "n", num(m.tokens_salida)));
+      tr.appendChild(el("td", "n", compacto(m.tokens_entrada - m.tokens_cache)));
+      tr.appendChild(el("td", "n muted", compacto(m.tokens_cache)));
+      tr.appendChild(el("td", "n", compacto(m.tokens_salida)));
       tr.appendChild(el("td", "n " + ia, m.costo_usd ? usd(m.costo_usd)
         : m.costo_equivalente_usd ? "≈ " + usd(m.costo_equivalente_usd) : "—"));
       tb.appendChild(tr);
@@ -608,7 +631,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
   }
   if (preset === "custom") preset = "30d"; // las fechas personalizadas no se recuerdan entre visitas
   document.querySelectorAll(".presets button").forEach(function (b) {
-    b.addEventListener("click", function () { preset = b.dataset.p; guardar(); render(); });
+    b.addEventListener("click", function () { preset = b.dataset.p; pagina = 0; guardar(); render(); });
   });
   [fDesde, fHasta].forEach(function (inp) {
     inp.addEventListener("change", function () { preset = "custom"; render(); });
@@ -634,7 +657,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
   document.querySelectorAll(".tabs button").forEach(function (b) {
     b.setAttribute("aria-selected", String(b.dataset.f === filtro));
     b.addEventListener("click", function () {
-      filtro = b.dataset.f; guardar();
+      filtro = b.dataset.f; pagina = 0; guardar();
       document.querySelectorAll(".tabs button").forEach(function (x) { x.setAttribute("aria-selected", String(x === b)); });
       render();
     });
