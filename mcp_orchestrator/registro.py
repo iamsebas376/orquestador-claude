@@ -325,9 +325,32 @@ def costos_diarios(dias: int = PANEL_DIAS) -> list[dict]:
     return filas
 
 
+def consumo_por_item() -> dict:
+    """Tokens, gasto real y equivalente agregados por (pedido_id, ítem) desde el registro de consumo."""
+    agg: dict[tuple, dict] = {}
+    if COSTOS_FILE.exists():
+        for line in COSTOS_FILE.read_text(encoding="utf-8").splitlines():
+            try:
+                r = json.loads(line)
+            except ValueError:
+                continue
+            if not r.get("pedido_id"):
+                continue
+            t = r.get("tokens") or {}
+            a = agg.setdefault((r["pedido_id"], r.get("item", 0)),
+                               {"tokens_entrada": 0, "tokens_salida": 0, "costo_usd": 0.0, "costo_equivalente_usd": 0.0})
+            a["tokens_entrada"] += t.get("input", 0) + t.get("cache_read", 0)
+            a["tokens_salida"] += t.get("output", 0) + t.get("reasoning", 0)
+            a["costo_usd"] += r.get("costo_usd", 0)
+            a["costo_equivalente_usd"] += r.get("costo_equivalente_usd", 0)
+    return agg
+
+
 def datos_panel() -> dict:
-    """Pedidos de los últimos PANEL_DIAS días (con fechas) y costos diarios, para el panel de control."""
+    """Pedidos de los últimos PANEL_DIAS días (con fechas, tokens y gasto) y costos diarios, para el panel."""
     desde = (datetime.now() - timedelta(days=PANEL_DIAS)).isoformat(timespec="seconds")
+    consumo = consumo_por_item()
+    vacio = {"tokens_entrada": 0, "tokens_salida": 0, "costo_usd": 0.0, "costo_equivalente_usd": 0.0}
     filas = []
     for f in sorted(TAREAS_DIR.glob("*.json"), key=lambda f: f.stat().st_mtime, reverse=True):
         p = _load(f.stem)
@@ -335,13 +358,21 @@ def datos_panel() -> dict:
             continue
         if len(filas) >= PANEL_MAX_PEDIDOS:
             break
+        items = []
+        for n, i in enumerate(p["items"], 1):
+            c = consumo.get((p["id"], n), vacio)
+            items.append({"texto": i["texto"], "estado": i["estado"], "agente": i.get("agente", ""),
+                          "modelo": i.get("modelo", ""), "rondas": i.get("rondas", 0),
+                          "costo_usd": round(c["costo_usd"] or i.get("costo_usd", 0), 4),
+                          "costo_equivalente_usd": round(c["costo_equivalente_usd"], 4),
+                          "tokens": c["tokens_entrada"] + c["tokens_salida"]})
         filas.append({
             "id": p["id"], "titulo": p["titulo"], "estado": p["estado"], "creado": p.get("creado", ""),
             "actualizado": p["actualizado"],
-            "costo_usd": round(sum(i.get("costo_usd", 0) for i in p["items"]), 4),
-            "items": [{"texto": i["texto"], "estado": i["estado"], "agente": i.get("agente", ""),
-                       "modelo": i.get("modelo", ""), "rondas": i.get("rondas", 0),
-                       "costo_usd": round(i.get("costo_usd", 0), 4)} for i in p["items"]],
+            "costo_usd": round(sum(i["costo_usd"] for i in items), 4),
+            "costo_equivalente_usd": round(sum(i["costo_equivalente_usd"] for i in items), 4),
+            "tokens": sum(i["tokens"] for i in items),
+            "items": items,
         })
     data = {"pedidos": filas, "costos_diarios": costos_diarios(), "dias": PANEL_DIAS, "generado": _now()}
     # Un documento del panel admite 256 KiB: si se pasa, recorta los pedidos más antiguos.

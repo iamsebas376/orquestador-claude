@@ -9,7 +9,7 @@
   --accent: #2348a8; --accent-soft: #e5ebf9;
   --ok: #2f7a4e; --ok-soft: #e2f2e8; --run: #2563c9; --run-soft: #e3edfb;
   --review: #8a5a00; --review-soft: #fbefd8; --fix: #a3417a; --fix-soft: #f8e4ef;
-  --bad: #b42318; --bad-soft: #fbe5e3; --idle: #6b7486; --idle-soft: #eceff4;
+  --bad: #b42318; --bad-soft: #fbe5e3; --idle: #6b7486; --idle-soft: #eceff4; --agy: #7a45d6; --agy-soft: #efe7fb;
   --f-display: "Archivo", "Segoe UI", system-ui, sans-serif;
   --f-body: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
   --f-mono: "JetBrains Mono", Consolas, monospace;
@@ -20,7 +20,7 @@
     --accent: #8eaaf5; --accent-soft: #1e2a45;
     --ok: #7fcf9f; --ok-soft: #1a3225; --run: #8db6f5; --run-soft: #1c2b44;
     --review: #f0c46b; --review-soft: #3a2e14; --fix: #e79ac7; --fix-soft: #3b2232;
-    --bad: #f3897f; --bad-soft: #3c1f1c; --idle: #9aa3b3; --idle-soft: #262d39; color-scheme: dark;
+    --bad: #f3897f; --bad-soft: #3c1f1c; --idle: #9aa3b3; --idle-soft: #262d39; --agy: #b99af5; --agy-soft: #2c2442; color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
@@ -28,7 +28,7 @@
   --accent: #8eaaf5; --accent-soft: #1e2a45;
   --ok: #7fcf9f; --ok-soft: #1a3225; --run: #8db6f5; --run-soft: #1c2b44;
   --review: #f0c46b; --review-soft: #3a2e14; --fix: #e79ac7; --fix-soft: #3b2232;
-  --bad: #f3897f; --bad-soft: #3c1f1c; --idle: #9aa3b3; --idle-soft: #262d39; color-scheme: dark;
+  --bad: #f3897f; --bad-soft: #3c1f1c; --idle: #9aa3b3; --idle-soft: #262d39; --agy: #b99af5; --agy-soft: #2c2442; color-scheme: dark;
 }
 * { box-sizing: border-box; }
 body {
@@ -61,9 +61,23 @@ header { display: flex; flex-wrap: wrap; align-items: end; justify-content: spac
 .tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .pedidos { display: flex; flex-direction: column; gap: 14px; }
-.pedido { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.pedido { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; min-width: 0; }
+.pedido > summary { list-style: none; cursor: pointer; padding: 14px 18px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px 14px; align-items: center; border-radius: 12px; }
+.pedido > summary::-webkit-details-marker { display: none; }
+.pedido > summary:hover { background: var(--bg); }
+.pedido > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.chev { width: 16px; height: 16px; color: var(--muted); transition: transform .15s ease; }
+.pedido[open] .chev { transform: rotate(90deg); }
+.ps-main { min-width: 0; display: flex; flex-direction: column; gap: 7px; }
+.ps-title { font: 600 1rem/1.25 var(--f-display); overflow-wrap: anywhere; }
+.ps-sub { font-size: .84rem; color: var(--muted); }
+.ps-side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.badges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; }
+.money { font: 600 .74rem/1 var(--f-mono); padding: 5px 7px; border-radius: 6px; background: var(--bg); color: var(--fg); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.money.agy { background: var(--agy-soft); color: var(--agy); }
+.money.tok { color: var(--muted); }
+.pedido-body { border-top: 1px solid var(--line); padding: 12px 18px 16px; display: flex; flex-direction: column; gap: 12px; }
 .ph { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: baseline; justify-content: space-between; }
-.ph h2 { min-width: 0; overflow-wrap: anywhere; }
 .meta { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--muted); font-size: .86rem; }
 .progress { height: 6px; background: var(--idle-soft); border-radius: 99px; overflow: hidden; }
 .progress > span { display: block; height: 100%; background: var(--ok); border-radius: 99px; }
@@ -71,7 +85,8 @@ ol.items { list-style: none; margin: 0; padding: 0; display: flex; flex-directio
 ol.items li { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: start; padding: 8px 10px; border-radius: 8px; background: var(--bg); min-width: 0; }
 .it-text { min-width: 0; overflow-wrap: anywhere; }
 .it-sub { font: .76rem/1.4 var(--f-mono); color: var(--muted); }
-.it-cost { font: .78rem var(--f-mono); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.it-cost { font: .76rem/1.45 var(--f-mono); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
+.it-cost .agy { color: var(--agy); }
 .chip { display: inline-flex; align-items: center; gap: 5px; font: 600 .72rem/1 var(--f-mono); padding: 5px 8px; border-radius: 99px; white-space: nowrap; }
 .s-pendiente { background: var(--idle-soft); color: var(--idle); }
 .s-en_curso { background: var(--run-soft); color: var(--run); }
@@ -103,10 +118,17 @@ tr:last-child td { border-bottom: 0; }
 .rango input { font: .86rem var(--f-mono); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; }
 .rango-txt { flex-basis: 100%; font: .78rem var(--f-mono); color: var(--muted); }
 
-.chart { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 14px 8px; overflow-x: auto; }
+.chart-wrap { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px 8px; display: flex; flex-direction: column; gap: 8px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: .8rem; color: var(--muted); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.chart { position: relative; overflow-x: auto; }
 .chart svg { display: block; min-width: 100%; }
 .chart .bar-r { fill: var(--accent); }
-.chart .bar-r:hover { fill: var(--run); }
+.chart .bar-a { fill: var(--agy); }
+.chart .hit { fill: transparent; cursor: pointer; }
+.chart .hit.on { fill: var(--accent-soft); opacity: .5; }
+.tip { position: absolute; top: 4px; z-index: 2; pointer-events: none; background: var(--fg); color: var(--bg); border-radius: 8px; padding: 8px 10px; font: .76rem/1.5 var(--f-mono); white-space: nowrap; box-shadow: 0 4px 14px rgba(0,0,0,.18); }
+.tip strong { font-family: var(--f-body); font-size: .8rem; }
 .chart text { fill: var(--muted); font: 10px var(--f-mono); }
 .chart .grid { stroke: var(--line); stroke-width: 1; }
 .chart .vacio { font: .88rem var(--f-body); color: var(--muted); padding: 18px 4px; }
@@ -117,6 +139,9 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
 
 @media (max-width: 760px) {
   .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pedido > summary { grid-template-columns: auto minmax(0, 1fr); }
+  .ps-side { grid-column: 2; align-items: flex-start; }
+  .badges { justify-content: flex-start; }
 }
 @media (max-width: 480px) { ol.items li { grid-template-columns: auto 1fr; } .it-cost { grid-column: 2; } }
 </style>
@@ -153,12 +178,15 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     <div class="kpi"><span class="v" id="k-rondas">—</span><span class="l">Rondas de corrección</span></div>
     <div class="kpi"><span class="v" id="k-delegaciones">—</span><span class="l">Delegaciones</span></div>
     <div class="kpi"><span class="v" id="k-costo">—</span><span class="l">Costo Innti</span></div>
-    <div class="kpi"><span class="v" id="k-agy">—</span><span class="l" id="k-agy-l">Antigravity · equivalente API</span></div>
+    <div class="kpi"><span class="v" id="k-agy">—</span><span class="l">Antigravity</span></div>
   </section>
 
   <section aria-labelledby="h-dia">
     <h2 id="h-dia" style="margin-bottom:12px">Costo por día</h2>
-    <div class="chart" id="chart" role="img" aria-label="Costo diario de Innti en el período"></div>
+    <div class="chart-wrap">
+      <div class="legend"><span><i style="background:var(--accent)"></i>Innti (gasto real)</span><span><i style="background:var(--agy)"></i>Antigravity (equivalente API)</span></div>
+      <div class="chart" id="chart" role="img" aria-label="Costo diario de Innti y equivalente de Antigravity en el período"></div>
+    </div>
   </section>
 
   <section aria-labelledby="h-ped">
@@ -275,45 +303,79 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     return c;
   }
 
-  function renderPedido(p) {
-    var card = el("article", "pedido");
-    var ph = el("div", "ph");
-    ph.appendChild(el("h2", null, p.titulo || p.id));
-    ph.appendChild(el("span", "chip p-" + p.estado, p.estado));
-    card.appendChild(ph);
+  var abiertos = {};
+  try { abiertos = JSON.parse(localStorage.getItem("panel-abiertos") || "{}"); } catch (e) {}
 
+  function badges(costoReal, equiv, tokens) {
+    var box = el("div", "badges");
+    if (tokens) box.appendChild(el("span", "money tok", compacto(tokens) + " tokens"));
+    if (costoReal) box.appendChild(el("span", "money", usd(costoReal)));
+    if (equiv) box.appendChild(el("span", "money agy", "≈ " + usd(equiv)));
+    return box;
+  }
+
+  function renderPedido(p) {
     var items = p.items || [];
     var hechos = items.filter(function (i) { return i.estado === "hecho" || i.estado === "omitido"; }).length;
-    var meta = el("div", "meta");
-    meta.appendChild(el("span", null, hechos + " de " + items.length + " ítems"));
-    meta.appendChild(el("span", null, usd(p.costo_usd)));
-    if (p.creado) meta.appendChild(el("span", null, "creado " + fecha(p.creado)));
-    meta.appendChild(el("span", null, "actualizado " + fecha(p.actualizado)));
-    meta.appendChild(el("span", "mono", p.id));
-    card.appendChild(meta);
+    var card = el("details", "pedido");
+    if (abiertos[p.id]) card.open = true;
+    card.addEventListener("toggle", function () {
+      if (card.open) abiertos[p.id] = 1; else delete abiertos[p.id];
+      try { localStorage.setItem("panel-abiertos", JSON.stringify(abiertos)); } catch (e) {}
+    });
 
+    var sum = el("summary");
+    var ns = "http://www.w3.org/2000/svg", chev = document.createElementNS(ns, "svg");
+    chev.setAttribute("viewBox", "0 0 16 16"); chev.setAttribute("class", "chev"); chev.setAttribute("aria-hidden", "true");
+    var path = document.createElementNS(ns, "path");
+    path.setAttribute("d", "M6 3l5 5-5 5"); path.setAttribute("fill", "none"); path.setAttribute("stroke", "currentColor");
+    path.setAttribute("stroke-width", "1.8"); path.setAttribute("stroke-linecap", "round"); path.setAttribute("stroke-linejoin", "round");
+    chev.appendChild(path);
+    sum.appendChild(chev);
+
+    var main = el("div", "ps-main");
+    main.appendChild(el("span", "ps-title", p.titulo || p.id));
+    main.appendChild(el("span", "ps-sub", hechos + " de " + items.length + " ítems · actualizado " + fecha(p.actualizado)));
     var bar = el("div", "progress"), fill = el("span");
     fill.style.width = (items.length ? Math.round(100 * hechos / items.length) : 0) + "%";
     bar.appendChild(fill);
-    card.appendChild(bar);
+    main.appendChild(bar);
+    sum.appendChild(main);
+
+    var side = el("div", "ps-side");
+    side.appendChild(el("span", "chip p-" + p.estado, p.estado));
+    side.appendChild(badges(p.costo_usd, p.costo_equivalente_usd, p.tokens));
+    sum.appendChild(side);
+    card.appendChild(sum);
+
+    var body = el("div", "pedido-body");
+    var meta = el("div", "meta");
+    if (p.creado) meta.appendChild(el("span", null, "creado " + fecha(p.creado)));
+    meta.appendChild(el("span", "mono", p.id));
+    body.appendChild(meta);
 
     var ol = el("ol", "items");
     items.forEach(function (i) {
       var li = el("li");
       li.appendChild(chip(i.estado));
-      var body = el("div");
-      body.appendChild(el("div", "it-text", i.texto));
+      var txt = el("div");
+      txt.appendChild(el("div", "it-text", i.texto));
       var sub = [i.agente, i.modelo].filter(Boolean).join(" · ");
       if (sub || i.rondas) {
-        var s = el("div", "it-sub", sub);
-        if (i.rondas) { s.appendChild(document.createTextNode(sub ? "  " : "")); s.appendChild(el("span", "rondas", "↻ " + i.rondas + (i.rondas === 1 ? " ronda" : " rondas"))); }
-        body.appendChild(s);
+        var s2 = el("div", "it-sub", sub);
+        if (i.rondas) { s2.appendChild(document.createTextNode(sub ? "  " : "")); s2.appendChild(el("span", "rondas", "↻ " + i.rondas + (i.rondas === 1 ? " ronda" : " rondas"))); }
+        txt.appendChild(s2);
       }
-      li.appendChild(body);
-      li.appendChild(el("span", "it-cost", i.costo_usd ? usd(i.costo_usd) : ""));
+      li.appendChild(txt);
+      var cost = el("span", "it-cost");
+      if (i.costo_usd) cost.appendChild(el("div", null, usd(i.costo_usd)));
+      if (i.costo_equivalente_usd) cost.appendChild(el("div", "agy", "≈ " + usd(i.costo_equivalente_usd)));
+      if (i.tokens) cost.appendChild(el("div", null, compacto(i.tokens) + " tok"));
+      li.appendChild(cost);
       ol.appendChild(li);
     });
-    card.appendChild(ol);
+    body.appendChild(ol);
+    card.appendChild(body);
     return card;
   }
 
@@ -321,41 +383,71 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     var box = document.getElementById("chart");
     box.textContent = "";
     var porDia = {};
-    costos.forEach(function (c) { porDia[c.dia] = (porDia[c.dia] || 0) + (c.costo_usd || 0); });
-    var dias = Object.keys(porDia).sort();
-    if (!dias.length) { box.appendChild(el("p", "vacio", "Sin consumo de Innti en este período.")); return; }
+    costos.forEach(function (c) {
+      var d = porDia[c.dia] || (porDia[c.dia] = { innti: 0, agy: 0, tokens: 0, tareas: 0 });
+      d.innti += c.costo_usd || 0;
+      d.agy += c.costo_equivalente_usd || 0;
+      d.tokens += (c.tokens_entrada || 0) + (c.tokens_salida || 0);
+      d.tareas += c.tareas || 0;
+    });
+    var dias = Object.keys(porDia).filter(function (k) { return porDia[k].innti + porDia[k].agy > 0; }).sort();
+    if (!dias.length) { box.appendChild(el("p", "vacio", "Sin consumo en este período.")); return; }
     var ini = r.desde ? sod(r.desde) : parse(dias[0]);
     var fin = r.hasta ? sod(r.hasta) : sod(new Date());
     if (fin > sod(new Date())) fin = sod(new Date());
     var n = Math.max(1, Math.round((fin - ini) / DAY) + 1);
-    var max = Math.max.apply(null, dias.map(function (d) { return porDia[d]; })) || 1;
-    var W = Math.max(Math.floor(box.clientWidth - 30), n * 8), H = 150, L = 84, B = 22, T = 8;
-    var bw = (W - L) / n;
+    var max = Math.max.apply(null, dias.map(function (d) { return porDia[d].innti + porDia[d].agy; })) || 1;
+    var W = Math.max(Math.floor(box.clientWidth) - 2, n * 8), H = 160, L = 84, B = 22, T = 10;
+    var bw = (W - L) / n, alto = H - B - T;
     var ns = "http://www.w3.org/2000/svg";
     var svg = document.createElementNS(ns, "svg");
     svg.setAttribute("width", W); svg.setAttribute("height", H); svg.setAttribute("viewBox", "0 0 " + W + " " + H);
-    function add(tag, attrs, text) {
+    function add(tag, attrs, text, parent) {
       var e = document.createElementNS(ns, tag);
       for (var k in attrs) e.setAttribute(k, attrs[k]);
       if (text != null) e.textContent = text;
-      svg.appendChild(e); return e;
+      (parent || svg).appendChild(e); return e;
     }
     [0, 0.5, 1].forEach(function (f) {
-      var y = T + (H - B - T) * (1 - f);
+      var y = T + alto * (1 - f);
       add("line", { x1: L, x2: W, y1: y, y2: y, "class": "grid" });
       add("text", { x: L - 6, y: y + 3, "text-anchor": "end" }, usd(max * f));
     });
+    var tip = el("div", "tip");
+    tip.hidden = true;
+    var activo = null;
+    function mostrar(hit, d, v, x) {
+      if (activo) activo.classList.remove("on");
+      activo = hit; hit.classList.add("on");
+      tip.textContent = "";
+      tip.appendChild(el("strong", null, dia(d)));
+      tip.appendChild(el("div", null, "Innti: " + usd(v.innti)));
+      tip.appendChild(el("div", null, "Antigravity: ≈ " + usd(v.agy)));
+      tip.appendChild(el("div", null, compacto(v.tokens) + " tokens · " + v.tareas + (v.tareas === 1 ? " delegación" : " delegaciones")));
+      tip.hidden = false;
+      var izq = x + bw / 2 - tip.offsetWidth / 2;
+      tip.style.left = Math.max(0, Math.min(izq, W - tip.offsetWidth)) + "px";
+    }
+    function ocultar() { tip.hidden = true; if (activo) { activo.classList.remove("on"); activo = null; } }
     var paso = Math.ceil(n / Math.max(1, Math.floor((W - L) / 64)));
     for (var i = 0; i < n; i++) {
-      var d = new Date(ini.getTime() + i * DAY), k = ymd(d), v = porDia[k] || 0;
-      var h = (H - B - T) * (v / max), x = L + i * bw;
-      if (v > 0) {
-        var rect = add("rect", { x: x + bw * 0.15, y: H - B - h, width: Math.max(1, bw * 0.7), height: Math.max(1, h), rx: 2, "class": "bar-r" });
-        var t = document.createElementNS(ns, "title"); t.textContent = dia(d) + ": " + usd(v); rect.appendChild(t);
-      }
-      if (i % paso === 0) add("text", { x: x + bw / 2, y: H - 6, "text-anchor": "middle" }, d.toLocaleDateString("es-CO", { day: "2-digit", month: "short" }));
+      (function (i) {
+        var d = new Date(ini.getTime() + i * DAY), k = ymd(d), v = porDia[k];
+        var x = L + i * bw;
+        if (v && v.innti + v.agy > 0) {
+          var hit = add("rect", { x: x, y: T, width: Math.max(1, bw), height: alto, "class": "hit" });
+          var hI = alto * (v.innti / max), hA = alto * (v.agy / max), bx = x + bw * 0.15, ancho = Math.max(2, bw * 0.7);
+          if (hI > 0) add("rect", { x: bx, y: H - B - hI, width: ancho, height: Math.max(1, hI), rx: 2, "class": "bar-r", "pointer-events": "none" });
+          if (hA > 0) add("rect", { x: bx, y: H - B - hI - hA, width: ancho, height: Math.max(1, hA), rx: 2, "class": "bar-a", "pointer-events": "none" });
+          hit.addEventListener("mouseenter", function () { mostrar(hit, d, v, x); });
+          hit.addEventListener("click", function (ev) { ev.stopPropagation(); if (activo === hit) ocultar(); else mostrar(hit, d, v, x); });
+        }
+        if (i % paso === 0) add("text", { x: x + bw / 2, y: H - 6, "text-anchor": "middle" }, d.toLocaleDateString("es-CO", { day: "2-digit", month: "short" }));
+      })(i);
     }
+    svg.addEventListener("mouseleave", ocultar);
     box.appendChild(svg);
+    box.appendChild(tip);
   }
 
   // ---------------------------------------------------------------- render
@@ -375,7 +467,6 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     var agyTok = agy.reduce(function (a, c) { return a + (c.tokens_entrada || 0) + (c.tokens_salida || 0); }, 0);
     var agyEq = agy.reduce(function (a, c) { return a + (c.costo_equivalente_usd || 0); }, 0);
     document.getElementById("k-agy").textContent = state ? "≈ " + usd(agyEq) : "—";
-    document.getElementById("k-agy-l").textContent = "Antigravity · equivalente API" + (state ? " · " + compacto(agyTok) + " tokens" : "");
 
     renderChart(r, costos);
 
@@ -417,7 +508,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
       tr.appendChild(el("td", "n", num(m.tokens_entrada)));
       tr.appendChild(el("td", "n", num(m.tokens_salida)));
       tr.appendChild(el("td", "n", m.costo_usd ? usd(m.costo_usd)
-        : m.costo_equivalente_usd ? "≈ " + usd(m.costo_equivalente_usd) + " equiv." : "—"));
+        : m.costo_equivalente_usd ? "≈ " + usd(m.costo_equivalente_usd) : "—"));
       tb.appendChild(tr);
     });
 
