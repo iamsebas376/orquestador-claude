@@ -182,21 +182,13 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
       <button type="button" data-p="hoy">Hoy</button>
       <button type="button" data-p="7d">7 días</button>
       <button type="button" data-p="30d">30 días</button>
-      <button type="button" data-p="mes">Este mes</button>
-      <button type="button" data-p="mes_pasado">Mes pasado</button>
-      <button type="button" data-p="90d">90 días</button>
       <button type="button" data-p="todo">Todo</button>
-    </div>
-    <div class="rango">
-      <label for="f-desde">Desde</label><input type="date" id="f-desde">
-      <label for="f-hasta">Hasta</label><input type="date" id="f-hasta">
     </div>
     <div class="ias" role="group" aria-label="IA a mostrar">
       <button type="button" class="innti" data-ia="innti"><span class="ia innti"></span>Innti</button>
       <button type="button" class="agy" data-ia="agy"><span class="ia agy"></span>Antigravity</button>
       <button type="button" class="cl" data-ia="cl"><span class="ia cl"></span>Claude</button>
     </div>
-    <p class="rango-txt" id="rango-txt"></p>
   </section>
 
   <section class="kpis" aria-label="Indicadores del período">
@@ -280,35 +272,18 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
   function eod(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999); }
 
   // ---------------------------------------------------------------- período
-  var fDesde = document.getElementById("f-desde"), fHasta = document.getElementById("f-hasta");
-
   function rango() {
     var hoy = new Date(), h = eod(hoy);
     switch (preset) {
       case "hoy": return { desde: sod(hoy), hasta: h };
       case "7d": return { desde: sod(new Date(hoy - 6 * DAY)), hasta: h };
       case "30d": return { desde: sod(new Date(hoy - 29 * DAY)), hasta: h };
-      case "90d": return { desde: sod(new Date(hoy - 89 * DAY)), hasta: h };
-      case "mes": return { desde: new Date(hoy.getFullYear(), hoy.getMonth(), 1), hasta: h };
-      case "mes_pasado": return { desde: new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1),
-                                  hasta: eod(new Date(hoy.getFullYear(), hoy.getMonth(), 0)) };
-      case "todo": return { desde: null, hasta: null };
-      default: {
-        var d = parse(fDesde.value), x = parse(fHasta.value);
-        return { desde: d ? sod(d) : null, hasta: x ? eod(x) : null };
-      }
+      default: return { desde: null, hasta: null };
     }
   }
 
   function syncControles(r) {
     document.querySelectorAll(".presets button").forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.p === preset)); });
-    if (preset !== "custom") {
-      fDesde.value = r.desde ? ymd(r.desde) : "";
-      fHasta.value = r.hasta ? ymd(r.hasta) : "";
-    }
-    var txt = (r.desde ? dia(r.desde) : "desde el inicio") + " – " + (r.hasta ? dia(r.hasta) : "hoy");
-    if (state && state.dias) txt += " · el panel guarda los últimos " + state.dias + " días";
-    document.getElementById("rango-txt").textContent = txt;
   }
 
   function enRango(p, r) {
@@ -653,12 +628,9 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
   function guardar() {
     try { localStorage.setItem("panel-filtro", filtro); localStorage.setItem("panel-periodo", preset); } catch (e) {}
   }
-  if (preset === "custom") preset = "30d"; // las fechas personalizadas no se recuerdan entre visitas
+  if (["hoy", "7d", "30d", "todo"].indexOf(preset) < 0) preset = "30d"; // períodos que ya no existen
   document.querySelectorAll(".presets button").forEach(function (b) {
     b.addEventListener("click", function () { preset = b.dataset.p; pagina = 0; guardar(); render(); });
-  });
-  [fDesde, fHasta].forEach(function (inp) {
-    inp.addEventListener("change", function () { preset = "custom"; render(); });
   });
   function syncIas() {
     document.querySelectorAll(".ias button").forEach(function (b) { b.setAttribute("aria-pressed", String(iasOn[b.dataset.ia] !== false)); });
