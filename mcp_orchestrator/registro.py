@@ -537,8 +537,7 @@ def datos_panel() -> dict:
             "items": items,
         })
     diarios = sorted(costos_diarios() + list(claude_dia.values()), key=lambda a: a["dia"])
-    data = {"pedidos": filas, "costos_diarios": diarios, "claude_sesiones": sesiones_claude(), "dias": PANEL_DIAS,
-            "generado": _now()}
+    data = {"pedidos": filas, "costos_diarios": diarios, "dias": PANEL_DIAS, "generado": _now()}
     # Un documento del panel admite 256 KiB: si se pasa, recorta los pedidos más antiguos.
     while len(json.dumps(data, ensure_ascii=False).encode("utf-8")) > 240_000 and data["pedidos"]:
         data["pedidos"].pop()

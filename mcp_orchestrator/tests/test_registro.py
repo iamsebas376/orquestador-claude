@@ -184,7 +184,7 @@ def test_desglose_de_claude_por_sesion(tmp_registro, tmp_path, monkeypatch):
     lineas += [{"type": "custom-title", "customTitle": "Viejo", "sessionId": "s1"},
                {"type": "custom-title", "customTitle": "Mi sesión", "sessionId": "s1"}]
     (proy / "s1.jsonl").write_text("\n".join(json.dumps(l) for l in lineas), encoding="utf-8")
-    ses = registro.datos_panel()["claude_sesiones"]
+    ses = registro.sesiones_claude()
     assert ses["info"]["s1"] == {"titulo": "Mi sesión", "carpeta": r"D:\x"}
     d = ses["por_dia"][0]
     assert d["respuestas"] == 2 and d["tokens_cache"] == 2_000_000 and d["costo_equivalente_usd"] == 1.0

@@ -148,6 +148,8 @@ tr:last-child td { border-bottom: 0; }
 .chart .hit { fill: transparent; cursor: pointer; }
 .chart .hit.on { fill: var(--accent-soft); opacity: .5; }
 .tip { position: absolute; top: 4px; z-index: 2; pointer-events: none; background: var(--fg); color: var(--bg); border-radius: 8px; padding: 8px 10px; font: .76rem/1.5 var(--f-mono); white-space: nowrap; box-shadow: 0 4px 14px rgba(0,0,0,.18); }
+.tip.flot { position: fixed; top: 0; z-index: 10; }
+.tip .ia { margin-right: 6px; }
 .tip strong { font-family: var(--f-body); font-size: .8rem; }
 .chart text { fill: var(--muted); font: 10px var(--f-mono); }
 .chart .grid { stroke: var(--line); stroke-width: 1; }
@@ -233,21 +235,11 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     <h2 id="h-cost" style="margin-bottom:12px">Consumo del período por modelo</h2>
     <div class="table-scroll">
       <table>
-        <thead><tr><th data-k="agente"><button type="button">Agente</button></th><th data-k="modelo"><button type="button">Modelo</button></th><th class="n" data-k="sesiones"><button type="button">Actividad</button></th><th class="n" data-k="nueva" title="Tokens de entrada nuevos (incluye escritura en caché)"><button type="button">Entrada nueva</button></th><th class="n" data-k="tokens_cache" title="Contexto que el modelo vuelve a leer en cada paso: barato y por eso enorme en sesiones largas"><button type="button">Caché leída</button></th><th class="n" data-k="tokens_salida"><button type="button">Salida</button></th><th class="n" data-k="costo"><button type="button">Costo</button></th></tr></thead>
-        <tbody id="costos"><tr><td colspan="7" class="muted">Sin delegaciones registradas.</td></tr></tbody>
+        <thead><tr><th data-k="agente"><button type="button">Agente</button></th><th data-k="modelo"><button type="button">Modelo</button></th><th class="n" data-k="sesiones"><button type="button">Sesiones</button></th><th class="n" data-k="tokens"><button type="button">Tokens</button></th><th class="n" data-k="costo"><button type="button">Costo</button></th></tr></thead>
+        <tbody id="costos"><tr><td colspan="5" class="muted">Sin delegaciones registradas.</td></tr></tbody>
       </table>
     </div>
-    <p class="muted" style="margin-top:8px;font-size:.84rem">Innti: costo estimado con la tabla de precios de la guía. Antigravity: tokens leídos del registro local de cada conversación; tu plan Pro no cobra por token, el equivalente es lo que costaría por la API de Gemini. Claude: tokens leídos de los registros locales de Claude Code (subagentes incluidos); en cada pedido se cuenta lo que Claude trabajó mientras estaba abierto. Tu suscripción no cobra por token: el equivalente es lo que costaría por la API de Anthropic. Una sesión de Claude dura horas y tiene cientos de respuestas; en cada una vuelve a leer toda la conversación desde la caché, por eso «Caché leída» suma millones aunque sea la parte más barata.</p>
-  </section>
-
-  <section aria-labelledby="h-cls" id="sec-cls">
-    <h2 id="h-cls" style="margin-bottom:12px"><span class="ia cl"></span>Sesiones de Claude</h2>
-    <div class="table-scroll">
-      <table>
-        <thead><tr><th>Sesión</th><th>Días</th><th class="n">Respuestas</th><th class="n">Entrada nueva</th><th class="n">Caché leída</th><th class="n">Salida</th><th class="n">Costo</th></tr></thead>
-        <tbody id="cls"><tr><td colspan="7" class="muted">Sin sesiones de Claude en este período.</td></tr></tbody>
-      </table>
-    </div>
+    <p class="muted" style="margin-top:8px;font-size:.84rem">Innti es gasto real; Antigravity y Claude (≈) son el equivalente por API, sus planes no cobran por token. Pasa el mouse por una fila para ver el detalle.</p>
   </section>
 
   <footer>Datos escritos por Claude desde el registro local (<span class="mono">D:\claude\tareas</span>). Esta página solo los muestra.</footer>
@@ -338,6 +330,28 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
   var POR_PAGINA = 8, pagina = 0;
   try { var g = JSON.parse(localStorage.getItem("panel-ias") || "null"); if (g) iasOn = g; } catch (e) {}
 
+  // Tooltip único del panel, con el mismo estilo que el de la gráfica: título y líneas con su punto de color.
+  var gtip = el("div", "tip flot"); gtip.hidden = true; document.body.appendChild(gtip);
+  function tip(nodo, titulo, lineas) {
+    function mostrar() {
+      gtip.textContent = "";
+      gtip.appendChild(el("strong", null, titulo));
+      lineas.forEach(function (l) {
+        var d = el("div");
+        if (l[0]) d.appendChild(el("span", "ia " + l[0]));
+        d.appendChild(document.createTextNode(l[1]));
+        gtip.appendChild(d);
+      });
+      gtip.hidden = false;
+      var r = nodo.getBoundingClientRect(), w = gtip.offsetWidth, h = gtip.offsetHeight;
+      gtip.style.left = Math.max(8, Math.min(r.left + r.width / 2 - w / 2, innerWidth - w - 8)) + "px";
+      gtip.style.top = (r.top - h - 8 < 8 ? r.bottom + 8 : r.top - h - 8) + "px";
+    }
+    nodo.addEventListener("mouseenter", mostrar);
+    nodo.addEventListener("mouseleave", function () { gtip.hidden = true; });
+  }
+  addEventListener("scroll", function () { gtip.hidden = true; }, true);
+
   // ---------------------------------------------------------------- piezas
   // Un color por IA en todo el panel: Innti (OpenCode) verde azulado, Antigravity morado, Claude naranja.
   function iaClase(agente) {
@@ -363,7 +377,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     if (equiv) box.appendChild(el("span", "money agy", "≈ " + usd(equiv)));
     if (claude && claude.costo_equivalente_usd) {
       var c = el("span", "money cl", "≈ " + usd(claude.costo_equivalente_usd));
-      c.title = "Trabajo de Claude (orquestar y revisar): " + compacto(claude.tokens || 0) + " tokens";
+      tip(c, "Claude", [["cl", "Orquestar y revisar: ≈ " + usd(claude.costo_equivalente_usd)], [null, compacto(claude.tokens || 0) + " tokens"]]);
       box.appendChild(c);
     }
     return box;
@@ -411,7 +425,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     if (clEqP && totP) {
       // Cuánto del costo se quedó en Claude (orquestar y revisar) frente a lo delegado: menos es mejor.
       var pct = Math.round(100 * clEqP / totP), peso = el("span", "cl", pct + "% del costo en Claude, " + (100 - pct) + "% delegado");
-      peso.title = "Claude ≈ " + usd(clEqP) + " de ≈ " + usd(totP) + " en total";
+      tip(peso, "Reparto del costo", [["cl", "Claude: ≈ " + usd(clEqP)], [null, "Delegado: ≈ " + usd(totP - clEqP)], [null, "Total: ≈ " + usd(totP)]]);
       meta.appendChild(peso);
     }
     meta.appendChild(el("span", "mono", p.id));
@@ -523,44 +537,6 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     box.appendChild(tip);
   }
 
-  // Desglose de Claude por sesión en el período (título que le puso la app, días con actividad y consumo).
-  function renderSesionesClaude(r) {
-    var sec = document.getElementById("sec-cls"), tb = document.getElementById("cls");
-    sec.hidden = iasOn.cl === false;
-    var cs = (state && state.claude_sesiones) || { info: {}, por_dia: [] };
-    var desde = r.desde ? ymd(r.desde) : "", hasta = r.hasta ? ymd(r.hasta) : "9999-12-31", agg = {};
-    cs.por_dia.forEach(function (d) {
-      if (d.dia < desde || d.dia > hasta) return;
-      var a = agg[d.sesion] || (agg[d.sesion] = { id: d.sesion, dias: [], respuestas: 0, tokens_entrada: 0, tokens_cache: 0, tokens_salida: 0, costo: 0 });
-      a.dias.push(d.dia); a.respuestas += d.respuestas; a.tokens_entrada += d.tokens_entrada;
-      a.tokens_cache += d.tokens_cache; a.tokens_salida += d.tokens_salida; a.costo += d.costo_equivalente_usd;
-    });
-    var filas = Object.keys(agg).map(function (k) { return agg[k]; }).sort(function (a, b) { return b.costo - a.costo; });
-    tb.textContent = "";
-    if (!filas.length) {
-      var tr0 = el("tr"), td0 = el("td", "muted", "Sin sesiones de Claude en este período.");
-      td0.colSpan = 7; tr0.appendChild(td0); tb.appendChild(tr0); return;
-    }
-    filas.forEach(function (a) {
-      var info = cs.info[a.id] || {}, tr = el("tr"), td = el("td");
-      td.appendChild(el("div", null, info.titulo || "Sesión " + a.id.slice(0, 8)));
-      td.appendChild(el("div", "it-sub", info.carpeta || a.id.slice(0, 8)));
-      tr.appendChild(td);
-      a.dias.sort();
-      var ini = dia(parse(a.dias[0])), fin = dia(parse(a.dias[a.dias.length - 1]));
-      var tdD = el("td");
-      tdD.appendChild(el("div", null, ini === fin ? ini : ini + " – " + fin));
-      tdD.appendChild(el("div", "it-sub", a.dias.length + (a.dias.length === 1 ? " día con actividad" : " días con actividad")));
-      tr.appendChild(tdD);
-      tr.appendChild(el("td", "n", num(a.respuestas)));
-      tr.appendChild(el("td", "n", compacto(a.tokens_entrada)));
-      tr.appendChild(el("td", "n muted", compacto(a.tokens_cache)));
-      tr.appendChild(el("td", "n", compacto(a.tokens_salida)));
-      tr.appendChild(el("td", "n cl", "≈ " + usd(a.costo)));
-      tb.appendChild(tr);
-    });
-  }
-
   // ---------------------------------------------------------------- render
   function render() {
     var r = rango();
@@ -624,7 +600,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     });
     function valor(m) {
       return orden.k === "costo" ? m.costo_usd + m.costo_equivalente_usd : orden.k === "sesiones" ? Object.keys(m.sesiones).length
-        : orden.k === "nueva" ? m.tokens_entrada - m.tokens_cache
+        : orden.k === "tokens" ? m.tokens_entrada + m.tokens_salida
         : orden.k === "agente" || orden.k === "modelo" ? String(m[orden.k]) : m[orden.k];
     }
     var filas = Object.keys(agg).map(function (k) { return agg[k]; }).sort(function (a, b) {
@@ -639,7 +615,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     tb.textContent = "";
     if (!filas.length) {
       var tr0 = el("tr"), td0 = el("td", "muted", "Sin delegaciones en este período.");
-      td0.colSpan = 7; tr0.appendChild(td0); tb.appendChild(tr0);
+      td0.colSpan = 5; tr0.appendChild(td0); tb.appendChild(tr0);
     }
     filas.forEach(function (m) {
       var tr = el("tr");
@@ -649,21 +625,19 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
       tr.appendChild(tdA);
       tr.appendChild(el("td", "mono", m.modelo));
       // Misma unidad para todas las IA: sesiones distintas (OpenCode: sesión, Antigravity: conversación,
-      // Claude: sesión de Claude Code). Al pasar el mouse, las delegaciones o respuestas que hubo en ellas.
+      // Claude: sesión de Claude Code). El detalle va en el tooltip de la fila.
       var nS = Object.keys(m.sesiones).length;
-      var tdS = el("td", "n");
-      tdS.appendChild(el("div", null, num(nS) + (nS === 1 ? " sesión" : " sesiones")));
-      tdS.appendChild(el("div", "it-sub", num(m.tareas) + (m.agente === "claude" ? " respuestas" : m.tareas === 1 ? " delegación" : " delegaciones")));
-      tr.appendChild(tdS);
-      tr.appendChild(el("td", "n", compacto(m.tokens_entrada - m.tokens_cache)));
-      tr.appendChild(el("td", "n muted", compacto(m.tokens_cache)));
-      tr.appendChild(el("td", "n", compacto(m.tokens_salida)));
+      tr.appendChild(el("td", "n", num(nS)));
+      tr.appendChild(el("td", "n", compacto(m.tokens_entrada + m.tokens_salida)));
+      tip(tr, m.modelo, [
+        [ia, num(nS) + (nS === 1 ? " sesión · " : " sesiones · ") + num(m.tareas) + (m.agente === "claude" ? " respuestas" : m.tareas === 1 ? " delegación" : " delegaciones")],
+        [null, "Entrada nueva: " + compacto(m.tokens_entrada - m.tokens_cache)],
+        [null, "Caché leída: " + compacto(m.tokens_cache) + (m.tokens_cache > m.tokens_entrada / 2 ? " (relectura del contexto)" : "")],
+        [null, "Salida: " + compacto(m.tokens_salida)]]);
       tr.appendChild(el("td", "n " + ia, m.costo_usd ? usd(m.costo_usd)
         : m.costo_equivalente_usd ? "≈ " + usd(m.costo_equivalente_usd) : "—"));
       tb.appendChild(tr);
     });
-
-    renderSesionesClaude(r);
 
     if (state) {
       var sync = document.getElementById("sync"), horas = (Date.now() - new Date(state.generado).getTime()) / 3600000;
