@@ -363,18 +363,111 @@ def consumo_por_item() -> dict:
     return agg
 
 
+# ----------------------------------------------------------------------------- consumo de Claude (el cerebro)
+
+CLAUDE_PROJECTS_DIR = Path(os.getenv("CLAUDE_PROJECTS_DIR") or Path.home() / ".claude" / "projects")
+
+
+def _mensajes_claude(desde: datetime) -> list[dict]:
+    """Respuestas de Claude Code desde `desde` (hora local), leídas de sus transcripts locales
+    (~/.claude/projects/**/*.jsonl, subagentes incluidos). Cada respuesta se repite por bloque: se deja una por id."""
+    por_id: dict[str, dict] = {}
+    for f in CLAUDE_PROJECTS_DIR.rglob("*.jsonl"):
+        try:
+            if datetime.fromtimestamp(f.stat().st_mtime) < desde:
+                continue
+            lineas = f.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        for line in lineas:
+            if '"usage"' not in line:
+                continue
+            try:
+                e = json.loads(line)
+                m = e["message"]
+                u, modelo = m["usage"], m.get("model", "")
+                ts = datetime.fromisoformat(e["timestamp"].replace("Z", "+00:00")).astimezone().replace(tzinfo=None)
+            except (ValueError, KeyError, TypeError, AttributeError):
+                continue
+            if ts < desde or not modelo or modelo.startswith("<"):
+                continue
+            cc = u.get("cache_creation") or {}
+            escritura_1h = cc.get("ephemeral_1h_input_tokens", 0)
+            escritura = u.get("cache_creation_input_tokens", 0)
+            por_id[m.get("id") or f"{f}:{len(por_id)}"] = {
+                "ts": ts, "modelo": modelo,
+                "tokens": {"input": u.get("input_tokens", 0), "cache_read": u.get("cache_read_input_tokens", 0),
+                           "cache_write_5m": max(0, escritura - escritura_1h), "cache_write_1h": escritura_1h,
+                           "output": u.get("output_tokens", 0)},
+            }
+    return sorted(por_id.values(), key=lambda r: r["ts"])
+
+
+def costo_claude(modelo: str, tokens: dict, fecha: str = "") -> float:
+    """Equivalente por la API de Anthropic: escribir caché cuesta 1,25× la entrada (5 min) o 2× (1 h)."""
+    precio = _precio_vigente(modelo, fecha)
+    if not precio:
+        return 0.0
+    escritura = tokens.get("cache_write_5m", 0) * 1.25 + tokens.get("cache_write_1h", 0) * 2
+    return costo_innti(modelo, tokens, fecha) + escritura * precio[0] / 1_000_000
+
+
+def consumo_claude(dias: int = PANEL_DIAS) -> list[dict]:
+    """Consumo de Claude por respuesta: ts, modelo, tokens (entrada incluye caché) y equivalente API."""
+    filas = []
+    for r in _mensajes_claude(datetime.now() - timedelta(days=dias)):
+        t = r["tokens"]
+        filas.append({"ts": r["ts"], "modelo": r["modelo"],
+                      "entrada": t["input"] + t["cache_read"] + t["cache_write_5m"] + t["cache_write_1h"],
+                      "salida": t["output"], "equivalente": costo_claude(r["modelo"], t, r["ts"].isoformat())})
+    return filas
+
+
+def _pedido_de(ts: datetime, ventanas: list[tuple]) -> str:
+    """El pedido activo en ese momento (el más reciente si se solapan): ahí se cuenta el trabajo de Claude."""
+    activos = [(ini, pid) for ini, fin, pid in ventanas if ini <= ts <= fin]
+    return max(activos)[1] if activos else ""
+
+
 def datos_panel() -> dict:
     """Pedidos de los últimos PANEL_DIAS días (con fechas, tokens y gasto) y costos diarios, para el panel."""
     desde = (datetime.now() - timedelta(days=PANEL_DIAS)).isoformat(timespec="seconds")
     consumo = consumo_por_item()
     vacio = {"tokens_entrada": 0, "tokens_salida": 0, "costo_usd": 0.0, "costo_equivalente_usd": 0.0}
-    filas = []
-    for f in sorted(TAREAS_DIR.glob("*.json"), key=lambda f: f.stat().st_mtime, reverse=True):
-        p = _load(f.stem)
-        if not p or p.get("actualizado", "") < desde:
+    pedidos = [p for f in sorted(TAREAS_DIR.glob("*.json"), key=lambda f: f.stat().st_mtime, reverse=True)
+               if (p := _load(f.stem)) and p.get("actualizado", "") >= desde][:PANEL_MAX_PEDIDOS]
+
+    # Claude: por día y modelo, y cada respuesta asignada al pedido que estaba activo en ese momento.
+    ahora = datetime.now()
+    ventanas = []
+    for p in pedidos:
+        try:
+            ini = datetime.fromisoformat(p.get("creado") or p["actualizado"])
+            fin = datetime.fromisoformat(p["actualizado"]) if p["estado"] != "abierto" else ahora
+            ventanas.append((ini, fin, p["id"]))
+        except ValueError:
             continue
-        if len(filas) >= PANEL_MAX_PEDIDOS:
-            break
+    claude_dia: dict[tuple, dict] = {}
+    claude_pedido: dict[str, dict] = {}
+    for r in consumo_claude():
+        k = (r["ts"].date().isoformat(), r["modelo"])
+        a = claude_dia.setdefault(k, {"dia": k[0], "agente": "claude", "modelo": k[1], "tareas": 0,
+                                      "tokens_entrada": 0, "tokens_salida": 0, "costo_usd": 0.0,
+                                      "costo_equivalente_usd": 0.0})
+        a["tareas"] += 1
+        a["tokens_entrada"] += r["entrada"]
+        a["tokens_salida"] += r["salida"]
+        a["costo_equivalente_usd"] += r["equivalente"]
+        pid = _pedido_de(r["ts"], ventanas)
+        if pid:
+            c = claude_pedido.setdefault(pid, {"tokens": 0, "costo_equivalente_usd": 0.0})
+            c["tokens"] += r["entrada"] + r["salida"]
+            c["costo_equivalente_usd"] += r["equivalente"]
+    for a in claude_dia.values():
+        a["costo_equivalente_usd"] = round(a["costo_equivalente_usd"], 5)
+
+    filas = []
+    for p in pedidos:
         items = []
         for n, i in enumerate(p["items"], 1):
             c = consumo.get((p["id"], n), vacio)
@@ -389,9 +482,12 @@ def datos_panel() -> dict:
             "costo_usd": round(sum(i["costo_usd"] for i in items), 4),
             "costo_equivalente_usd": round(sum(i["costo_equivalente_usd"] for i in items), 4),
             "tokens": sum(i["tokens"] for i in items),
+            "claude": {k: round(v, 4) for k, v in claude_pedido.get(p["id"], {"tokens": 0,
+                                                                              "costo_equivalente_usd": 0.0}).items()},
             "items": items,
         })
-    data = {"pedidos": filas, "costos_diarios": costos_diarios(), "dias": PANEL_DIAS, "generado": _now()}
+    diarios = sorted(costos_diarios() + list(claude_dia.values()), key=lambda a: a["dia"])
+    data = {"pedidos": filas, "costos_diarios": diarios, "dias": PANEL_DIAS, "generado": _now()}
     # Un documento del panel admite 256 KiB: si se pasa, recorta los pedidos más antiguos.
     while len(json.dumps(data, ensure_ascii=False).encode("utf-8")) > 240_000 and data["pedidos"]:
         data["pedidos"].pop()

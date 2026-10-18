@@ -136,3 +136,26 @@ def test_aprendizajes_por_proyecto(tmp_registro, monkeypatch):
     registro.registrar_aprendizaje("otro", "OpenCode", "innti-dsf", "mal", "falló")
     out = registro.consultar_aprendizajes(str(ws / "ssdd-back"))
     assert "ssdd-back" in out and "innti-dsp" in out and "innti-dsf" not in out
+
+
+def test_consumo_de_claude_en_el_panel(tmp_registro, tmp_path, monkeypatch):
+    precios = tmp_path / "precios.json"
+    precios.write_text(json.dumps({"claude-x": [5.0, 0.5, 25.0]}), encoding="utf-8")
+    monkeypatch.setattr(registro, "PRECIOS_FILE", precios)
+    proy = tmp_path / "claude-projects" / "D--x"
+    proy.mkdir(parents=True)
+    monkeypatch.setattr(registro, "CLAUDE_PROJECTS_DIR", proy.parent)
+    pid = pedido_id(registro.iniciar_pedido("Con Claude", ["A"]))
+    ts = datetime.now().astimezone().isoformat()
+    uso = {"input_tokens": 1_000_000, "cache_read_input_tokens": 1_000_000, "output_tokens": 1_000_000,
+           "cache_creation_input_tokens": 1_000_000, "cache_creation": {"ephemeral_1h_input_tokens": 1_000_000}}
+    msg = {"timestamp": ts, "message": {"id": "msg_1", "model": "claude-x", "usage": uso}}
+    # La misma respuesta aparece una vez por bloque de contenido: debe contarse una sola vez.
+    (proy / "s.jsonl").write_text("\n".join([json.dumps(msg)] * 3), encoding="utf-8")
+    # 5 entrada + 0,5 caché + 25 salida + 2 × 5 escritura de caché de 1 h = 40,5
+    data = registro.datos_panel()
+    cl = [c for c in data["costos_diarios"] if c["agente"] == "claude"]
+    assert len(cl) == 1 and cl[0]["costo_equivalente_usd"] == 40.5 and cl[0]["tareas"] == 1
+    assert cl[0]["costo_usd"] == 0
+    p = next(p for p in data["pedidos"] if p["id"] == pid)
+    assert p["claude"]["costo_equivalente_usd"] == 40.5 and p["claude"]["tokens"] == 4_000_000

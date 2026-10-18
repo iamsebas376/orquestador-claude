@@ -24,6 +24,7 @@ def tmp_registro(tmp_path, monkeypatch):
     monkeypatch.setattr(registro, "COSTOS_FILE", tmp_path / "logs" / "costos.jsonl")
     monkeypatch.setattr(registro, "APRENDIZAJES_FILE", tmp_path / "aprendizajes.jsonl")
     monkeypatch.setattr(registro, "MAX_RONDAS", 2)
+    monkeypatch.setattr(registro, "CLAUDE_PROJECTS_DIR", tmp_path / "claude-projects")  # no lee los reales
     return tmp_path
 
 

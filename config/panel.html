@@ -9,7 +9,7 @@
   --accent: #2348a8; --accent-soft: #e5ebf9;
   --ok: #2f7a4e; --ok-soft: #e2f2e8; --run: #2563c9; --run-soft: #e3edfb;
   --review: #8a5a00; --review-soft: #fbefd8; --fix: #a3417a; --fix-soft: #f8e4ef;
-  --bad: #b42318; --bad-soft: #fbe5e3; --idle: #6b7486; --idle-soft: #eceff4; --agy: #7a45d6; --agy-soft: #efe7fb;
+  --bad: #b42318; --bad-soft: #fbe5e3; --idle: #6b7486; --idle-soft: #eceff4; --agy: #7a45d6; --agy-soft: #efe7fb; --cl: #b4501f; --cl-soft: #fbeadf;
   --f-display: "Archivo", "Segoe UI", system-ui, sans-serif;
   --f-body: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
   --f-mono: "JetBrains Mono", Consolas, monospace;
@@ -20,7 +20,7 @@
     --accent: #8eaaf5; --accent-soft: #1e2a45;
     --ok: #7fcf9f; --ok-soft: #1a3225; --run: #8db6f5; --run-soft: #1c2b44;
     --review: #f0c46b; --review-soft: #3a2e14; --fix: #e79ac7; --fix-soft: #3b2232;
-    --bad: #f3897f; --bad-soft: #3c1f1c; --idle: #9aa3b3; --idle-soft: #262d39; --agy: #b99af5; --agy-soft: #2c2442; color-scheme: dark;
+    --bad: #f3897f; --bad-soft: #3c1f1c; --idle: #9aa3b3; --idle-soft: #262d39; --agy: #b99af5; --agy-soft: #2c2442; --cl: #f0a37a; --cl-soft: #3a261c; color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
@@ -28,7 +28,7 @@
   --accent: #8eaaf5; --accent-soft: #1e2a45;
   --ok: #7fcf9f; --ok-soft: #1a3225; --run: #8db6f5; --run-soft: #1c2b44;
   --review: #f0c46b; --review-soft: #3a2e14; --fix: #e79ac7; --fix-soft: #3b2232;
-  --bad: #f3897f; --bad-soft: #3c1f1c; --idle: #9aa3b3; --idle-soft: #262d39; --agy: #b99af5; --agy-soft: #2c2442; color-scheme: dark;
+  --bad: #f3897f; --bad-soft: #3c1f1c; --idle: #9aa3b3; --idle-soft: #262d39; --agy: #b99af5; --agy-soft: #2c2442; --cl: #f0a37a; --cl-soft: #3a261c; color-scheme: dark;
 }
 * { box-sizing: border-box; }
 body {
@@ -49,7 +49,7 @@ header { display: flex; flex-wrap: wrap; align-items: end; justify-content: spac
 .sync .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); margin-right: 6px; vertical-align: 1px; }
 .sync.off .dot { background: var(--idle); }
 
-.kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .kpi { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .kpi .v { font: 800 1.6rem/1.1 var(--f-display); font-variant-numeric: tabular-nums; }
 .kpi .l { font: 600 .72rem/1.3 var(--f-mono); letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
@@ -75,6 +75,7 @@ header { display: flex; flex-wrap: wrap; align-items: end; justify-content: spac
 .badges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; }
 .money { font: 600 .74rem/1 var(--f-mono); padding: 5px 7px; border-radius: 6px; background: var(--bg); color: var(--fg); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .money.agy { background: var(--agy-soft); color: var(--agy); }
+.money.cl { background: var(--cl-soft); color: var(--cl); }
 .money.tok { color: var(--muted); }
 .pedido-body { border-top: 1px solid var(--line); padding: 12px 18px 16px; display: flex; flex-direction: column; gap: 12px; }
 .ph { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: baseline; justify-content: space-between; }
@@ -125,6 +126,7 @@ tr:last-child td { border-bottom: 0; }
 .chart svg { display: block; min-width: 100%; }
 .chart .bar-r { fill: var(--accent); }
 .chart .bar-a { fill: var(--agy); }
+.chart .bar-c { fill: var(--cl); }
 .chart .hit { fill: transparent; cursor: pointer; }
 .chart .hit.on { fill: var(--accent-soft); opacity: .5; }
 .tip { position: absolute; top: 4px; z-index: 2; pointer-events: none; background: var(--fg); color: var(--bg); border-radius: 8px; padding: 8px 10px; font: .76rem/1.5 var(--f-mono); white-space: nowrap; box-shadow: 0 4px 14px rgba(0,0,0,.18); }
@@ -179,13 +181,15 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     <div class="kpi"><span class="v" id="k-delegaciones">—</span><span class="l">Delegaciones</span></div>
     <div class="kpi"><span class="v" id="k-costo">—</span><span class="l">Costo Innti</span></div>
     <div class="kpi"><span class="v" id="k-agy">—</span><span class="l">Antigravity</span></div>
+    <div class="kpi"><span class="v" id="k-claude">—</span><span class="l">Claude</span></div>
+    <div class="kpi"><span class="v" id="k-total">—</span><span class="l">Total</span></div>
   </section>
 
   <section aria-labelledby="h-dia">
     <h2 id="h-dia" style="margin-bottom:12px">Costo por día</h2>
     <div class="chart-wrap">
-      <div class="legend"><span><i style="background:var(--accent)"></i>Innti (gasto real)</span><span><i style="background:var(--agy)"></i>Antigravity (equivalente API)</span></div>
-      <div class="chart" id="chart" role="img" aria-label="Costo diario de Innti y equivalente de Antigravity en el período"></div>
+      <div class="legend"><span><i style="background:var(--accent)"></i>Innti (gasto real)</span><span><i style="background:var(--agy)"></i>Antigravity (equivalente API)</span><span><i style="background:var(--cl)"></i>Claude (equivalente API)</span></div>
+      <div class="chart" id="chart" role="img" aria-label="Costo diario de Innti y equivalente de Antigravity y Claude en el período"></div>
     </div>
   </section>
 
@@ -210,7 +214,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
         <tbody id="costos"><tr><td colspan="6" class="muted">Sin delegaciones registradas.</td></tr></tbody>
       </table>
     </div>
-    <p class="muted" style="margin-top:8px;font-size:.84rem">Innti: costo estimado con la tabla de precios de la guía. Antigravity: tokens leídos del registro local de cada conversación; tu plan Pro no cobra por token, el equivalente es lo que costaría por la API de Gemini.</p>
+    <p class="muted" style="margin-top:8px;font-size:.84rem">Innti: costo estimado con la tabla de precios de la guía. Antigravity: tokens leídos del registro local de cada conversación; tu plan Pro no cobra por token, el equivalente es lo que costaría por la API de Gemini. Claude: tokens leídos de los registros locales de Claude Code (subagentes incluidos); en cada pedido se cuenta lo que Claude trabajó mientras estaba abierto. Tu suscripción no cobra por token: el equivalente es lo que costaría por la API de Anthropic.</p>
   </section>
 
   <footer>Datos escritos por Claude desde el registro local (<span class="mono">D:\claude\tareas</span>). Esta página solo los muestra.</footer>
@@ -306,11 +310,16 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
   var abiertos = {};
   try { abiertos = JSON.parse(localStorage.getItem("panel-abiertos") || "{}"); } catch (e) {}
 
-  function badges(costoReal, equiv, tokens) {
+  function badges(costoReal, equiv, tokens, claude) {
     var box = el("div", "badges");
     if (tokens) box.appendChild(el("span", "money tok", compacto(tokens) + " tokens"));
     if (costoReal) box.appendChild(el("span", "money", usd(costoReal)));
     if (equiv) box.appendChild(el("span", "money agy", "≈ " + usd(equiv)));
+    if (claude && claude.costo_equivalente_usd) {
+      var c = el("span", "money cl", "Claude ≈ " + usd(claude.costo_equivalente_usd));
+      c.title = "Trabajo de Claude (orquestar y revisar): " + compacto(claude.tokens || 0) + " tokens";
+      box.appendChild(c);
+    }
     return box;
   }
 
@@ -344,7 +353,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
 
     var side = el("div", "ps-side");
     side.appendChild(el("span", "chip p-" + p.estado, p.estado));
-    side.appendChild(badges(p.costo_usd, p.costo_equivalente_usd, p.tokens));
+    side.appendChild(badges(p.costo_usd, p.costo_equivalente_usd, p.tokens, p.claude));
     sum.appendChild(side);
     card.appendChild(sum);
 
@@ -383,21 +392,23 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
   function renderChart(r, costos) {
     var box = document.getElementById("chart");
     box.textContent = "";
+    function tot(v) { return v.innti + v.agy + v.cl; }
     var porDia = {};
     costos.forEach(function (c) {
-      var d = porDia[c.dia] || (porDia[c.dia] = { innti: 0, agy: 0, tokens: 0, tareas: 0 });
+      var d = porDia[c.dia] || (porDia[c.dia] = { innti: 0, agy: 0, cl: 0, tokens: 0, tareas: 0 });
       d.innti += c.costo_usd || 0;
-      d.agy += c.costo_equivalente_usd || 0;
       d.tokens += (c.tokens_entrada || 0) + (c.tokens_salida || 0);
+      if (c.agente === "claude") { d.cl += c.costo_equivalente_usd || 0; return; }
+      d.agy += c.costo_equivalente_usd || 0;
       d.tareas += c.tareas || 0;
     });
-    var dias = Object.keys(porDia).filter(function (k) { return porDia[k].innti + porDia[k].agy > 0; }).sort();
+    var dias = Object.keys(porDia).filter(function (k) { return tot(porDia[k]) > 0; }).sort();
     if (!dias.length) { box.appendChild(el("p", "vacio", "Sin consumo en este período.")); return; }
     var ini = r.desde ? sod(r.desde) : parse(dias[0]);
     var fin = r.hasta ? sod(r.hasta) : sod(new Date());
     if (fin > sod(new Date())) fin = sod(new Date());
     var n = Math.max(1, Math.round((fin - ini) / DAY) + 1);
-    var max = Math.max.apply(null, dias.map(function (d) { return porDia[d].innti + porDia[d].agy; })) || 1;
+    var max = Math.max.apply(null, dias.map(function (d) { return tot(porDia[d]); })) || 1;
     var W = Math.max(Math.floor(box.clientWidth) - 2, n * 8), H = 160, L = 84, B = 22, T = 10;
     var bw = (W - L) / n, alto = H - B - T;
     var ns = "http://www.w3.org/2000/svg";
@@ -424,6 +435,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
       tip.appendChild(el("strong", null, dia(d)));
       tip.appendChild(el("div", null, "Innti: " + usd(v.innti)));
       tip.appendChild(el("div", null, "Antigravity: ≈ " + usd(v.agy)));
+      tip.appendChild(el("div", null, "Claude: ≈ " + usd(v.cl)));
       tip.appendChild(el("div", null, compacto(v.tokens) + " tokens · " + v.tareas + (v.tareas === 1 ? " delegación" : " delegaciones")));
       tip.hidden = false;
       var izq = x + bw / 2 - tip.offsetWidth / 2;
@@ -435,11 +447,12 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
       (function (i) {
         var d = new Date(ini.getTime() + i * DAY), k = ymd(d), v = porDia[k];
         var x = L + i * bw;
-        if (v && v.innti + v.agy > 0) {
+        if (v && tot(v) > 0) {
           var hit = add("rect", { x: x, y: T, width: Math.max(1, bw), height: alto, "class": "hit" });
-          var hI = alto * (v.innti / max), hA = alto * (v.agy / max), bx = x + bw * 0.15, ancho = Math.max(2, bw * 0.7);
+          var hI = alto * (v.innti / max), hA = alto * (v.agy / max), hC = alto * (v.cl / max), bx = x + bw * 0.15, ancho = Math.max(2, bw * 0.7);
           if (hI > 0) add("rect", { x: bx, y: H - B - hI, width: ancho, height: Math.max(1, hI), rx: 2, "class": "bar-r", "pointer-events": "none" });
           if (hA > 0) add("rect", { x: bx, y: H - B - hI - hA, width: ancho, height: Math.max(1, hA), rx: 2, "class": "bar-a", "pointer-events": "none" });
+          if (hC > 0) add("rect", { x: bx, y: H - B - hI - hA - hC, width: ancho, height: Math.max(1, hC), rx: 2, "class": "bar-c", "pointer-events": "none" });
           hit.addEventListener("mouseenter", function () { mostrar(hit, d, v, x); });
           hit.addEventListener("click", function (ev) { ev.stopPropagation(); if (activo === hit) ocultar(); else mostrar(hit, d, v, x); });
         }
@@ -462,12 +475,17 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     document.getElementById("k-pedidos").textContent = state ? pedidos.length : "—";
     document.getElementById("k-revision").textContent = state ? items.filter(function (i) { return i.estado === "revisando"; }).length : "—";
     document.getElementById("k-rondas").textContent = state ? items.reduce(function (a, i) { return a + (i.rondas || 0); }, 0) : "—";
-    document.getElementById("k-delegaciones").textContent = state ? costos.reduce(function (a, c) { return a + (c.tareas || 0); }, 0) : "—";
+    var deleg = costos.filter(function (c) { return c.agente !== "claude"; });
+    document.getElementById("k-delegaciones").textContent = state ? deleg.reduce(function (a, c) { return a + (c.tareas || 0); }, 0) : "—";
     document.getElementById("k-costo").textContent = state ? usd(costos.reduce(function (a, c) { return a + (c.costo_usd || 0); }, 0)) : "—";
     var agy = costos.filter(function (c) { return c.agente === "antigravity"; });
     var agyTok = agy.reduce(function (a, c) { return a + (c.tokens_entrada || 0) + (c.tokens_salida || 0); }, 0);
     var agyEq = agy.reduce(function (a, c) { return a + (c.costo_equivalente_usd || 0); }, 0);
     document.getElementById("k-agy").textContent = state ? "≈ " + usd(agyEq) : "—";
+    var clEq = costos.filter(function (c) { return c.agente === "claude"; }).reduce(function (a, c) { return a + (c.costo_equivalente_usd || 0); }, 0);
+    document.getElementById("k-claude").textContent = state ? "≈ " + usd(clEq) : "—";
+    var real = costos.reduce(function (a, c) { return a + (c.costo_usd || 0); }, 0);
+    document.getElementById("k-total").textContent = state ? usd(real + agyEq + clEq) : "—";
 
     renderChart(r, costos);
 
@@ -503,7 +521,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     }
     filas.forEach(function (m) {
       var tr = el("tr");
-      tr.appendChild(el("td", null, m.agente === "opencode" ? "OpenCode" : m.agente === "antigravity" ? "Antigravity" : m.agente));
+      tr.appendChild(el("td", null, m.agente === "opencode" ? "OpenCode" : m.agente === "antigravity" ? "Antigravity" : m.agente === "claude" ? "Claude" : m.agente));
       tr.appendChild(el("td", "mono", m.modelo));
       tr.appendChild(el("td", "n", num(m.tareas)));
       tr.appendChild(el("td", "n", num(m.tokens_entrada)));
