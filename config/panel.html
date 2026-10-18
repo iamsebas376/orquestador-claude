@@ -523,7 +523,8 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     var agg = {};
     costos.forEach(function (c) {
       var k = c.agente + "|" + c.modelo;
-      var a = agg[k] || (agg[k] = { agente: c.agente, modelo: c.modelo, tareas: 0, tokens_entrada: 0, tokens_salida: 0, costo_usd: 0, costo_equivalente_usd: 0 });
+      var a = agg[k] || (agg[k] = { agente: c.agente, modelo: c.modelo, tareas: 0, tokens_entrada: 0, tokens_salida: 0, costo_usd: 0, costo_equivalente_usd: 0, sesiones: {} });
+      (c.sesiones || []).forEach(function (s) { a.sesiones[s] = 1; });
       a.tareas += c.tareas || 0; a.tokens_entrada += c.tokens_entrada || 0; a.tokens_salida += c.tokens_salida || 0; a.costo_usd += c.costo_usd || 0;
       a.costo_equivalente_usd += c.costo_equivalente_usd || 0;
     });
@@ -543,7 +544,15 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
       tdA.appendChild(document.createTextNode(m.agente === "opencode" ? "OpenCode" : m.agente === "antigravity" ? "Antigravity" : m.agente === "claude" ? "Claude" : m.agente));
       tr.appendChild(tdA);
       tr.appendChild(el("td", "mono", m.modelo));
-      tr.appendChild(el("td", "n", num(m.tareas)));
+      if (m.agente === "claude") {
+        // Claude no recibe tareas: se cuentan sus sesiones; las respuestas del modelo van al pasar el mouse.
+        var nSes = Object.keys(m.sesiones).length;
+        var tdS = el("td", "n", num(nSes) + (nSes === 1 ? " sesión" : " sesiones"));
+        tdS.title = num(m.tareas) + " respuestas del modelo";
+        tr.appendChild(tdS);
+      } else {
+        tr.appendChild(el("td", "n", num(m.tareas)));
+      }
       tr.appendChild(el("td", "n", num(m.tokens_entrada)));
       tr.appendChild(el("td", "n", num(m.tokens_salida)));
       tr.appendChild(el("td", "n " + ia, m.costo_usd ? usd(m.costo_usd)

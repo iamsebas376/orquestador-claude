@@ -395,7 +395,7 @@ def _mensajes_claude(desde: datetime) -> list[dict]:
             escritura_1h = cc.get("ephemeral_1h_input_tokens", 0)
             escritura = u.get("cache_creation_input_tokens", 0)
             por_id[m.get("id") or f"{f}:{len(por_id)}"] = {
-                "ts": ts, "modelo": modelo,
+                "ts": ts, "modelo": modelo, "sesion": str(e.get("sessionId") or f.stem),
                 "tokens": {"input": u.get("input_tokens", 0), "cache_read": u.get("cache_read_input_tokens", 0),
                            "cache_write_5m": max(0, escritura - escritura_1h), "cache_write_1h": escritura_1h,
                            "output": u.get("output_tokens", 0)},
@@ -413,11 +413,11 @@ def costo_claude(modelo: str, tokens: dict, fecha: str = "") -> float:
 
 
 def consumo_claude(dias: int = PANEL_DIAS) -> list[dict]:
-    """Consumo de Claude por respuesta: ts, modelo, tokens (entrada incluye caché) y equivalente API."""
+    """Consumo de Claude por respuesta: ts, modelo, sesión, tokens (entrada incluye caché) y equivalente API."""
     filas = []
     for r in _mensajes_claude(datetime.now() - timedelta(days=dias)):
         t = r["tokens"]
-        filas.append({"ts": r["ts"], "modelo": r["modelo"],
+        filas.append({"ts": r["ts"], "modelo": r["modelo"], "sesion": r["sesion"],
                       "entrada": t["input"] + t["cache_read"] + t["cache_write_5m"] + t["cache_write_1h"],
                       "salida": t["output"], "equivalente": costo_claude(r["modelo"], t, r["ts"].isoformat())})
     return filas
@@ -453,8 +453,10 @@ def datos_panel() -> dict:
         k = (r["ts"].date().isoformat(), r["modelo"])
         a = claude_dia.setdefault(k, {"dia": k[0], "agente": "claude", "modelo": k[1], "tareas": 0,
                                       "tokens_entrada": 0, "tokens_salida": 0, "costo_usd": 0.0,
-                                      "costo_equivalente_usd": 0.0})
-        a["tareas"] += 1
+                                      "costo_equivalente_usd": 0.0, "sesiones": []})
+        a["tareas"] += 1  # respuestas del modelo; el panel muestra las sesiones distintas
+        if r["sesion"][:8] not in a["sesiones"]:
+            a["sesiones"].append(r["sesion"][:8])
         a["tokens_entrada"] += r["entrada"]
         a["tokens_salida"] += r["salida"]
         a["costo_equivalente_usd"] += r["equivalente"]
