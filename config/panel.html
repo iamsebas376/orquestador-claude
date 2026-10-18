@@ -9,7 +9,7 @@
   --accent: #2348a8; --accent-soft: #e5ebf9;
   --ok: #2f7a4e; --ok-soft: #e2f2e8; --run: #2563c9; --run-soft: #e3edfb;
   --review: #8a5a00; --review-soft: #fbefd8; --fix: #a3417a; --fix-soft: #f8e4ef;
-  --bad: #b42318; --bad-soft: #fbe5e3; --idle: #6b7486; --idle-soft: #eceff4; --agy: #7a45d6; --agy-soft: #efe7fb; --cl: #b4501f; --cl-soft: #fbeadf;
+  --bad: #b42318; --bad-soft: #fbe5e3; --idle: #6b7486; --idle-soft: #eceff4; --innti: #0f7d86; --innti-soft: #dff3f4; --agy: #7a45d6; --agy-soft: #efe7fb; --cl: #b4501f; --cl-soft: #fbeadf;
   --f-display: "Archivo", "Segoe UI", system-ui, sans-serif;
   --f-body: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
   --f-mono: "JetBrains Mono", Consolas, monospace;
@@ -20,7 +20,7 @@
     --accent: #8eaaf5; --accent-soft: #1e2a45;
     --ok: #7fcf9f; --ok-soft: #1a3225; --run: #8db6f5; --run-soft: #1c2b44;
     --review: #f0c46b; --review-soft: #3a2e14; --fix: #e79ac7; --fix-soft: #3b2232;
-    --bad: #f3897f; --bad-soft: #3c1f1c; --idle: #9aa3b3; --idle-soft: #262d39; --agy: #b99af5; --agy-soft: #2c2442; --cl: #f0a37a; --cl-soft: #3a261c; color-scheme: dark;
+    --bad: #f3897f; --bad-soft: #3c1f1c; --idle: #9aa3b3; --idle-soft: #262d39; --innti: #6fd3dc; --innti-soft: #173338; --agy: #b99af5; --agy-soft: #2c2442; --cl: #f0a37a; --cl-soft: #3a261c; color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
@@ -28,7 +28,7 @@
   --accent: #8eaaf5; --accent-soft: #1e2a45;
   --ok: #7fcf9f; --ok-soft: #1a3225; --run: #8db6f5; --run-soft: #1c2b44;
   --review: #f0c46b; --review-soft: #3a2e14; --fix: #e79ac7; --fix-soft: #3b2232;
-  --bad: #f3897f; --bad-soft: #3c1f1c; --idle: #9aa3b3; --idle-soft: #262d39; --agy: #b99af5; --agy-soft: #2c2442; --cl: #f0a37a; --cl-soft: #3a261c; color-scheme: dark;
+  --bad: #f3897f; --bad-soft: #3c1f1c; --idle: #9aa3b3; --idle-soft: #262d39; --innti: #6fd3dc; --innti-soft: #173338; --agy: #b99af5; --agy-soft: #2c2442; --cl: #f0a37a; --cl-soft: #3a261c; color-scheme: dark;
 }
 * { box-sizing: border-box; }
 body {
@@ -74,6 +74,7 @@ header { display: flex; flex-wrap: wrap; align-items: end; justify-content: spac
 .ps-side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
 .badges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; }
 .money { font: 600 .74rem/1 var(--f-mono); padding: 5px 7px; border-radius: 6px; background: var(--bg); color: var(--fg); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.money.innti { background: var(--innti-soft); color: var(--innti); }
 .money.agy { background: var(--agy-soft); color: var(--agy); }
 .money.cl { background: var(--cl-soft); color: var(--cl); }
 .money.tok { color: var(--muted); }
@@ -87,7 +88,11 @@ ol.items li { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; al
 .it-text { min-width: 0; overflow-wrap: anywhere; }
 .it-sub { font: .76rem/1.4 var(--f-mono); color: var(--muted); }
 .it-cost { font: .76rem/1.45 var(--f-mono); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
-.it-cost .agy { color: var(--agy); }
+.it-cost .innti, .kpi .v.innti, td.innti { color: var(--innti); }
+.it-cost .agy, .kpi .v.agy, td.agy { color: var(--agy); }
+.it-cost .cl, .kpi .v.cl, td.cl { color: var(--cl); }
+.ia { display: inline-block; width: 8px; height: 8px; border-radius: 99px; margin-right: 6px; vertical-align: 1px; }
+.ia.innti { background: var(--innti); } .ia.agy { background: var(--agy); } .ia.cl { background: var(--cl); }
 .chip { display: inline-flex; align-items: center; gap: 5px; font: 600 .72rem/1 var(--f-mono); padding: 5px 8px; border-radius: 99px; white-space: nowrap; }
 .s-pendiente { background: var(--idle-soft); color: var(--idle); }
 .s-en_curso { background: var(--run-soft); color: var(--run); }
@@ -124,7 +129,7 @@ tr:last-child td { border-bottom: 0; }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
 .chart { position: relative; overflow-x: auto; }
 .chart svg { display: block; min-width: 100%; }
-.chart .bar-r { fill: var(--accent); }
+.chart .bar-r { fill: var(--innti); }
 .chart .bar-a { fill: var(--agy); }
 .chart .bar-c { fill: var(--cl); }
 .chart .hit { fill: transparent; cursor: pointer; }
@@ -179,16 +184,16 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     <div class="kpi"><span class="v" id="k-revision">—</span><span class="l">Ítems por revisar</span></div>
     <div class="kpi"><span class="v" id="k-rondas">—</span><span class="l">Rondas de corrección</span></div>
     <div class="kpi"><span class="v" id="k-delegaciones">—</span><span class="l">Delegaciones</span></div>
-    <div class="kpi"><span class="v" id="k-costo">—</span><span class="l">Costo Innti</span></div>
-    <div class="kpi"><span class="v" id="k-agy">—</span><span class="l">Antigravity</span></div>
-    <div class="kpi"><span class="v" id="k-claude">—</span><span class="l">Claude</span></div>
+    <div class="kpi"><span class="v innti" id="k-costo">—</span><span class="l">Costo Innti</span></div>
+    <div class="kpi"><span class="v agy" id="k-agy">—</span><span class="l">Antigravity</span></div>
+    <div class="kpi"><span class="v cl" id="k-claude">—</span><span class="l">Claude</span></div>
     <div class="kpi"><span class="v" id="k-total">—</span><span class="l">Total</span></div>
   </section>
 
   <section aria-labelledby="h-dia">
     <h2 id="h-dia" style="margin-bottom:12px">Costo por día</h2>
     <div class="chart-wrap">
-      <div class="legend"><span><i style="background:var(--accent)"></i>Innti (gasto real)</span><span><i style="background:var(--agy)"></i>Antigravity (equivalente API)</span><span><i style="background:var(--cl)"></i>Claude (equivalente API)</span></div>
+      <div class="legend"><span><i style="background:var(--innti)"></i>Innti (gasto real)</span><span><i style="background:var(--agy)"></i>Antigravity (equivalente API)</span><span><i style="background:var(--cl)"></i>Claude (equivalente API)</span></div>
       <div class="chart" id="chart" role="img" aria-label="Costo diario de Innti y equivalente de Antigravity y Claude en el período"></div>
     </div>
   </section>
@@ -299,6 +304,12 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
   }
 
   // ---------------------------------------------------------------- piezas
+  // Un color por IA en todo el panel: Innti (OpenCode) verde azulado, Antigravity morado, Claude naranja.
+  function iaClase(agente) {
+    var a = String(agente || "").toLowerCase();
+    return a === "opencode" || a.indexOf("innti") >= 0 ? "innti" : a === "antigravity" ? "agy" : a === "claude" ? "cl" : "";
+  }
+
   function chip(estado) {
     var e = ESTADOS[estado] || ["•", estado];
     var c = el("span", "chip s-" + estado);
@@ -313,10 +324,10 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
   function badges(costoReal, equiv, tokens, claude) {
     var box = el("div", "badges");
     if (tokens) box.appendChild(el("span", "money tok", compacto(tokens) + " tokens"));
-    if (costoReal) box.appendChild(el("span", "money", usd(costoReal)));
+    if (costoReal) box.appendChild(el("span", "money innti", usd(costoReal)));
     if (equiv) box.appendChild(el("span", "money agy", "≈ " + usd(equiv)));
     if (claude && claude.costo_equivalente_usd) {
-      var c = el("span", "money cl", "Claude ≈ " + usd(claude.costo_equivalente_usd));
+      var c = el("span", "money cl", "≈ " + usd(claude.costo_equivalente_usd));
       c.title = "Trabajo de Claude (orquestar y revisar): " + compacto(claude.tokens || 0) + " tokens";
       box.appendChild(c);
     }
@@ -372,13 +383,16 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
       txt.appendChild(el("div", "it-text", i.texto));
       var sub = [i.agente, i.modelo].filter(Boolean).join(" · ");
       if (sub || i.rondas) {
-        var s2 = el("div", "it-sub", sub);
+        var s2 = el("div", "it-sub");
+        var claseIa = iaClase(i.agente);
+        if (claseIa) s2.appendChild(el("span", "ia " + claseIa));
+        s2.appendChild(document.createTextNode(sub));
         if (i.rondas) { s2.appendChild(document.createTextNode(sub ? "  " : "")); s2.appendChild(el("span", "rondas", "↻ " + i.rondas + (i.rondas === 1 ? " ronda" : " rondas"))); }
         txt.appendChild(s2);
       }
       li.appendChild(txt);
       var cost = el("span", "it-cost");
-      if (i.costo_usd) cost.appendChild(el("div", null, usd(i.costo_usd)));
+      if (i.costo_usd) cost.appendChild(el("div", "innti", usd(i.costo_usd)));
       if (i.costo_equivalente_usd) cost.appendChild(el("div", "agy", "≈ " + usd(i.costo_equivalente_usd)));
       if (i.tokens) cost.appendChild(el("div", null, compacto(i.tokens) + " tok"));
       li.appendChild(cost);
@@ -433,9 +447,12 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
       activo = hit; hit.classList.add("on");
       tip.textContent = "";
       tip.appendChild(el("strong", null, dia(d)));
-      tip.appendChild(el("div", null, "Innti: " + usd(v.innti)));
-      tip.appendChild(el("div", null, "Antigravity: ≈ " + usd(v.agy)));
-      tip.appendChild(el("div", null, "Claude: ≈ " + usd(v.cl)));
+      [["innti", "Innti: " + usd(v.innti)], ["agy", "Antigravity: ≈ " + usd(v.agy)], ["cl", "Claude: ≈ " + usd(v.cl)]].forEach(function (f) {
+        var linea = el("div");
+        linea.appendChild(el("span", "ia " + f[0]));
+        linea.appendChild(document.createTextNode(f[1]));
+        tip.appendChild(linea);
+      });
       tip.appendChild(el("div", null, compacto(v.tokens) + " tokens · " + v.tareas + (v.tareas === 1 ? " delegación" : " delegaciones")));
       tip.hidden = false;
       var izq = x + bw / 2 - tip.offsetWidth / 2;
@@ -521,12 +538,15 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     }
     filas.forEach(function (m) {
       var tr = el("tr");
-      tr.appendChild(el("td", null, m.agente === "opencode" ? "OpenCode" : m.agente === "antigravity" ? "Antigravity" : m.agente === "claude" ? "Claude" : m.agente));
+      var ia = iaClase(m.agente), tdA = el("td");
+      if (ia) tdA.appendChild(el("span", "ia " + ia));
+      tdA.appendChild(document.createTextNode(m.agente === "opencode" ? "OpenCode" : m.agente === "antigravity" ? "Antigravity" : m.agente === "claude" ? "Claude" : m.agente));
+      tr.appendChild(tdA);
       tr.appendChild(el("td", "mono", m.modelo));
       tr.appendChild(el("td", "n", num(m.tareas)));
       tr.appendChild(el("td", "n", num(m.tokens_entrada)));
       tr.appendChild(el("td", "n", num(m.tokens_salida)));
-      tr.appendChild(el("td", "n", m.costo_usd ? usd(m.costo_usd)
+      tr.appendChild(el("td", "n " + ia, m.costo_usd ? usd(m.costo_usd)
         : m.costo_equivalente_usd ? "≈ " + usd(m.costo_equivalente_usd) : "—"));
       tb.appendChild(tr);
     });
