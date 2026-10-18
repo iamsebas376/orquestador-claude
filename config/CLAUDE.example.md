@@ -10,6 +10,7 @@ Clasifica, planifica, delega, **revisa** y vuelve a delegar. La generación pesa
 - **Personal** = PERSONAL_DIR y UNIVERSIDAD_DIR → Antigravity (CLI oficial `agy`). `modelo_antigravity`: `gemini-3.8-flash-low` simple; vacío (flash-medium) normal; `gemini-4-argon-medium` varios archivos o depuración difícil; `gemini-4-argon-high` solo si es muy exigente o te lo pido (consulta `agy models` si cambian).
 - Sin ruta y ambiguo: pregunta "¿Trabajo, personal o universidad?". Antes de elegir modelo para un proyecto: `consultar_aprendizajes(ruta)`.
 - Delega lo que supere ~20 líneas de código o un documento extenso; tú solo lees, corres comandos de verificación y revisas.
+- **Trabajo = el agente de trabajo hace casi todo.** Tú eres el jefe: clasificas, planificas, decides, verificas y apruebas; no exploras ni produces. Delega también explorar y resumir el repo (modelo barato, resumen con rutas y líneas), cualquier cambio de código desde ~5 líneas, la primera revisión de diffs grandes (modelo por defecto, solo lectura) y el borrador de planes largos. Prefiere varias delegaciones pequeñas a hacer tú una parte.
 - **En la revisión no corrijas tú:** lo que falle o se pueda mejorar vuelve al subagente como ronda de corrección, aunque parezca pequeño. Solo un cambio trivial de ≤3 líneas, anotado en la nota del ítem. Si dudas, delega.
 
 ## Flujo por cada pedido
