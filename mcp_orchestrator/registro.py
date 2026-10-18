@@ -50,9 +50,22 @@ def _precios() -> dict:
         return {}
 
 
-def costo_innti(modelo: str, tokens: dict) -> float:
-    """Costo estimado en US$ con la tabla de la guía Innti. El razonamiento se cobra como salida."""
-    precio = _precios().get(modelo.split("/")[-1])
+def _precio_vigente(modelo: str, fecha: str = "") -> list | None:
+    """[entrada, caché, salida] del modelo en la fecha dada (ISO; vacío = hoy).
+    Acepta vigencias ({desde, precio}) y los sufijos de esfuerzo de agy (-low/-medium/-high)."""
+    tabla = _precios()
+    nombre = modelo.split("/")[-1]
+    precio = tabla.get(nombre) or tabla.get(re.sub(r"-(low|medium|high|max)$", "", nombre))
+    if isinstance(precio, list) and precio and isinstance(precio[0], dict):
+        dia = (fecha or _now())[:10]
+        vigentes = [v for v in precio if v.get("desde", "") <= dia]
+        precio = max(vigentes, key=lambda v: v["desde"])["precio"] if vigentes else None
+    return precio if precio and len(precio) == 3 else None
+
+
+def costo_innti(modelo: str, tokens: dict, fecha: str = "") -> float:
+    """Costo estimado en US$ con la tabla de precios (vigente en `fecha`). El razonamiento se cobra como salida."""
+    precio = _precio_vigente(modelo, fecha)
     if not precio:
         return 0.0
     entrada, cache, salida = precio
@@ -61,12 +74,16 @@ def costo_innti(modelo: str, tokens: dict) -> float:
 
 
 def registrar_costo(agente: str, modelo: str, tokens: dict, costo: float, pedido_id: str = "", item: int = 0,
-                    ruta: str = "") -> None:
+                    ruta: str = "", equivalente: float = 0.0) -> None:
+    """costo_usd = gasto real (cuenta para el presupuesto). costo_equivalente_usd = lo que costaría por la API
+    un agente sin cobro por token (Antigravity con plan Pro); se informa aparte y no frena nada."""
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    fila = {"ts": _now(), "agente": agente, "modelo": modelo, "tokens": tokens, "costo_usd": round(costo, 6),
+            "pedido_id": pedido_id, "item": item, "ruta": ruta}
+    if equivalente:
+        fila["costo_equivalente_usd"] = round(equivalente, 6)
     with open(COSTOS_FILE, "a", encoding="utf-8") as fh:
-        fh.write(json.dumps({"ts": _now(), "agente": agente, "modelo": modelo, "tokens": tokens,
-                             "costo_usd": round(costo, 6), "pedido_id": pedido_id, "item": item, "ruta": ruta},
-                            ensure_ascii=False) + "\n")
+        fh.write(json.dumps(fila, ensure_ascii=False) + "\n")
 
 
 def resumen_costos(dias: int = 1) -> str:
@@ -84,19 +101,24 @@ def resumen_costos(dias: int = 1) -> str:
     if not filas:
         return f"Sin delegaciones registradas en los últimos {dias} día(s)."
     total = sum(r["costo_usd"] for r in filas)
+    equiv = sum(r.get("costo_equivalente_usd", 0) for r in filas)
     por_modelo: dict[str, list] = {}
     for r in filas:
         k = f"{r['agente']} · {r['modelo']}"
-        acc = por_modelo.setdefault(k, [0, 0, 0, 0.0])
+        acc = por_modelo.setdefault(k, [0, 0, 0, 0.0, 0.0])
         t = r.get("tokens") or {}
         acc[0] += 1
         acc[1] += t.get("input", 0) + t.get("cache_read", 0)
         acc[2] += t.get("output", 0) + t.get("reasoning", 0)
         acc[3] += r["costo_usd"]
-    lineas = [f"Últimos {dias} día(s): {len(filas)} delegaciones · total {_usd(total)}"]
-    for k, (n, ti, to, c) in sorted(por_modelo.items(), key=lambda x: -x[1][3]):
-        lineas.append(f"- {k}: {n} tareas · {ti:,} tokens entrada · {to:,} salida · {_usd(c)}".replace(",", "."))
-    lineas.append("(Antigravity usa tu plan Pro: sin costo por token; Innti estimado con la tabla de precios)")
+        acc[4] += r.get("costo_equivalente_usd", 0)
+    lineas = [f"Últimos {dias} día(s): {len(filas)} delegaciones · gasto real {_usd(total)}"
+              + (f" · Antigravity equivalente API ≈ {_usd(equiv)}" if equiv else "")]
+    for k, (n, ti, to, c, e) in sorted(por_modelo.items(), key=lambda x: -(x[1][3] + x[1][4])):
+        monto = _usd(c) if c else (f"≈ {_usd(e)} equivalente" if e else _usd(0))
+        lineas.append(f"- {k}: {n} tareas · {ti:,} tokens entrada · {to:,} salida · {monto}".replace(",", "."))
+    lineas.append("(Innti: gasto estimado con la tabla de precios. Antigravity: plan Pro sin cobro por token; "
+                  "el equivalente es lo que costaría por la API de Gemini)")
     return "\n".join(lineas)
 
 
@@ -289,14 +311,17 @@ def costos_diarios(dias: int = PANEL_DIAS) -> list[dict]:
             k = (ts.date().isoformat(), r["agente"], r["modelo"])
             t = r.get("tokens") or {}
             a = agg.setdefault(k, {"dia": k[0], "agente": k[1], "modelo": k[2], "tareas": 0,
-                                   "tokens_entrada": 0, "tokens_salida": 0, "costo_usd": 0.0})
+                                   "tokens_entrada": 0, "tokens_salida": 0, "costo_usd": 0.0,
+                                   "costo_equivalente_usd": 0.0})
             a["tareas"] += 1
             a["tokens_entrada"] += t.get("input", 0) + t.get("cache_read", 0)
             a["tokens_salida"] += t.get("output", 0) + t.get("reasoning", 0)
             a["costo_usd"] += r.get("costo_usd", 0)
+            a["costo_equivalente_usd"] += r.get("costo_equivalente_usd", 0)
     filas = sorted(agg.values(), key=lambda a: a["dia"])
     for a in filas:
         a["costo_usd"] = round(a["costo_usd"], 5)
+        a["costo_equivalente_usd"] = round(a["costo_equivalente_usd"], 5)
     return filas
 
 

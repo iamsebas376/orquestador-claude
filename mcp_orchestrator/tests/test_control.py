@@ -223,6 +223,20 @@ def test_tokens_de_agy_desde_el_transcript(tmp_path, monkeypatch):
     assert server._agy_tokens("no-valida; rm", datetime(2000, 1, 1, tzinfo=timezone.utc)) == {}
 
 
+def test_cierre_personal_registra_equivalente_con_cache(tmp_path, monkeypatch):
+    monkeypatch.setattr(registro, "COSTOS_FILE", tmp_path / "costos.jsonl")
+    monkeypatch.setattr(registro, "LOGS_DIR", tmp_path)
+    precios = tmp_path / "precios.json"
+    precios.write_text(json.dumps({"gemini-3.8-flash": [0.375, 0.0375, 1.875]}), encoding="utf-8")
+    monkeypatch.setattr(registro, "PRECIOS_FILE", precios)
+    res = "Éxito: Antigravity listo.\nTokens: 2.000.000 entrada (1.000.000 de caché) / 1.000.000 salida\n"
+    out = server._cierre_personal(res, "", 0, "gemini-3.8-flash-medium", tmp_path)
+    fila = json.loads((tmp_path / "costos.jsonl").read_text(encoding="utf-8").splitlines()[-1])
+    assert fila["tokens"] == {"input": 1_000_000, "cache_read": 1_000_000, "output": 1_000_000}
+    assert fila["costo_usd"] == 0.0 and fila["costo_equivalente_usd"] == round(0.375 + 0.0375 + 1.875, 6)
+    assert "Equivalente por la API de Gemini" in out
+
+
 def test_conversacion_invalida_se_ignora(tmp_dirs, monkeypatch):
     monkeypatch.setattr(server, "_agy_cmd", lambda: "agy")
     ok = run(server.preparar_tarea_antigravity("Corrige", "", "p", "m", conversacion="c78222c8-dcb8-4882-9c5c-97e052c3aba0"))

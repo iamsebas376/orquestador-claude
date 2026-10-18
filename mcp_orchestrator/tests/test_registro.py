@@ -24,6 +24,30 @@ def test_costo_cuenta_razonamiento_como_salida_y_cache_aparte(precios):
     assert round(c, 4) == round(0.20 + 0.50 + 0.02, 4)
 
 
+def test_precios_con_vigencias_y_sufijos(tmp_path, monkeypatch):
+    f = tmp_path / "precios.json"
+    f.write_text(json.dumps({"gemini-4-argon": [
+        {"desde": "2000-01-01", "precio": [1.0, 0.1, 5.0]},
+        {"desde": "2026-12-01", "precio": [2.0, 0.2, 10.0]}]}), encoding="utf-8")
+    monkeypatch.setattr(registro, "PRECIOS_FILE", f)
+    tok = {"input": 1_000_000, "cache_read": 1_000_000, "output": 1_000_000}
+    assert registro.costo_innti("gemini-4-argon-medium", tok, "2026-11-30T10:00:00") == 1.0 + 0.1 + 5.0
+    assert registro.costo_innti("gemini-4-argon-high", tok, "2026-12-01T00:00:00") == 2.0 + 0.2 + 10.0
+
+
+def test_equivalente_no_cuenta_para_el_presupuesto(tmp_path, monkeypatch):
+    import control
+    monkeypatch.setattr(registro, "COSTOS_FILE", tmp_path / "costos.jsonl")
+    monkeypatch.setattr(registro, "LOGS_DIR", tmp_path)
+    registro.registrar_costo("antigravity", "gemini-4-argon-medium", {"input": 10}, 0.0, equivalente=3.5)
+    registro.registrar_costo("opencode", "innti-dsp", {"input": 10}, 0.2)
+    assert round(control.gasto()["hoy"], 4) == 0.2
+    dia = registro.costos_diarios()
+    agy = next(d for d in dia if d["agente"] == "antigravity")
+    assert agy["costo_equivalente_usd"] == 3.5 and agy["costo_usd"] == 0
+    assert "equivalente API" in registro.resumen_costos(1)
+
+
 def test_costo_modelo_desconocido_es_cero():
     assert registro.costo_innti("modelo-que-no-existe", {"input": 10_000}) == 0.0
 

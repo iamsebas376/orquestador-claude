@@ -604,13 +604,20 @@ async def ejecutar_personal_antigravity(
 
 
 def _cierre_personal(res: str, pedido_id: str, item: int, model: str, folder: Path) -> str:
-    """Registra el consumo (plan Pro: sin costo por token) y vincula el resultado al checklist."""
-    m = re.search(r"Tokens: ([\d.]+) entrada / ([\d.]+) salida", res)
-    tokens = {"input": int(m.group(1).replace(".", "")), "output": int(m.group(2).replace(".", ""))} if m else {}
-    registro.registrar_costo("antigravity", model, tokens, 0.0, pedido_id, item, str(folder))
+    """Registra el consumo y vincula el resultado al checklist. Plan Pro: sin gasto real; se registra también
+    el costo equivalente por la API de Gemini (no cuenta para el presupuesto de Innti)."""
+    m = re.search(r"Tokens: ([\d.]+) entrada(?: \(([\d.]+) de caché\))? / ([\d.]+) salida", res)
+    tokens = {}
+    if m:
+        total_in = int(m.group(1).replace(".", ""))
+        cache = int((m.group(2) or "0").replace(".", ""))
+        tokens = {"input": total_in - cache, "cache_read": cache, "output": int(m.group(3).replace(".", ""))}
+    equivalente = registro.costo_innti(model, tokens) if tokens else 0.0
+    registro.registrar_costo("antigravity", model, tokens, 0.0, pedido_id, item, str(folder), equivalente)
     if not res.startswith("Éxito"):
         return res
-    return res + registro.vincular_delegacion(pedido_id, item, "Antigravity", model, 0.0, res.split("\n")[0])
+    extra = f"\nEquivalente por la API de Gemini: ≈ US$ {equivalente:.4f} (plan Pro: no se cobra)" if equivalente else ""
+    return res + extra + registro.vincular_delegacion(pedido_id, item, "Antigravity", model, 0.0, res.split("\n")[0])
 
 
 def _emit(events_file: Path, event: dict) -> None:
@@ -682,8 +689,8 @@ async def _agy_wait(task: dict, via: str) -> str:
     shown = "\n".join(f"  - {p}" for p in changed[:15]) + (f"\n  … y {len(changed) - 15} más" if len(changed) > 15 else "")
     conv = _agy_conversacion(folder)
     tokens = _agy_tokens(conv, task["inicio"]) if conv else {}
-    tok_txt = (f"Tokens: {tokens['input'] + tokens['cache_read']:,} entrada / {tokens['output']:,} salida\n"
-               .replace(",", ".") if tokens else "")
+    tok_txt = (f"Tokens: {tokens['input'] + tokens['cache_read']:,} entrada ({tokens['cache_read']:,} de caché) "
+               f"/ {tokens['output']:,} salida\n".replace(",", ".") if tokens else "")
     _live(f"■ Éxito con {model} ({via}) | {len(changed)} archivos | {tok_txt.strip()} | síntesis devuelta a Claude")
     return (f"Éxito: Antigravity ({model}, CLI oficial) completó la tarea en {folder}.\n"
             f"Archivos creados/modificados: {len(changed)}\n{shown}\n{tok_txt}Log: {log_file}\n"

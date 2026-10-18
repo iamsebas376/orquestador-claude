@@ -153,7 +153,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     <div class="kpi"><span class="v" id="k-rondas">—</span><span class="l">Rondas de corrección</span></div>
     <div class="kpi"><span class="v" id="k-delegaciones">—</span><span class="l">Delegaciones</span></div>
     <div class="kpi"><span class="v" id="k-costo">—</span><span class="l">Costo Innti</span></div>
-    <div class="kpi"><span class="v" id="k-agy">—</span><span class="l">Tokens Antigravity</span></div>
+    <div class="kpi"><span class="v" id="k-agy">—</span><span class="l" id="k-agy-l">Antigravity · equivalente API</span></div>
   </section>
 
   <section aria-labelledby="h-dia">
@@ -182,7 +182,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
         <tbody id="costos"><tr><td colspan="6" class="muted">Sin delegaciones registradas.</td></tr></tbody>
       </table>
     </div>
-    <p class="muted" style="margin-top:8px;font-size:.84rem">Innti: costo estimado con la tabla de precios de la guía. Antigravity: tokens leídos del registro local de cada conversación; plan Pro, sin costo por token.</p>
+    <p class="muted" style="margin-top:8px;font-size:.84rem">Innti: costo estimado con la tabla de precios de la guía. Antigravity: tokens leídos del registro local de cada conversación; tu plan Pro no cobra por token, el equivalente es lo que costaría por la API de Gemini.</p>
   </section>
 
   <footer>Datos escritos por Claude desde el registro local (<span class="mono">D:\claude\tareas</span>). Esta página solo los muestra.</footer>
@@ -371,9 +371,11 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     document.getElementById("k-rondas").textContent = state ? items.reduce(function (a, i) { return a + (i.rondas || 0); }, 0) : "—";
     document.getElementById("k-delegaciones").textContent = state ? costos.reduce(function (a, c) { return a + (c.tareas || 0); }, 0) : "—";
     document.getElementById("k-costo").textContent = state ? usd(costos.reduce(function (a, c) { return a + (c.costo_usd || 0); }, 0)) : "—";
-    document.getElementById("k-agy").textContent = state ? compacto(costos.reduce(function (a, c) {
-      return c.agente === "antigravity" ? a + (c.tokens_entrada || 0) + (c.tokens_salida || 0) : a;
-    }, 0)) : "—";
+    var agy = costos.filter(function (c) { return c.agente === "antigravity"; });
+    var agyTok = agy.reduce(function (a, c) { return a + (c.tokens_entrada || 0) + (c.tokens_salida || 0); }, 0);
+    var agyEq = agy.reduce(function (a, c) { return a + (c.costo_equivalente_usd || 0); }, 0);
+    document.getElementById("k-agy").textContent = state ? "≈ " + usd(agyEq) : "—";
+    document.getElementById("k-agy-l").textContent = "Antigravity · equivalente API" + (state ? " · " + compacto(agyTok) + " tokens" : "");
 
     renderChart(r, costos);
 
@@ -394,10 +396,13 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     var agg = {};
     costos.forEach(function (c) {
       var k = c.agente + "|" + c.modelo;
-      var a = agg[k] || (agg[k] = { agente: c.agente, modelo: c.modelo, tareas: 0, tokens_entrada: 0, tokens_salida: 0, costo_usd: 0 });
+      var a = agg[k] || (agg[k] = { agente: c.agente, modelo: c.modelo, tareas: 0, tokens_entrada: 0, tokens_salida: 0, costo_usd: 0, costo_equivalente_usd: 0 });
       a.tareas += c.tareas || 0; a.tokens_entrada += c.tokens_entrada || 0; a.tokens_salida += c.tokens_salida || 0; a.costo_usd += c.costo_usd || 0;
+      a.costo_equivalente_usd += c.costo_equivalente_usd || 0;
     });
-    var filas = Object.keys(agg).map(function (k) { return agg[k]; }).sort(function (a, b) { return b.costo_usd - a.costo_usd; });
+    var filas = Object.keys(agg).map(function (k) { return agg[k]; }).sort(function (a, b) {
+      return (b.costo_usd + b.costo_equivalente_usd) - (a.costo_usd + a.costo_equivalente_usd);
+    });
     var tb = document.getElementById("costos");
     tb.textContent = "";
     if (!filas.length) {
@@ -411,7 +416,8 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
       tr.appendChild(el("td", "n", num(m.tareas)));
       tr.appendChild(el("td", "n", num(m.tokens_entrada)));
       tr.appendChild(el("td", "n", num(m.tokens_salida)));
-      tr.appendChild(el("td", "n", m.costo_usd ? usd(m.costo_usd) : "—"));
+      tr.appendChild(el("td", "n", m.costo_usd ? usd(m.costo_usd)
+        : m.costo_equivalente_usd ? "≈ " + usd(m.costo_equivalente_usd) + " equiv." : "—"));
       tb.appendChild(tr);
     });
 
