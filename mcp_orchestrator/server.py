@@ -65,6 +65,12 @@ ANTIGRAVITY_AGY_MODEL = _env("ANTIGRAVITY_AGY_MODEL", "gemini-3.8-flash-medium")
 ANTIGRAVITY_AGY_FALLBACK = [
     m.strip() for m in _env("ANTIGRAVITY_AGY_FALLBACK", "gemini-3.8-flash-low").split(",") if m.strip()
 ]
+# Orden de respaldo cuando un modelo llega a su límite: se pasa al siguiente de la lista (de más a menos capaz).
+ANTIGRAVITY_CADENA = [
+    m.strip() for m in _env(
+        "ANTIGRAVITY_CADENA", "gemini-4-argon-high,gemini-4-argon-medium,gemini-3.8-flash-medium,gemini-3.8-flash-low"
+    ).split(",") if m.strip()
+]
 ANTIGRAVITY_SKIP_PERMISSIONS = _env("ANTIGRAVITY_SKIP_PERMISSIONS", "0") in ("1", "true", "si", "sí")
 # tui = la tarea corre en la TUI oficial de agy en su ventana; visor = agy sin ventana + visor propio.
 ANTIGRAVITY_VISTA = _env("ANTIGRAVITY_VISTA", "tui").lower()
@@ -589,8 +595,9 @@ async def ejecutar_personal_antigravity(
     else:
         principal = (modelo_antigravity or ANTIGRAVITY_AGY_MODEL).strip()
         if SHOW_CONSOLE and ANTIGRAVITY_VISTA == "tui":
-            res = await _personal_agy_tui(instruccion, contexto_adicional, target, folder, principal, conversacion)
-            return _cierre_personal(res, pedido_id, item, principal, folder)
+            res, final = await _personal_agy_tui(instruccion, contexto_adicional, target, folder, principal,
+                                                 conversacion)
+            return _cierre_personal(res, pedido_id, item, final, folder)
     base.with_suffix(".meta").write_text(f"{principal}\n{instruccion[:300].replace(chr(10), ' ')}\n", encoding="utf-8")
     _open_console(f"Antigravity · {principal}",
                   [sys.executable, str(BASE_DIR / "visor_antigravity.py"), str(events_file)], BASE_DIR)
@@ -614,6 +621,12 @@ def _cierre_personal(res: str, pedido_id: str, item: int, model: str, folder: Pa
         tokens = {"input": total_in - cache, "cache_read": cache, "output": int(m.group(3).replace(".", ""))}
     equivalente = registro.costo_innti(model, tokens) if tokens else 0.0
     registro.registrar_costo("antigravity", model, tokens, 0.0, pedido_id, item, str(folder), equivalente)
+    if res.startswith("Límite") and pedido_id and item:
+        sig = re.search(r"siguiente_modelo: (\S+)", res)
+        registro.actualizar_item(pedido_id, item, "en_curso",
+                                 nota=f"Límite de {model} en Antigravity → " + (
+                                     f"se reintenta con {sig.group(1)}" if sig and sig.group(1) != "ninguno"
+                                     else "sin modelos de respaldo"))
     if not res.startswith("Éxito"):
         return res
     extra = f"\nEquivalente por la API de Gemini: ≈ US$ {equivalente:.4f} (plan Pro: no se cobra)" if equivalente else ""
@@ -656,14 +669,15 @@ def _agy_prepare(instruccion: str, contexto: str, target: Path, folder: Path, mo
         "'## RESUMEN' de máximo 8 viñetas: lo realizado, los archivos creados o modificados y cómo probarlo."
     )
     task = {"id": task_id, "folder": folder, "result": result_file, "model": model, "instruccion": instruccion,
-            "prompt": prompt, "before": _snapshot(folder), "inicio": datetime.now(timezone.utc)}
+            "contexto": contexto, "target": target, "prompt": prompt, "before": _snapshot(folder),
+            "inicio": datetime.now(timezone.utc)}
     _AGY_TASKS[task_id] = task
     return task
 
 
 async def _agy_wait(task: dict, via: str) -> str:
     folder, result_file, model = task["folder"], task["result"], task["model"]
-    deadline, last_size = time.monotonic() + ANTIGRAVITY_TIMEOUT, -1
+    deadline, last_size, vuelta = time.monotonic() + ANTIGRAVITY_TIMEOUT, -1, 0
     while time.monotonic() < deadline:
         await asyncio.sleep(2)
         if result_file.exists():
@@ -671,6 +685,12 @@ async def _agy_wait(task: dict, via: str) -> str:
             if size and size == last_size:  # espera a que termine de escribirse
                 break
             last_size = size
+            continue
+        vuelta += 1
+        if vuelta % 5 == 0:  # cada ~10 s revisa si agy quedó atascado por el límite del modelo o sin red
+            tipo, msg = _agy_fallo(_agy_conversacion(folder), task["inicio"])
+            if tipo:
+                return _agy_corte(task, tipo, msg)
     else:
         _live("■ Timeout esperando el resultado de Antigravity")
         return (f"Sin resultado: Antigravity no escribió {result_file.name} en {ANTIGRAVITY_TIMEOUT}s. Su terminal "
@@ -704,6 +724,30 @@ async def _agy_wait(task: dict, via: str) -> str:
             f"Síntesis:\n{_tail(resumen)}")
 
 
+def _agy_corte(task: dict, tipo: str, msg: str) -> str:
+    """Resultado cuando agy se atasca: por límite del modelo (propone el siguiente de la cadena) o sin red."""
+    _AGY_TASKS.pop(task["id"], None)
+    model, conv = task["model"], _agy_conversacion(task["folder"])
+    tokens = _agy_tokens(conv, task["inicio"]) if conv else {}
+    conv_txt = f"conversacion_antigravity: {conv}\n" if conv else ""
+    if tokens and any(tokens.values()):  # lo gastado antes del corte también se registra
+        conv_txt += (f"Tokens: {tokens['input'] + tokens['cache_read']:,} entrada ({tokens['cache_read']:,} de caché) "
+                     f"/ {tokens['output']:,} salida\n").replace(",", ".")
+    if tipo == "red":
+        _live(f"■ Antigravity sin conexión ({model}): {msg[:120]}")
+        return (f"Sin conexión: Antigravity ({model}) no logra llegar a la API tras varios reintentos.\n"
+                f"Error: {msg}\n{conv_txt}Revisa la red y vuelve a lanzar la tarea con el mismo modelo"
+                + (" y esa conversación" if conv else "") + ". task_id: " + task["id"])
+    descartados = [*task.get("descartados", []), model]
+    siguiente = _siguiente_modelo(model, descartados)
+    _live(f"■ Límite de {model} en Antigravity → siguiente: {siguiente or 'ninguno'}")
+    return (f"Límite: el modelo {model} de Antigravity llegó a su límite de uso.\nError: {msg}\n"
+            f"modelos_descartados: {', '.join(descartados)}\n"
+            + (f"siguiente_modelo: {siguiente}\n" if siguiente else
+               "siguiente_modelo: ninguno (se agotó la cadena ANTIGRAVITY_CADENA; consulta al usuario)\n")
+            + conv_txt + "task_id: " + task["id"])
+
+
 def _agy_conversacion(folder: Path) -> str:
     """Última conversación de agy en esa carpeta (agy la guarda en ~/.gemini/antigravity-cli/cache)."""
     f = Path.home() / ".gemini" / "antigravity-cli" / "cache" / "last_conversations.json"
@@ -718,21 +762,34 @@ def _agy_conversacion(folder: Path) -> str:
 def _agy_tokens(conv: str, desde: datetime) -> dict:
     """Tokens que gastó agy en esa conversación desde `desde` (UTC): suma las respuestas del modelo del
     transcript local (~/.gemini/antigravity-cli/brain/<id>). Así una ronda de corrección no recuenta las anteriores."""
-    if not _conv_valida(conv):
+    pasos = _agy_pasos(conv, desde)
+    if pasos is None:
         return {}
+    tot = {"input": 0, "output": 0, "cache_read": 0}
+    for ev in pasos:
+        if ev.get("type") != "PLANNER_RESPONSE":
+            continue
+        tot["input"] += int(ev.get("input_tokens") or 0)
+        tot["output"] += int(ev.get("output_tokens") or 0)
+        tot["cache_read"] += int(ev.get("cache_read_tokens") or 0)
+    return tot
+
+
+def _agy_pasos(conv: str, desde: datetime) -> list[dict] | None:
+    """Pasos del transcript local de agy (~/.gemini/antigravity-cli/brain/<id>) creados desde `desde` (UTC)."""
+    if not _conv_valida(conv):
+        return None
     f = (Path.home() / ".gemini" / "antigravity-cli" / "brain" / conv / ".system_generated" / "logs"
          / "transcript_full.jsonl")
-    tot = {"input": 0, "output": 0, "cache_read": 0}
     try:
-        lineas = f.read_text(encoding="utf-8").splitlines()
+        lineas = f.read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
-        return {}
+        return None
+    pasos = []
     for line in lineas:
         try:
             ev = json.loads(line)
         except ValueError:
-            continue
-        if ev.get("type") != "PLANNER_RESPONSE":
             continue
         try:
             ts = datetime.fromisoformat(str(ev.get("created_at", "")).replace("Z", "+00:00"))
@@ -742,10 +799,43 @@ def _agy_tokens(conv: str, desde: datetime) -> dict:
             ts = None
         if ts and ts < desde - timedelta(seconds=5):
             continue
-        tot["input"] += int(ev.get("input_tokens") or 0)
-        tot["output"] += int(ev.get("output_tokens") or 0)
-        tot["cache_read"] += int(ev.get("cache_read_tokens") or 0)
-    return tot
+        pasos.append(ev)
+    return pasos
+
+
+# agy guarda los fallos de la API como pasos ERROR_MESSAGE ("API error (attempt N): ...") y reintenta solo.
+# Aún no se ha visto un límite real: se reconocen las formas habituales de la API de Google (429, cuota, etc.).
+_RE_LIMITE = re.compile(r"\b429\b|RESOURCE_EXHAUSTED|quota|rate.?limit|exhausted|usage limit|limit (?:reached|exceeded)"
+                        r"|too many requests|out of credits|insufficient credits|model is (?:overloaded|unavailable)",
+                        re.I)
+_RE_RED = re.compile(r"no such host|dial tcp|wsarecv|connection (?:refused|reset|attempt failed)|i/o timeout", re.I)
+_AGY_MAX_REINTENTOS_RED = 6
+
+
+def _agy_fallo(conv: str, desde: datetime) -> tuple[str, str]:
+    """('limite' | 'red', mensaje) si agy está atascado por el límite del modelo o sin conexión; ('', '') si no.
+    Un error seguido de una respuesta del modelo ya se superó (agy reintentó con éxito) y no cuenta."""
+    pasos = _agy_pasos(conv, desde) or []
+    errores = []
+    for ev in pasos:
+        if ev.get("type") == "PLANNER_RESPONSE":
+            errores = []
+        elif ev.get("type") == "ERROR_MESSAGE":
+            errores.append(str(ev.get("error") or ""))
+    limite = next((e for e in errores if _RE_LIMITE.search(e)), "")
+    if limite:
+        return "limite", limite[:300]
+    red = [e for e in errores if _RE_RED.search(e)]
+    if len(red) >= _AGY_MAX_REINTENTOS_RED:
+        return "red", red[-1][:300]
+    return "", ""
+
+
+def _siguiente_modelo(model: str, descartados: list[str] | tuple = ()) -> str:
+    """Siguiente modelo de ANTIGRAVITY_CADENA tras `model`, saltando los ya descartados. '' si no queda ninguno."""
+    cadena = ANTIGRAVITY_CADENA
+    desde = cadena.index(model) + 1 if model in cadena else 0
+    return next((m for m in cadena[desde:] if m != model and m not in descartados), "")
 
 
 def _conv_valida(conv: str) -> str:
@@ -754,21 +844,36 @@ def _conv_valida(conv: str) -> str:
 
 
 async def _personal_agy_tui(instruccion: str, contexto: str, target: Path, folder: Path, model: str,
-                            conversacion: str = "") -> str:
-    """Ejecuta la tarea en la TUI oficial de Antigravity (`agy -i`) en una ventana de terminal externa."""
+                            conversacion: str = "") -> tuple[str, str]:
+    """Ejecuta la tarea en la TUI oficial de Antigravity (`agy -i`) en una ventana de terminal externa.
+    Si el modelo llega a su límite, relanza solo con el siguiente de ANTIGRAVITY_CADENA. Devuelve (resultado, modelo)."""
     agy = _agy_cmd()
     if not agy:
-        return f"Error: no se encontró agy en '{ANTIGRAVITY_CLI_PATH}'. Revisa ANTIGRAVITY_CLI_PATH en .env."
-    task = _agy_prepare(instruccion, contexto, target, folder, model)
-    prompt = " ".join(task["prompt"].split())
-    if plataforma.IS_WINDOWS:
-        # Windows Terminal separa comandos con ';' y reinterpreta comillas: se neutralizan en el prompt.
-        prompt = prompt.replace(";", ",").replace('"', "'")
-    _live(f"  modelo: {model} | TUI oficial de agy en {folder}")
-    conv = ["--conversation", conversacion] if _conv_valida(conversacion) else []
-    _open_console(f"Antigravity · {model}",
-                  [agy, *conv, "-i", prompt, "--model", model, "--mode", "accept-edits"], folder)
-    return await _agy_wait(task, "ventana externa")
+        return f"Error: no se encontró agy en '{ANTIGRAVITY_CLI_PATH}'. Revisa ANTIGRAVITY_CLI_PATH en .env.", model
+    descartados: list[str] = []
+    avisos = ""
+    while True:
+        task = _agy_prepare(instruccion, contexto, target, folder, model)
+        task["descartados"] = descartados
+        prompt = " ".join(task["prompt"].split())
+        if plataforma.IS_WINDOWS:
+            # Windows Terminal separa comandos con ';' y reinterpreta comillas: se neutralizan en el prompt.
+            prompt = prompt.replace(";", ",").replace('"', "'")
+        _live(f"  modelo: {model} | TUI oficial de agy en {folder}")
+        conv = ["--conversation", conversacion] if _conv_valida(conversacion) else []
+        _open_console(f"Antigravity · {model}",
+                      [agy, *conv, "-i", prompt, "--model", model, "--mode", "accept-edits"], folder)
+        res = await _agy_wait(task, "ventana externa")
+        sig = re.search(r"siguiente_modelo: (\S+)", res)
+        if not res.startswith("Límite") or not sig or sig.group(1) == "ninguno":
+            return res + ("\n" + avisos if avisos else ""), model
+        # Límite del modelo: relanza con el siguiente de la cadena y la misma conversación (conserva el contexto).
+        _cierre_personal(res, "", 0, model, folder)  # registra lo gastado por el modelo que se agotó
+        descartados.append(model)
+        avisos += f"⚠ {model} llegó a su límite; se relanzó con {sig.group(1)} (cierra la ventana anterior).\n"
+        conv_m = re.search(r"conversacion_antigravity: (\S+)", res)
+        conversacion = conv_m.group(1) if conv_m else conversacion
+        model = sig.group(1)
 
 
 @mcp.tool()
@@ -780,11 +885,14 @@ async def preparar_tarea_antigravity(
     pedido_id: str = "",
     item: int = 0,
     conversacion: str = "",
+    modelos_descartados: str = "",
 ) -> str:
     """SOLO EN CLAUDE CODE (terminal interna). Paso 1 de 2 para una tarea PERSONAL en Antigravity.
     Para trabajar en paralelo, prepara varias tareas (carpetas distintas) y abre una terminal por cada una.
     conversacion: en una RONDA DE CORRECCIÓN, la conversacion_antigravity del resultado anterior (misma carpeta):
         Antigravity continúa con todo el contexto y solo necesita la instrucción de corrección.
+    modelos_descartados: al relanzar tras un 'Límite:', los modelos_descartados que devolvió (separados por coma),
+        para que un nuevo límite proponga un modelo que no se haya agotado ya.
 
     Mismos parámetros y reglas de modelo que ejecutar_personal_antigravity. Devuelve un task_id y un comando:
     ejecútalo tal cual con run_in_terminal (título 'Antigravity', sin cwd: el comando ya entra a la carpeta).
@@ -802,7 +910,8 @@ async def preparar_tarea_antigravity(
     folder.mkdir(parents=True, exist_ok=True)
     model = (modelo_antigravity or ANTIGRAVITY_AGY_MODEL).strip()
     task = _agy_prepare(instruccion, contexto_adicional, target, folder, model)
-    task.update(pedido_id=pedido_id, item=item)
+    task.update(pedido_id=pedido_id, item=item,
+                descartados=[m.strip() for m in modelos_descartados.split(",") if m.strip()])
     if pedido_id and item:
         registro.actualizar_item(pedido_id, item, "en_curso", agente="Antigravity", modelo=model)
     _live("")
@@ -824,7 +933,13 @@ async def esperar_resultado_antigravity(task_id: str) -> str:
     if not task:
         return f"Error: no hay una tarea preparada con task_id '{task_id}' en este servidor."
     res = await _agy_wait(task, "terminal de Claude")
-    return _cierre_personal(res, task.get("pedido_id", ""), task.get("item", 0), task["model"], task["folder"])
+    out = _cierre_personal(res, task.get("pedido_id", ""), task.get("item", 0), task["model"], task["folder"])
+    if res.startswith("Límite") and "siguiente_modelo: ninguno" not in res:
+        out += ("\nQué hacer: cierra la pestaña de Antigravity (stop_terminal_tab) y relanza el mismo ítem con "
+                "preparar_tarea_antigravity(misma instrucción, modelo_antigravity=<siguiente_modelo>, "
+                "conversacion=<conversacion_antigravity>, modelos_descartados=<modelos_descartados>, pedido_id, item). "
+                "Avisa al usuario en una línea del cambio de modelo.")
+    return out
 
 
 def _step_label(info: dict) -> str:
@@ -856,7 +971,8 @@ async def _personal_agy(instruccion: str, contexto: str, target: Path, folder: P
     prompt += (" Termina tu respuesta con una sección '## RESUMEN' de máximo 8 viñetas con lo realizado, los "
                "archivos creados y los hallazgos clave.")
 
-    modelos = list(dict.fromkeys([principal, ANTIGRAVITY_AGY_MODEL, *ANTIGRAVITY_AGY_FALLBACK]))
+    cadena = ANTIGRAVITY_CADENA[ANTIGRAVITY_CADENA.index(principal) + 1:] if principal in ANTIGRAVITY_CADENA else []
+    modelos = list(dict.fromkeys([principal, *cadena, ANTIGRAVITY_AGY_MODEL, *ANTIGRAVITY_AGY_FALLBACK]))
     before = _snapshot(folder)
     fallos: list[str] = []
     for model in modelos:

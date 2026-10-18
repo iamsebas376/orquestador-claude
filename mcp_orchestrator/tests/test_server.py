@@ -132,3 +132,65 @@ def test_todas_las_herramientas_registradas():
                  "exportar_panel", "ver_configuracion", "verificar_proyecto", "configurar_verificacion",
                  "integrar_trabajo", "listar_trabajos_aislados", "estado_presupuesto"}
     assert esperadas <= nombres
+
+
+# ----------------------------------------------------------------------------- límite de modelos de Antigravity
+
+def _transcript(tmp_path, monkeypatch, pasos):
+    import json
+    monkeypatch.setattr(server.Path, "home", lambda: tmp_path)
+    conv = "0123abcd-0000-0000-0000-000000000000"
+    d = tmp_path / ".gemini" / "antigravity-cli" / "brain" / conv / ".system_generated" / "logs"
+    d.mkdir(parents=True)
+    (d / "transcript_full.jsonl").write_text("\n".join(json.dumps(p) for p in pasos), encoding="utf-8")
+    return conv
+
+
+def test_siguiente_modelo_sigue_la_cadena(monkeypatch):
+    monkeypatch.setattr(server, "ANTIGRAVITY_CADENA", ["a-high", "a-medium", "f-medium", "f-low"])
+    assert server._siguiente_modelo("a-high") == "a-medium"
+    assert server._siguiente_modelo("a-medium", ["a-high", "a-medium"]) == "f-medium"
+    assert server._siguiente_modelo("f-medium", ["f-low"]) == ""
+    assert server._siguiente_modelo("f-low") == ""
+    assert server._siguiente_modelo("otro") == "a-high"
+
+
+def test_detecta_limite_y_red_en_el_transcript(tmp_path, monkeypatch):
+    from datetime import datetime, timezone
+    inicio = datetime(2026, 10, 18, 12, 0, tzinfo=timezone.utc)
+    t = "2026-10-18T12:01:00Z"
+    conv = _transcript(tmp_path, monkeypatch, [
+        {"type": "ERROR_MESSAGE", "created_at": "2026-10-18T11:00:00Z", "error": "API error: 429 quota"},  # antes
+        {"type": "PLANNER_RESPONSE", "created_at": t, "input_tokens": 10, "output_tokens": 2},
+    ])
+    assert server._agy_fallo(conv, inicio) == ("", "")  # el error es de una ronda anterior
+
+    conv = _transcript(tmp_path / "b", monkeypatch, [
+        {"type": "ERROR_MESSAGE", "created_at": t, "error": "API error (attempt 1): 429 RESOURCE_EXHAUSTED"},
+    ])
+    assert server._agy_fallo(conv, inicio)[0] == "limite"
+
+    red = [{"type": "ERROR_MESSAGE", "created_at": t, "error": "dial tcp: lookup x: no such host"}] * 6
+    conv = _transcript(tmp_path / "c", monkeypatch, red)
+    assert server._agy_fallo(conv, inicio)[0] == "red"
+    conv = _transcript(tmp_path / "d", monkeypatch, red + [{"type": "PLANNER_RESPONSE", "created_at": t}])
+    assert server._agy_fallo(conv, inicio) == ("", "")  # agy reintentó y siguió
+
+
+def test_espera_corta_al_llegar_al_limite(tmp_dirs, tmp_registro, monkeypatch):
+    from conftest import pedido_id
+    dormir = asyncio.sleep
+    monkeypatch.setattr(server, "ANTIGRAVITY_CADENA", ["a-high", "a-medium"])
+    monkeypatch.setattr(server, "_agy_conversacion", lambda folder: "")
+    monkeypatch.setattr(server, "_agy_fallo", lambda conv, desde: ("limite", "429 RESOURCE_EXHAUSTED"))
+    monkeypatch.setattr(server.asyncio, "sleep", lambda s: dormir(0))
+    folder = tmp_dirs["personal"] / "p"
+    folder.mkdir()
+    pid = pedido_id(registro.iniciar_pedido("Límite", ["A"]))
+    task = server._agy_prepare("tarea", "", folder, folder, "a-high")
+    task.update(pedido_id=pid, item=1)
+    res = run(server.esperar_resultado_antigravity(task["id"]))
+    assert res.startswith("Límite") and "siguiente_modelo: a-medium" in res
+    assert "modelos_descartados: a-high" in res and "preparar_tarea_antigravity" in res
+    assert task["id"] not in server._AGY_TASKS
+    assert "Límite de a-high" in registro.ver_pedido(pid)

@@ -34,6 +34,7 @@ Clasifica, planifica, delega, **revisa** y vuelve a delegar. La generación pesa
 - "Freno de presupuesto" → no insistas: muestra el gasto y pregunta si autoriza (`forzar_presupuesto=True`). Aviso ⚠ → menciónalo en una línea.
 - En repos git el trabajo va aislado por defecto; `aislar=False` solo si el usuario lo pide. Pendientes: `listar_trabajos_aislados()`.
 - Personal: `preparar_tarea_antigravity(..., pedido_id, item)` → `run_in_terminal` con el comando (sin cwd) → `esperar_resultado_antigravity(task_id)`. Avisa: confiar solo si la carpeta mostrada es la personal; los comandos se aprueban ahí.
+- **Límite de modelo:** si `esperar_resultado_antigravity` devuelve "Límite:", cierra esa pestaña y relanza el mismo ítem con `modelo_antigravity=<siguiente_modelo>`, `conversacion=<conversacion_antigravity>` y `modelos_descartados=<modelos_descartados>` (no cuenta como ronda de corrección); avisa del cambio en una línea. Con "siguiente_modelo: ninguno" o "Sin conexión:", para y consulta.
 - Sin `run_in_terminal` (Chat): usa las herramientas directas (abren una ventana de terminal externa).
 
 ## Otros
