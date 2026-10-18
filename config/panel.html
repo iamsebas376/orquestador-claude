@@ -184,6 +184,10 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
       <button type="button" data-p="30d">30 días</button>
       <button type="button" data-p="todo">Todo</button>
     </div>
+    <div class="rango">
+      <label for="f-desde">Desde</label><input type="date" id="f-desde">
+      <label for="f-hasta">Hasta</label><input type="date" id="f-hasta">
+    </div>
     <div class="ias" role="group" aria-label="IA a mostrar">
       <button type="button" class="innti" data-ia="innti"><span class="ia innti"></span>Innti</button>
       <button type="button" class="agy" data-ia="agy"><span class="ia agy"></span>Antigravity</button>
@@ -272,18 +276,28 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
   function eod(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999); }
 
   // ---------------------------------------------------------------- período
+  var fDesde = document.getElementById("f-desde"), fHasta = document.getElementById("f-hasta");
+
   function rango() {
     var hoy = new Date(), h = eod(hoy);
     switch (preset) {
       case "hoy": return { desde: sod(hoy), hasta: h };
       case "7d": return { desde: sod(new Date(hoy - 6 * DAY)), hasta: h };
       case "30d": return { desde: sod(new Date(hoy - 29 * DAY)), hasta: h };
-      default: return { desde: null, hasta: null };
+      case "todo": return { desde: null, hasta: null };
+      default: {
+        var d = parse(fDesde.value), x = parse(fHasta.value);
+        return { desde: d ? sod(d) : null, hasta: x ? eod(x) : null };
+      }
     }
   }
 
   function syncControles(r) {
     document.querySelectorAll(".presets button").forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.p === preset)); });
+    if (preset !== "custom") {
+      fDesde.value = r.desde ? ymd(r.desde) : "";
+      fHasta.value = r.hasta ? ymd(r.hasta) : "";
+    }
   }
 
   function enRango(p, r) {
@@ -628,9 +642,13 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
   function guardar() {
     try { localStorage.setItem("panel-filtro", filtro); localStorage.setItem("panel-periodo", preset); } catch (e) {}
   }
-  if (["hoy", "7d", "30d", "todo"].indexOf(preset) < 0) preset = "30d"; // períodos que ya no existen
+  // Las fechas personalizadas no se recuerdan entre visitas; los períodos que ya no existen vuelven a 30 días.
+  if (["hoy", "7d", "30d", "todo"].indexOf(preset) < 0) preset = "30d";
   document.querySelectorAll(".presets button").forEach(function (b) {
     b.addEventListener("click", function () { preset = b.dataset.p; pagina = 0; guardar(); render(); });
+  });
+  [fDesde, fHasta].forEach(function (inp) {
+    inp.addEventListener("change", function () { preset = "custom"; pagina = 0; render(); });
   });
   function syncIas() {
     document.querySelectorAll(".ias button").forEach(function (b) { b.setAttribute("aria-pressed", String(iasOn[b.dataset.ia] !== false)); });
