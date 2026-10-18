@@ -215,7 +215,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     <h2 id="h-cost" style="margin-bottom:12px">Consumo del período por modelo</h2>
     <div class="table-scroll">
       <table>
-        <thead><tr><th>Agente</th><th>Modelo</th><th class="n">Tareas</th><th class="n">Tokens entrada</th><th class="n">Tokens salida</th><th class="n">Costo</th></tr></thead>
+        <thead><tr><th>Agente</th><th>Modelo</th><th class="n">Sesiones</th><th class="n">Tokens entrada</th><th class="n">Tokens salida</th><th class="n">Costo</th></tr></thead>
         <tbody id="costos"><tr><td colspan="6" class="muted">Sin delegaciones registradas.</td></tr></tbody>
       </table>
     </div>
@@ -544,15 +544,11 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
       tdA.appendChild(document.createTextNode(m.agente === "opencode" ? "OpenCode" : m.agente === "antigravity" ? "Antigravity" : m.agente === "claude" ? "Claude" : m.agente));
       tr.appendChild(tdA);
       tr.appendChild(el("td", "mono", m.modelo));
-      if (m.agente === "claude") {
-        // Claude no recibe tareas: se cuentan sus sesiones; las respuestas del modelo van al pasar el mouse.
-        var nSes = Object.keys(m.sesiones).length;
-        var tdS = el("td", "n", num(nSes) + (nSes === 1 ? " sesión" : " sesiones"));
-        tdS.title = num(m.tareas) + " respuestas del modelo";
-        tr.appendChild(tdS);
-      } else {
-        tr.appendChild(el("td", "n", num(m.tareas)));
-      }
+      // Misma unidad para todas las IA: sesiones distintas (OpenCode: sesión, Antigravity: conversación,
+      // Claude: sesión de Claude Code). Al pasar el mouse, las delegaciones o respuestas que hubo en ellas.
+      var tdS = el("td", "n", num(Object.keys(m.sesiones).length));
+      tdS.title = num(m.tareas) + (m.agente === "claude" ? " respuestas del modelo" : m.tareas === 1 ? " delegación" : " delegaciones");
+      tr.appendChild(tdS);
       tr.appendChild(el("td", "n", num(m.tokens_entrada)));
       tr.appendChild(el("td", "n", num(m.tokens_salida)));
       tr.appendChild(el("td", "n " + ia, m.costo_usd ? usd(m.costo_usd)

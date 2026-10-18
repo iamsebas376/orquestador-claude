@@ -74,12 +74,14 @@ def costo_innti(modelo: str, tokens: dict, fecha: str = "") -> float:
 
 
 def registrar_costo(agente: str, modelo: str, tokens: dict, costo: float, pedido_id: str = "", item: int = 0,
-                    ruta: str = "", equivalente: float = 0.0) -> None:
+                    ruta: str = "", equivalente: float = 0.0, sesion: str = "") -> None:
     """costo_usd = gasto real (cuenta para el presupuesto). costo_equivalente_usd = lo que costaría por la API
     un agente sin cobro por token (Antigravity con plan Pro); se informa aparte y no frena nada."""
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
     fila = {"ts": _now(), "agente": agente, "modelo": modelo, "tokens": tokens, "costo_usd": round(costo, 6),
             "pedido_id": pedido_id, "item": item, "ruta": ruta}
+    if sesion:  # sesión de OpenCode o conversación de Antigravity: el panel cuenta sesiones distintas
+        fila["sesion"] = sesion
     if equivalente:
         fila["costo_equivalente_usd"] = round(equivalente, 6)
     with open(COSTOS_FILE, "a", encoding="utf-8") as fh:
@@ -329,8 +331,12 @@ def costos_diarios(dias: int = PANEL_DIAS) -> list[dict]:
             t = r.get("tokens") or {}
             a = agg.setdefault(k, {"dia": k[0], "agente": k[1], "modelo": k[2], "tareas": 0,
                                    "tokens_entrada": 0, "tokens_salida": 0, "costo_usd": 0.0,
-                                   "costo_equivalente_usd": 0.0})
+                                   "costo_equivalente_usd": 0.0, "sesiones": []})
             a["tareas"] += 1
+            # Sin sesión registrada (filas antiguas sin recuperar): cada ítem del pedido cuenta como una.
+            ses = (r.get("sesion") or f"{r.get('pedido_id') or r['ts']}:{r.get('item', 0)}")[:12]
+            if ses not in a["sesiones"]:
+                a["sesiones"].append(ses)
             a["tokens_entrada"] += t.get("input", 0) + t.get("cache_read", 0)
             a["tokens_salida"] += t.get("output", 0) + t.get("reasoning", 0)
             a["costo_usd"] += r.get("costo_usd", 0)
@@ -455,8 +461,8 @@ def datos_panel() -> dict:
                                       "tokens_entrada": 0, "tokens_salida": 0, "costo_usd": 0.0,
                                       "costo_equivalente_usd": 0.0, "sesiones": []})
         a["tareas"] += 1  # respuestas del modelo; el panel muestra las sesiones distintas
-        if r["sesion"][:8] not in a["sesiones"]:
-            a["sesiones"].append(r["sesion"][:8])
+        if r["sesion"][:12] not in a["sesiones"]:
+            a["sesiones"].append(r["sesion"][:12])
         a["tokens_entrada"] += r["entrada"]
         a["tokens_salida"] += r["salida"]
         a["costo_equivalente_usd"] += r["equivalente"]

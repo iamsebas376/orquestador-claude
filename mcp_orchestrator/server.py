@@ -501,7 +501,8 @@ async def ejecutar_trabajo_opencode_innti(
     changed = sorted(p for p, m in after.items() if before.get(p) != m)
     tokens = await _session_tokens(session_id, cwd, inicio_ms) if session_id else {}
     costo = registro.costo_innti(modelo, tokens)
-    registro.registrar_costo("opencode", modelo.split("/")[-1], tokens, costo, pedido_id, item, str(cwd))
+    registro.registrar_costo("opencode", modelo.split("/")[-1], tokens, costo, pedido_id, item, str(cwd),
+                             sesion=session_id)
 
     log_dir = LOGS_DIR / "trabajo"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -620,7 +621,9 @@ def _cierre_personal(res: str, pedido_id: str, item: int, model: str, folder: Pa
         cache = int((m.group(2) or "0").replace(".", ""))
         tokens = {"input": total_in - cache, "cache_read": cache, "output": int(m.group(3).replace(".", ""))}
     equivalente = registro.costo_innti(model, tokens) if tokens else 0.0
-    registro.registrar_costo("antigravity", model, tokens, 0.0, pedido_id, item, str(folder), equivalente)
+    conv = re.search(r"conversacion_antigravity: (\S+)", res)
+    registro.registrar_costo("antigravity", model, tokens, 0.0, pedido_id, item, str(folder), equivalente,
+                             sesion=conv.group(1) if conv else "")
     if res.startswith("Límite") and pedido_id and item:
         sig = re.search(r"siguiente_modelo: (\S+)", res)
         registro.actualizar_item(pedido_id, item, "en_curso",

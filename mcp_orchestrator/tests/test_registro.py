@@ -157,6 +157,14 @@ def test_consumo_de_claude_en_el_panel(tmp_registro, tmp_path, monkeypatch):
     cl = [c for c in data["costos_diarios"] if c["agente"] == "claude"]
     assert len(cl) == 1 and cl[0]["costo_equivalente_usd"] == 40.5 and cl[0]["tareas"] == 1
     assert cl[0]["costo_usd"] == 0
-    assert cl[0]["sesiones"] == ["abcdef12"]
+    assert cl[0]["sesiones"] == ["abcdef123456"]
     p = next(p for p in data["pedidos"] if p["id"] == pid)
     assert p["claude"]["costo_equivalente_usd"] == 40.5 and p["claude"]["tokens"] == 4_000_000
+
+
+def test_sesiones_por_dia(tmp_registro):
+    registro.registrar_costo("opencode", "innti-dsp", {}, 0.1, "p1", 1, sesion="ses_a")
+    registro.registrar_costo("opencode", "innti-dsp", {}, 0.1, "p1", 1, sesion="ses_a")  # ronda de corrección
+    registro.registrar_costo("opencode", "innti-dsp", {}, 0.1, "p1", 2)  # sin sesión: cuenta el ítem
+    dsp = registro.costos_diarios()[0]
+    assert dsp["tareas"] == 3 and len(dsp["sesiones"]) == 2
