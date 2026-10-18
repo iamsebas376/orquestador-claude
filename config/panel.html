@@ -239,6 +239,16 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     <p class="muted" style="margin-top:8px;font-size:.84rem">Innti es gasto real; Antigravity y Claude (≈) son el equivalente por API, sus planes no cobran por token. Pasa el mouse por una fila para ver el detalle.</p>
   </section>
 
+  <section aria-labelledby="h-cls" id="sec-cls">
+    <h2 id="h-cls" style="margin-bottom:12px"><span class="ia cl"></span>Sesiones de Claude</h2>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Sesión</th><th>Días</th><th class="n">Respuestas</th><th class="n">Costo</th></tr></thead>
+        <tbody id="cls"><tr><td colspan="4" class="muted">Sin sesiones de Claude en este período.</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
   <footer>Datos escritos por Claude desde el registro local (<span class="mono">D:\claude\tareas</span>). Esta página solo los muestra.</footer>
 </div>
 
@@ -527,6 +537,43 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     box.appendChild(tip);
   }
 
+  // Sesiones de Claude en el período: lo esencial en la fila y el desglose en el tooltip.
+  function renderSesionesClaude(r) {
+    var sec = document.getElementById("sec-cls"), tb = document.getElementById("cls");
+    sec.hidden = iasOn.cl === false;
+    var cs = (state && state.claude_sesiones) || { info: {}, por_dia: [] };
+    var desde = r.desde ? ymd(r.desde) : "", hasta = r.hasta ? ymd(r.hasta) : "9999-12-31", agg = {};
+    cs.por_dia.forEach(function (d) {
+      if (d.dia < desde || d.dia > hasta) return;
+      var a = agg[d.sesion] || (agg[d.sesion] = { id: d.sesion, dias: [], respuestas: 0, tokens_entrada: 0, tokens_cache: 0, tokens_salida: 0, costo: 0 });
+      a.dias.push(d); a.respuestas += d.respuestas; a.tokens_entrada += d.tokens_entrada;
+      a.tokens_cache += d.tokens_cache; a.tokens_salida += d.tokens_salida; a.costo += d.costo_equivalente_usd;
+    });
+    var filas = Object.keys(agg).map(function (k) { return agg[k]; }).sort(function (a, b) { return b.costo - a.costo; });
+    tb.textContent = "";
+    if (!filas.length) {
+      var tr0 = el("tr"), td0 = el("td", "muted", "Sin sesiones de Claude en este período.");
+      td0.colSpan = 4; tr0.appendChild(td0); tb.appendChild(tr0); return;
+    }
+    function corto(iso) { return parse(iso).toLocaleDateString("es-CO", { day: "2-digit", month: "short" }); }
+    filas.forEach(function (a) {
+      var info = cs.info[a.id] || {}, tr = el("tr");
+      tr.appendChild(el("td", null, info.titulo || "Sesión " + a.id.slice(0, 8)));
+      a.dias.sort(function (x, y) { return x.dia < y.dia ? -1 : 1; });
+      var ini = corto(a.dias[0].dia), fin = corto(a.dias[a.dias.length - 1].dia);
+      tr.appendChild(el("td", null, ini === fin ? ini : ini + " – " + fin));
+      tr.appendChild(el("td", "n", num(a.respuestas)));
+      tr.appendChild(el("td", "n cl", "≈ " + usd(a.costo)));
+      var lineas = [[null, info.carpeta || a.id.slice(0, 8)],
+        [null, "Entrada nueva: " + compacto(a.tokens_entrada)],
+        [null, "Caché leída: " + compacto(a.tokens_cache)],
+        [null, "Salida: " + compacto(a.tokens_salida)]];
+      a.dias.forEach(function (d) { lineas.push(["cl", corto(d.dia) + ": " + num(d.respuestas) + " respuestas · ≈ " + usd(d.costo_equivalente_usd)]); });
+      tip(tr, info.titulo || "Sesión de Claude", lineas);
+      tb.appendChild(tr);
+    });
+  }
+
   // ---------------------------------------------------------------- render
   function render() {
     var r = rango();
@@ -628,6 +675,8 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
         : m.costo_equivalente_usd ? "≈ " + usd(m.costo_equivalente_usd) : "—"));
       tb.appendChild(tr);
     });
+
+    renderSesionesClaude(r);
 
     if (state) {
       var sync = document.getElementById("sync"), horas = (Date.now() - new Date(state.generado).getTime()) / 3600000;
