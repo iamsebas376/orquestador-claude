@@ -168,3 +168,23 @@ def test_sesiones_por_dia(tmp_registro):
     registro.registrar_costo("opencode", "innti-dsp", {}, 0.1, "p1", 2)  # sin sesión: cuenta el ítem
     dsp = registro.costos_diarios()[0]
     assert dsp["tareas"] == 3 and len(dsp["sesiones"]) == 2
+
+
+def test_desglose_de_claude_por_sesion(tmp_registro, tmp_path, monkeypatch):
+    precios = tmp_path / "precios.json"
+    precios.write_text(json.dumps({"claude-x": [5.0, 0.5, 25.0]}), encoding="utf-8")
+    monkeypatch.setattr(registro, "PRECIOS_FILE", precios)
+    proy = tmp_path / "cp" / "D--x"
+    proy.mkdir(parents=True)
+    monkeypatch.setattr(registro, "CLAUDE_PROJECTS_DIR", proy.parent)
+    ts = datetime.now().astimezone().isoformat()
+    lineas = [{"timestamp": ts, "sessionId": "s1", "cwd": r"D:\x", "message": {
+                  "id": f"m{i}", "model": "claude-x", "usage": {"input_tokens": 0, "cache_read_input_tokens": 1_000_000,
+                                                                "output_tokens": 0}}} for i in range(2)]
+    lineas += [{"type": "custom-title", "customTitle": "Viejo", "sessionId": "s1"},
+               {"type": "custom-title", "customTitle": "Mi sesión", "sessionId": "s1"}]
+    (proy / "s1.jsonl").write_text("\n".join(json.dumps(l) for l in lineas), encoding="utf-8")
+    ses = registro.datos_panel()["claude_sesiones"]
+    assert ses["info"]["s1"] == {"titulo": "Mi sesión", "carpeta": r"D:\x"}
+    d = ses["por_dia"][0]
+    assert d["respuestas"] == 2 and d["tokens_cache"] == 2_000_000 and d["costo_equivalente_usd"] == 1.0

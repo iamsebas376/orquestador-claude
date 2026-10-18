@@ -402,12 +402,52 @@ def _mensajes_claude(desde: datetime) -> list[dict]:
             escritura_1h = cc.get("ephemeral_1h_input_tokens", 0)
             escritura = u.get("cache_creation_input_tokens", 0)
             por_id[m.get("id") or f"{f}:{len(por_id)}"] = {
-                "ts": ts, "modelo": modelo, "sesion": str(e.get("sessionId") or f.stem),
+                "ts": ts, "modelo": modelo, "sesion": str(e.get("sessionId") or f.stem), "cwd": e.get("cwd", ""),
                 "tokens": {"input": u.get("input_tokens", 0), "cache_read": u.get("cache_read_input_tokens", 0),
                            "cache_write_5m": max(0, escritura - escritura_1h), "cache_write_1h": escritura_1h,
                            "output": u.get("output_tokens", 0)},
             }
     return sorted(por_id.values(), key=lambda r: r["ts"])
+
+
+def _titulos_claude() -> dict[str, str]:
+    """Título de cada sesión de Claude Code (el último que le puso la app), por sessionId."""
+    titulos: dict[str, str] = {}
+    for f in CLAUDE_PROJECTS_DIR.rglob("*.jsonl"):
+        try:
+            lineas = f.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        for line in lineas:
+            if '"custom-title"' not in line:
+                continue
+            try:
+                e = json.loads(line)
+            except ValueError:
+                continue
+            if e.get("type") == "custom-title" and e.get("customTitle"):
+                titulos[str(e.get("sessionId") or f.stem)] = e["customTitle"]
+    return titulos
+
+
+def sesiones_claude(dias: int = PANEL_DIAS) -> dict:
+    """Desglose de Claude por sesión: datos fijos (título, carpeta) y consumo por día para filtrar por fechas."""
+    titulos, info, por_dia = _titulos_claude(), {}, {}
+    for r in _mensajes_claude(datetime.now() - timedelta(days=dias)):
+        sid, t = r["sesion"], r["tokens"]
+        i = info.setdefault(sid, {"titulo": titulos.get(sid, ""), "carpeta": r["cwd"]})
+        i["carpeta"] = i["carpeta"] or r["cwd"]
+        k = (sid, r["ts"].date().isoformat())
+        d = por_dia.setdefault(k, {"sesion": sid, "dia": k[1], "respuestas": 0, "tokens_entrada": 0, "tokens_cache": 0,
+                                   "tokens_salida": 0, "costo_equivalente_usd": 0.0})
+        d["respuestas"] += 1
+        d["tokens_entrada"] += t["input"] + t["cache_write_5m"] + t["cache_write_1h"]
+        d["tokens_cache"] += t["cache_read"]
+        d["tokens_salida"] += t["output"]
+        d["costo_equivalente_usd"] += costo_claude(r["modelo"], t, r["ts"].isoformat())
+    for d in por_dia.values():
+        d["costo_equivalente_usd"] = round(d["costo_equivalente_usd"], 4)
+    return {"info": info, "por_dia": sorted(por_dia.values(), key=lambda d: d["dia"])}
 
 
 def costo_claude(modelo: str, tokens: dict, fecha: str = "") -> float:
@@ -497,7 +537,8 @@ def datos_panel() -> dict:
             "items": items,
         })
     diarios = sorted(costos_diarios() + list(claude_dia.values()), key=lambda a: a["dia"])
-    data = {"pedidos": filas, "costos_diarios": diarios, "dias": PANEL_DIAS, "generado": _now()}
+    data = {"pedidos": filas, "costos_diarios": diarios, "claude_sesiones": sesiones_claude(), "dias": PANEL_DIAS,
+            "generado": _now()}
     # Un documento del panel admite 256 KiB: si se pasa, recorta los pedidos más antiguos.
     while len(json.dumps(data, ensure_ascii=False).encode("utf-8")) > 240_000 and data["pedidos"]:
         data["pedidos"].pop()

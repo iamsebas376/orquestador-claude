@@ -123,7 +123,7 @@ ol.items li { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; al
 table { border-collapse: collapse; width: 100%; min-width: 560px; font-size: .9rem; }
 th, td { text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--line); }
 th { font: 600 .72rem var(--f-mono); letter-spacing: .05em; text-transform: uppercase; color: var(--muted); background: var(--bg); }
-td.n { font-family: var(--f-mono); font-variant-numeric: tabular-nums; text-align: right; font-size: .84rem; }
+td.n { white-space: nowrap; font-family: var(--f-mono); font-variant-numeric: tabular-nums; text-align: right; font-size: .84rem; }
 th.n { text-align: right; }
 tr:last-child td { border-bottom: 0; }
 
@@ -238,6 +238,16 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
       </table>
     </div>
     <p class="muted" style="margin-top:8px;font-size:.84rem">Innti: costo estimado con la tabla de precios de la guía. Antigravity: tokens leídos del registro local de cada conversación; tu plan Pro no cobra por token, el equivalente es lo que costaría por la API de Gemini. Claude: tokens leídos de los registros locales de Claude Code (subagentes incluidos); en cada pedido se cuenta lo que Claude trabajó mientras estaba abierto. Tu suscripción no cobra por token: el equivalente es lo que costaría por la API de Anthropic. Una sesión de Claude dura horas y tiene cientos de respuestas; en cada una vuelve a leer toda la conversación desde la caché, por eso «Caché leída» suma millones aunque sea la parte más barata.</p>
+  </section>
+
+  <section aria-labelledby="h-cls" id="sec-cls">
+    <h2 id="h-cls" style="margin-bottom:12px"><span class="ia cl"></span>Sesiones de Claude</h2>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Sesión</th><th>Días</th><th class="n">Respuestas</th><th class="n">Entrada nueva</th><th class="n">Caché leída</th><th class="n">Salida</th><th class="n">Costo</th></tr></thead>
+        <tbody id="cls"><tr><td colspan="7" class="muted">Sin sesiones de Claude en este período.</td></tr></tbody>
+      </table>
+    </div>
   </section>
 
   <footer>Datos escritos por Claude desde el registro local (<span class="mono">D:\claude\tareas</span>). Esta página solo los muestra.</footer>
@@ -513,6 +523,44 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     box.appendChild(tip);
   }
 
+  // Desglose de Claude por sesión en el período (título que le puso la app, días con actividad y consumo).
+  function renderSesionesClaude(r) {
+    var sec = document.getElementById("sec-cls"), tb = document.getElementById("cls");
+    sec.hidden = iasOn.cl === false;
+    var cs = (state && state.claude_sesiones) || { info: {}, por_dia: [] };
+    var desde = r.desde ? ymd(r.desde) : "", hasta = r.hasta ? ymd(r.hasta) : "9999-12-31", agg = {};
+    cs.por_dia.forEach(function (d) {
+      if (d.dia < desde || d.dia > hasta) return;
+      var a = agg[d.sesion] || (agg[d.sesion] = { id: d.sesion, dias: [], respuestas: 0, tokens_entrada: 0, tokens_cache: 0, tokens_salida: 0, costo: 0 });
+      a.dias.push(d.dia); a.respuestas += d.respuestas; a.tokens_entrada += d.tokens_entrada;
+      a.tokens_cache += d.tokens_cache; a.tokens_salida += d.tokens_salida; a.costo += d.costo_equivalente_usd;
+    });
+    var filas = Object.keys(agg).map(function (k) { return agg[k]; }).sort(function (a, b) { return b.costo - a.costo; });
+    tb.textContent = "";
+    if (!filas.length) {
+      var tr0 = el("tr"), td0 = el("td", "muted", "Sin sesiones de Claude en este período.");
+      td0.colSpan = 7; tr0.appendChild(td0); tb.appendChild(tr0); return;
+    }
+    filas.forEach(function (a) {
+      var info = cs.info[a.id] || {}, tr = el("tr"), td = el("td");
+      td.appendChild(el("div", null, info.titulo || "Sesión " + a.id.slice(0, 8)));
+      td.appendChild(el("div", "it-sub", info.carpeta || a.id.slice(0, 8)));
+      tr.appendChild(td);
+      a.dias.sort();
+      var ini = dia(parse(a.dias[0])), fin = dia(parse(a.dias[a.dias.length - 1]));
+      var tdD = el("td");
+      tdD.appendChild(el("div", null, ini === fin ? ini : ini + " – " + fin));
+      tdD.appendChild(el("div", "it-sub", a.dias.length + (a.dias.length === 1 ? " día con actividad" : " días con actividad")));
+      tr.appendChild(tdD);
+      tr.appendChild(el("td", "n", num(a.respuestas)));
+      tr.appendChild(el("td", "n", compacto(a.tokens_entrada)));
+      tr.appendChild(el("td", "n muted", compacto(a.tokens_cache)));
+      tr.appendChild(el("td", "n", compacto(a.tokens_salida)));
+      tr.appendChild(el("td", "n cl", "≈ " + usd(a.costo)));
+      tb.appendChild(tr);
+    });
+  }
+
   // ---------------------------------------------------------------- render
   function render() {
     var r = rango();
@@ -614,6 +662,8 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
         : m.costo_equivalente_usd ? "≈ " + usd(m.costo_equivalente_usd) : "—"));
       tb.appendChild(tr);
     });
+
+    renderSesionesClaude(r);
 
     if (state) {
       var sync = document.getElementById("sync"), horas = (Date.now() - new Date(state.generado).getTime()) / 3600000;
