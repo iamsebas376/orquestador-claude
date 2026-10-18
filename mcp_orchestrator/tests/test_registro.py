@@ -152,14 +152,14 @@ def test_consumo_de_claude_en_el_panel(tmp_registro, tmp_path, monkeypatch):
     msg = {"timestamp": ts, "sessionId": "abcdef123456", "message": {"id": "msg_1", "model": "claude-x", "usage": uso}}
     # La misma respuesta aparece una vez por bloque de contenido: debe contarse una sola vez.
     (proy / "s.jsonl").write_text("\n".join([json.dumps(msg)] * 3), encoding="utf-8")
-    # 5 entrada + 0,5 caché + 25 salida + 2 × 5 escritura de caché de 1 h = 40,5
+    # 5 entrada + 0,5 caché + 25 salida + 1,25 × 5 escritura de caché = 36,75
     data = registro.datos_panel()
     cl = [c for c in data["costos_diarios"] if c["agente"] == "claude"]
-    assert len(cl) == 1 and cl[0]["costo_equivalente_usd"] == 40.5 and cl[0]["tareas"] == 1
+    assert len(cl) == 1 and cl[0]["costo_equivalente_usd"] == 36.75 and cl[0]["tareas"] == 1
     assert cl[0]["costo_usd"] == 0
     assert cl[0]["sesiones"] == ["abcdef123456"] and cl[0]["tokens_cache"] == 1_000_000
     p = next(p for p in data["pedidos"] if p["id"] == pid)
-    assert p["claude"]["costo_equivalente_usd"] == 40.5 and p["claude"]["tokens"] == 4_000_000
+    assert p["claude"]["costo_equivalente_usd"] == 36.75 and p["claude"]["tokens"] == 4_000_000
 
 
 def test_sesiones_por_dia(tmp_registro):

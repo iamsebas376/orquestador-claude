@@ -451,11 +451,12 @@ def sesiones_claude(dias: int = PANEL_DIAS) -> dict:
 
 
 def costo_claude(modelo: str, tokens: dict, fecha: str = "") -> float:
-    """Equivalente por la API de Anthropic: escribir caché cuesta 1,25× la entrada (5 min) o 2× (1 h)."""
+    """Equivalente por la API de Anthropic: escribir caché cuesta 1,25× la entrada (5 min y 1 h: así cuadra con
+    el informe de uso de Claude Code)."""
     precio = _precio_vigente(modelo, fecha)
     if not precio:
         return 0.0
-    escritura = tokens.get("cache_write_5m", 0) * 1.25 + tokens.get("cache_write_1h", 0) * 2
+    escritura = (tokens.get("cache_write_5m", 0) + tokens.get("cache_write_1h", 0)) * 1.25
     return costo_innti(modelo, tokens, fecha) + escritura * precio[0] / 1_000_000
 
 
