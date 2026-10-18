@@ -194,3 +194,16 @@ def test_espera_corta_al_llegar_al_limite(tmp_dirs, tmp_registro, monkeypatch):
     assert "modelos_descartados: a-high" in res and "preparar_tarea_antigravity" in res
     assert task["id"] not in server._AGY_TASKS
     assert "Límite de a-high" in registro.ver_pedido(pid)
+
+
+def test_confia_solo_en_carpetas_personales(tmp_dirs, tmp_path, monkeypatch):
+    import json
+    f = tmp_path / "agy-settings.json"
+    f.write_text(json.dumps({"permissions": {"allow": ["command(npm test)"]}, "trustedWorkspaces": []}), encoding="utf-8")
+    monkeypatch.setattr(server, "AGY_SETTINGS", f)
+    proyecto = tmp_dirs["personal"] / "app"
+    assert server._agy_confiar(proyecto) and server._agy_confiar(proyecto)  # la segunda no la repite
+    assert not server._agy_confiar(tmp_dirs["workspaces"] / "trabajo")
+    data = json.loads(f.read_text(encoding="utf-8"))
+    assert data["trustedWorkspaces"] == [str(proyecto)]
+    assert data["permissions"]["allow"] == ["command(npm test)"]  # el resto de la configuración se conserva

@@ -35,6 +35,7 @@ def tmp_dirs(tmp_path, monkeypatch):
     for d in dirs.values():
         d.mkdir()
     monkeypatch.setattr(server, "TRABAJO_DIR", dirs["workspaces"])
+    monkeypatch.setattr(server, "AGY_SETTINGS", tmp_path / "agy-settings.json")  # no toca la config real de agy
     monkeypatch.setattr(server, "PERSONAL_DIR", dirs["personal"])
     monkeypatch.setattr(server, "UNIVERSIDAD_DIR", dirs["universidad"])
     monkeypatch.setattr(server, "LOGS_DIR", dirs["logs"])

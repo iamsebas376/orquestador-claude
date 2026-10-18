@@ -641,6 +641,31 @@ def _emit(events_file: Path, event: dict) -> None:
         fh.write(json.dumps(event, ensure_ascii=False) + "\n")
 
 
+AGY_SETTINGS = Path.home() / ".gemini" / "antigravity-cli" / "settings.json"
+
+
+def _agy_confiar(folder: Path) -> bool:
+    """Marca la carpeta como confiable en agy para que no pida confirmarla. Solo carpetas personales o de
+    universidad: la ruta ya pasó por _inside antes de llegar aquí, pero se vuelve a comprobar."""
+    if not _inside(folder, PERSONAL_DIR, UNIVERSIDAD_DIR):
+        return False
+    try:
+        data = json.loads(AGY_SETTINGS.read_text(encoding="utf-8")) if AGY_SETTINGS.exists() else {}
+    except (OSError, ValueError):
+        return False  # si el archivo está dañado no se toca: agy pedirá confirmar como siempre
+    lista = data.setdefault("trustedWorkspaces", [])
+    clave = os.path.normcase(os.path.normpath(str(folder)))
+    if any(os.path.normcase(os.path.normpath(w)) == clave for w in lista):
+        return True
+    lista.append(str(folder))
+    try:
+        AGY_SETTINGS.parent.mkdir(parents=True, exist_ok=True)
+        AGY_SETTINGS.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    except OSError:
+        return False
+    return True
+
+
 def _agy_cmd() -> str | None:
     if Path(ANTIGRAVITY_CLI_PATH).is_file():
         return ANTIGRAVITY_CLI_PATH
@@ -856,6 +881,7 @@ async def _personal_agy_tui(instruccion: str, contexto: str, target: Path, folde
     descartados: list[str] = []
     avisos = ""
     while True:
+        _agy_confiar(folder)
         task = _agy_prepare(instruccion, contexto, target, folder, model)
         task["descartados"] = descartados
         prompt = " ".join(task["prompt"].split())
@@ -912,6 +938,7 @@ async def preparar_tarea_antigravity(
     folder = target.parent if target.suffix else target
     folder.mkdir(parents=True, exist_ok=True)
     model = (modelo_antigravity or ANTIGRAVITY_AGY_MODEL).strip()
+    _agy_confiar(folder)
     task = _agy_prepare(instruccion, contexto_adicional, target, folder, model)
     task.update(pedido_id=pedido_id, item=item,
                 descartados=[m.strip() for m in modelos_descartados.split(",") if m.strip()])
