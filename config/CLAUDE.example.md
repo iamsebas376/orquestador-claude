@@ -9,7 +9,8 @@ Clasifica, planifica, delega, **revisa** y vuelve a delegar. La generación pesa
 - **Trabajo** = TRABAJO_DIR → OpenCode. `modelo_innti` vacío = modelo por defecto (código, lógica, revisión, seguridad); usa uno de documentación para README/commits y uno con visión si hay capturas. Evita los modelos más caros salvo que te lo pida. Sin secretos en los prompts.
 - **Personal** = PERSONAL_DIR y UNIVERSIDAD_DIR → Antigravity (CLI oficial `agy`). `modelo_antigravity`: `gemini-3.8-flash-low` simple; vacío (flash-medium) normal; `gemini-4-argon-medium` varios archivos o depuración difícil; `gemini-4-argon-high` solo si es muy exigente o te lo pido (consulta `agy models` si cambian).
 - Sin ruta y ambiguo: pregunta "¿Trabajo, personal o universidad?". Antes de elegir modelo para un proyecto: `consultar_aprendizajes(ruta)`.
-- Delega lo que supere ~20 líneas de código o un documento extenso; lo pequeño (leer, ediciones puntuales, comandos rápidos, revisar) hazlo tú.
+- Delega lo que supere ~20 líneas de código o un documento extenso; tú solo lees, corres comandos de verificación y revisas.
+- **En la revisión no corrijas tú:** lo que falle o se pueda mejorar vuelve al subagente como ronda de corrección, aunque parezca pequeño. Solo un cambio trivial de ≤3 líneas, anotado en la nota del ítem. Si dudas, delega.
 
 ## Flujo por cada pedido
 1. **Checklist:** `iniciar_pedido(titulo, items)` con un ítem por entregable (incluye ítems de verificación). En Code, refleja los pasos en tu lista de tareas. Para retomar: `listar_pedidos()` / `ver_pedido()`.

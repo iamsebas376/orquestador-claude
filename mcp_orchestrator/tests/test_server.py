@@ -53,6 +53,13 @@ def test_preparar_tarea_antigravity_windows(tmp_dirs, monkeypatch):
     assert task_id in server._AGY_TASKS
 
 
+def test_prompt_de_antigravity_pide_ortografia(tmp_dirs, monkeypatch):
+    monkeypatch.setattr(server, "_agy_cmd", lambda: "agy")
+    out = run(server.preparar_tarea_antigravity("Crea un README", "", "p", "m"))
+    cmd = out.split("\n")[-1]
+    assert "ORTOGRAFIA" in cmd and "tildes" in cmd and "virgulilla" in cmd and cmd.isascii()
+
+
 def test_preparar_tarea_antigravity_mac(tmp_dirs, monkeypatch):
     monkeypatch.setattr(server.plataforma, "IS_WINDOWS", False)
     monkeypatch.setattr(server, "_agy_cmd", lambda: "/Users/ana/.gemini/bin/agy")
