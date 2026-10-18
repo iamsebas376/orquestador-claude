@@ -243,8 +243,8 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     <h2 id="h-cls" style="margin-bottom:12px"><span class="ia cl"></span>Sesiones de Claude</h2>
     <div class="table-scroll">
       <table>
-        <thead><tr><th>Sesión</th><th>Días</th><th class="n">Respuestas</th><th class="n">Costo</th></tr></thead>
-        <tbody id="cls"><tr><td colspan="4" class="muted">Sin sesiones de Claude en este período.</td></tr></tbody>
+        <thead><tr><th>Sesión</th><th>Días</th><th class="n">Respuestas</th><th class="n">Tokens</th><th class="n">Costo</th></tr></thead>
+        <tbody id="cls"><tr><td colspan="5" class="muted">Sin sesiones de Claude en este período.</td></tr></tbody>
       </table>
     </div>
   </section>
@@ -553,7 +553,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     tb.textContent = "";
     if (!filas.length) {
       var tr0 = el("tr"), td0 = el("td", "muted", "Sin sesiones de Claude en este período.");
-      td0.colSpan = 4; tr0.appendChild(td0); tb.appendChild(tr0); return;
+      td0.colSpan = 5; tr0.appendChild(td0); tb.appendChild(tr0); return;
     }
     function corto(iso) { return parse(iso).toLocaleDateString("es-CO", { day: "2-digit", month: "short" }); }
     filas.forEach(function (a) {
@@ -563,6 +563,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
       var ini = corto(a.dias[0].dia), fin = corto(a.dias[a.dias.length - 1].dia);
       tr.appendChild(el("td", null, ini === fin ? ini : ini + " – " + fin));
       tr.appendChild(el("td", "n", num(a.respuestas)));
+      tr.appendChild(el("td", "n", compacto(a.tokens_entrada + a.tokens_cache + a.tokens_salida)));
       tr.appendChild(el("td", "n cl", "≈ " + usd(a.costo)));
       var lineas = [[null, info.carpeta || a.id.slice(0, 8)],
         [null, "Entrada nueva: " + compacto(a.tokens_entrada)],
