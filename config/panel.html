@@ -350,6 +350,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
 
     var body = el("div", "pedido-body");
     var meta = el("div", "meta");
+    if (p.ruta) meta.appendChild(el("span", "mono", p.ruta));
     if (p.creado) meta.appendChild(el("span", null, "creado " + fecha(p.creado)));
     meta.appendChild(el("span", "mono", p.id));
     body.appendChild(meta);

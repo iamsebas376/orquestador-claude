@@ -1083,10 +1083,12 @@ def estado_presupuesto() -> str:
 # ----------------------------------------------------------------------------- checklist, costos y aprendizajes
 
 @mcp.tool()
-def iniciar_pedido(titulo: str, items: list[str], contexto: str = "") -> str:
+def iniciar_pedido(titulo: str, items: list[str], contexto: str = "", ruta: str = "") -> str:
     """Crea el checklist de un pedido del usuario (un ítem por entregable/delegación/verificación).
+    titulo: nombre corto del pedido, SIN rutas (p. ej. 'Nexus SaaS – gestión de proyectos').
+    ruta: carpeta del proyecto, aparte (se muestra al abrir el pedido en el panel).
     Devuelve pedido_id: pásalo con el número de ítem a las herramientas de delegación."""
-    return registro.iniciar_pedido(titulo, items, contexto)
+    return registro.iniciar_pedido(titulo, items, contexto, ruta)
 
 
 @mcp.tool()

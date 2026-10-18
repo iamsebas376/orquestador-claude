@@ -142,6 +142,8 @@ def _render(p: dict) -> str:
              f"- Pedido: `{p['id']}` · estado: **{p['estado']}** · progreso: {hechos}/{len(p['items'])} · "
              f"costo: {_usd(costo)}",
              f"- Creado: {p['creado']} · actualizado: {p['actualizado']}"]
+    if p.get("ruta"):
+        lines.append(f"- Ruta: `{p['ruta']}`")
     if p.get("contexto"):
         lines += ["", f"> {p['contexto']}"]
     lines += ["", "## Checklist", ""]
@@ -164,10 +166,25 @@ def _save(p: dict) -> None:
     (TAREAS_DIR / f"{p['id']}.md").write_text(_render(p), encoding="utf-8")
 
 
-def iniciar_pedido(titulo: str, items: list[str], contexto: str = "") -> str:
-    """Crea el checklist de un pedido del usuario. Devuelve el pedido_id para vincular delegaciones."""
+_RUTA_EN_TITULO = re.compile(r"\s*[\(\[]?\s*((?:[A-Za-z]:[\\/]|\\\\|~[\\/]|/)[^()\[\]]*?)\s*[\)\]]?\s*$")
+
+
+def separar_ruta(titulo: str) -> tuple[str, str]:
+    """El título del pedido es solo el nombre: si trae una ruta (p. ej. '… (D:\\personal\\x)'), la separa."""
+    m = _RUTA_EN_TITULO.search(titulo)
+    if not m:
+        return titulo.strip(), ""
+    limpio = titulo[: m.start()].rstrip(" -–—·:,").strip()
+    return (limpio or titulo.strip()), (m.group(1).strip() if limpio else "")
+
+
+def iniciar_pedido(titulo: str, items: list[str], contexto: str = "", ruta: str = "") -> str:
+    """Crea el checklist de un pedido del usuario. Devuelve el pedido_id para vincular delegaciones.
+    titulo: nombre corto, sin rutas (si trae una, se mueve a `ruta`)."""
+    titulo, ruta_titulo = separar_ruta(titulo)
+    ruta = ruta or ruta_titulo
     pid = f"{datetime.now():%Y%m%d-%H%M%S}-{_slug(titulo, 30)}"
-    p = {"id": pid, "titulo": titulo, "contexto": contexto, "estado": "abierto", "creado": _now(),
+    p = {"id": pid, "titulo": titulo, "ruta": ruta, "contexto": contexto, "estado": "abierto", "creado": _now(),
          "actualizado": _now(), "resumen": "",
          "items": [{"texto": t, "estado": "pendiente", "rondas": 0, "costo_usd": 0.0, "notas": []} for t in items]}
     _save(p)
@@ -367,8 +384,8 @@ def datos_panel() -> dict:
                           "costo_equivalente_usd": round(c["costo_equivalente_usd"], 4),
                           "tokens": c["tokens_entrada"] + c["tokens_salida"]})
         filas.append({
-            "id": p["id"], "titulo": p["titulo"], "estado": p["estado"], "creado": p.get("creado", ""),
-            "actualizado": p["actualizado"],
+            "id": p["id"], "titulo": p["titulo"], "ruta": p.get("ruta", ""), "estado": p["estado"],
+            "creado": p.get("creado", ""), "actualizado": p["actualizado"],
             "costo_usd": round(sum(i["costo_usd"] for i in items), 4),
             "costo_equivalente_usd": round(sum(i["costo_equivalente_usd"] for i in items), 4),
             "tokens": sum(i["tokens"] for i in items),

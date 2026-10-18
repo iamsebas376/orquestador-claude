@@ -62,6 +62,17 @@ def test_ciclo_de_un_pedido(tmp_registro):
     assert "**cerrado**" in out and "listo" in out
 
 
+def test_titulo_sin_rutas(tmp_registro):
+    assert registro.separar_ruta(r"Nexus SaaS – gestión de proyectos (D:\personal\prueba)") == \
+        ("Nexus SaaS – gestión de proyectos", r"D:\personal\prueba")
+    assert registro.separar_ruta("Mi app - /Users/ana/proyectos/app") == ("Mi app", "/Users/ana/proyectos/app")
+    assert registro.separar_ruta("Pedido normal (versión 2)") == ("Pedido normal (versión 2)", "")
+    assert registro.separar_ruta(r"D:\workspaces\x") == (r"D:\workspaces\x", "")  # solo ruta: no queda vacío
+    pid = pedido_id(registro.iniciar_pedido(r"Landing (D:\personal\web)", ["a"]))
+    data = json.loads((registro.TAREAS_DIR / f"{pid}.json").read_text(encoding="utf-8"))
+    assert data["titulo"] == "Landing" and data["ruta"] == r"D:\personal\web"
+
+
 def test_limite_de_rondas_avisa_al_pasarse(tmp_registro):
     pid = pedido_id(registro.iniciar_pedido("Rondas", ["A"]))
     assert "Límite" not in registro.actualizar_item(pid, 1, "corrigiendo")
