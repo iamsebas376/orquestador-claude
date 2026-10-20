@@ -196,7 +196,9 @@ def test_delegaciones_sin_pedido_se_asignan_al_proyecto(tmp_registro):
     registro.registrar_costo("opencode", "innti-dsp", {"input": 50}, 0.25, ruta=r"D:\w\otro")
     data = registro.datos_panel()
     p = next(p for p in data["pedidos"] if p["id"] == pid)
-    assert p["extra"]["n"] == 1 and p["costo_usd"] == 0.5 and p["tokens"] == 110
+    virtual = p["items"][-1]
+    assert virtual["virtual"] and virtual["agentes"]["innti"]["costo_usd"] == 0.5
+    assert p["costo_usd"] == 0.5 and p["tokens"] == 110
     huerfano = next(p for p in data["pedidos"] if p["titulo"] == "Delegaciones sin pedido")
     assert huerfano["costo_usd"] == 0.25 and huerfano["ruta"] == r"D:\w\otro"
 
@@ -210,3 +212,24 @@ def test_ajuste_sin_pedido_se_agrega_como_item(tmp_registro):
     assert data["estado"] == "abierto" and data["items"][1]["texto"] == "Ajusta el color del botón"
     p3, item3, aviso3 = registro.item_automatico(r"D:\w\nuevo", "Primer ajuste")
     assert p3 != pid and item3 == 1 and "Ajustes en nuevo" in aviso3
+
+
+def test_desglose_por_agente_en_cada_item(tmp_registro, tmp_path, monkeypatch):
+    precios = tmp_path / "precios.json"
+    precios.write_text(json.dumps({"claude-x": [5.0, 0.5, 25.0]}), encoding="utf-8")
+    monkeypatch.setattr(registro, "PRECIOS_FILE", precios)
+    proy = tmp_path / "cp" / "D--x"
+    proy.mkdir(parents=True)
+    monkeypatch.setattr(registro, "CLAUDE_PROJECTS_DIR", proy.parent)
+    pid = pedido_id(registro.iniciar_pedido("Con desglose", ["A", "B"], ruta=r"D:\wpp"))
+    registro.actualizar_item(pid, 1, "en_curso")
+    registro.registrar_costo("opencode", "innti-dsp", {"input": 100}, 0.5, pid, 1)
+    registro.registrar_costo("antigravity", "gemini-x", {"input": 50}, 0.0, pid, 1, equivalente=0.2)
+    ts = datetime.now().astimezone().isoformat()  # Claude trabaja mientras el ítem 1 está en curso
+    (proy / "s.jsonl").write_text(json.dumps({"timestamp": ts, "sessionId": "s", "message": {
+        "id": "m1", "model": "claude-x", "usage": {"input_tokens": 1_000_000, "output_tokens": 0}}}), encoding="utf-8")
+    p = next(p for p in registro.datos_panel()["pedidos"] if p["id"] == pid)
+    ag = p["items"][0]["agentes"]
+    assert ag["innti"]["costo_usd"] == 0.5 and ag["agy"]["costo_equivalente_usd"] == 0.2
+    assert ag["claude"]["costo_equivalente_usd"] == 5.0
+    assert "claude" not in p["items"][1]["agentes"]

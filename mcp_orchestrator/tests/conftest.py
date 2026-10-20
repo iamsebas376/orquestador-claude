@@ -14,6 +14,13 @@ def sin_efectos_externos(tmp_path, monkeypatch):
     """Ningún test escribe en el log real ni abre ventanas."""
     monkeypatch.setattr(server, "LIVE_LOG", tmp_path / "en-vivo.log")
     monkeypatch.setattr(server, "SHOW_CONSOLE", False)
+    # Ni el registro de pedidos/costos ni la config de agy reales (antes un test creó pedidos de verdad).
+    monkeypatch.setattr(registro, "TAREAS_DIR", tmp_path / "tareas-aisladas")
+    monkeypatch.setattr(registro, "LOGS_DIR", tmp_path / "logs-aislados")
+    monkeypatch.setattr(registro, "COSTOS_FILE", tmp_path / "logs-aislados" / "costos.jsonl")
+    monkeypatch.setattr(registro, "APRENDIZAJES_FILE", tmp_path / "aprendizajes-aislados.jsonl")
+    monkeypatch.setattr(registro, "CLAUDE_PROJECTS_DIR", tmp_path / "claude-projects-aislado")
+    monkeypatch.setattr(server, "AGY_SETTINGS", tmp_path / "agy-settings-aislado.json")
 
 
 @pytest.fixture

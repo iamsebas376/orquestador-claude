@@ -220,6 +220,8 @@ def actualizar_item(pedido_id: str, item: int, estado: str, nota: str = "", agen
             aviso = (f"\n⚠ Límite alcanzado: el ítem {item} ya lleva {it['rondas']} rondas de corrección "
                      f"(máximo {MAX_RONDAS}). Detente y consulta al usuario antes de volver a delegar.")
     it["estado"] = estado
+    it.setdefault("inicio", _now())  # ventana del ítem: sirve para repartirle el trabajo de Claude
+    it["ultimo"] = _now()
     if agente:
         it["agente"] = agente
     if modelo:
@@ -389,12 +391,65 @@ def consumo_por_item() -> dict:
                 continue
             t = r.get("tokens") or {}
             a = agg.setdefault((r["pedido_id"], r.get("item", 0)),
-                               {"tokens_entrada": 0, "tokens_salida": 0, "costo_usd": 0.0, "costo_equivalente_usd": 0.0})
+                               {"tokens_entrada": 0, "tokens_salida": 0, "costo_usd": 0.0, "costo_equivalente_usd": 0.0,
+                                "agentes": {}, "ts": []})
             a["tokens_entrada"] += t.get("input", 0) + t.get("cache_read", 0)
             a["tokens_salida"] += t.get("output", 0) + t.get("reasoning", 0)
             a["costo_usd"] += r.get("costo_usd", 0)
             a["costo_equivalente_usd"] += r.get("costo_equivalente_usd", 0)
+            a["ts"].append(r.get("ts", ""))
+            g = a["agentes"].setdefault(r.get("agente", "?"), {"tokens": 0, "costo_usd": 0.0, "costo_equivalente_usd": 0.0})
+            g["tokens"] += sum(t.get(k, 0) for k in ("input", "cache_read", "output", "reasoning"))
+            g["costo_usd"] += r.get("costo_usd", 0)
+            g["costo_equivalente_usd"] += r.get("costo_equivalente_usd", 0)
     return agg
+
+
+def _ventanas_items(p: dict, consumo: dict) -> list[tuple]:
+    """(inicio, fin, nº de ítem) de cada ítem con actividad conocida: sus marcas de tiempo, la hora de sus notas
+    (HH:MM, en el día del pedido o el siguiente) y los momentos de sus delegaciones."""
+    try:
+        creado = datetime.fromisoformat(p.get("creado") or p["actualizado"])
+    except ValueError:
+        return []
+    out = []
+    for n, i in enumerate(p["items"], 1):
+        momentos = []
+        for k in ("inicio", "ultimo"):
+            try:
+                momentos.append(datetime.fromisoformat(i[k]))
+            except (KeyError, ValueError):
+                pass
+        for nota in i.get("notas", []):
+            m = re.match(r"(\d{2}):(\d{2}) ", nota)
+            if m:
+                t = creado.replace(hour=int(m.group(1)), minute=int(m.group(2)), second=0, microsecond=0)
+                momentos.append(t if t >= creado - timedelta(minutes=1) else t + timedelta(days=1))
+        for ts in consumo.get((p["id"], n), {}).get("ts", []):
+            try:
+                momentos.append(datetime.fromisoformat(ts))
+            except ValueError:
+                pass
+        if momentos:
+            out.append((min(momentos), max(momentos), n))
+    return out
+
+
+def _items_de(ts: datetime, ventanas: list[tuple]) -> list[int]:
+    """Ítems entre los que se reparte una respuesta de Claude: los que estaban en curso en ese momento (a partes
+    iguales si se solapan); si ninguno, el siguiente en empezar (Claude prepara la delegación antes); si no, el
+    último en terminar."""
+    if not ventanas:
+        return []
+    dentro = [n for ini, fin, n in ventanas if ini - timedelta(minutes=1) <= ts <= fin + timedelta(minutes=1)]
+    if dentro:
+        return dentro
+    despues = [(ini, n) for ini, fin, n in ventanas if ini > ts]
+    if despues:
+        primero = min(despues)[0]
+        return [n for ini, n in despues if ini == primero]
+    ultimo = max(fin for ini, fin, n in ventanas)
+    return [n for ini, fin, n in ventanas if fin == ultimo]
 
 
 # ----------------------------------------------------------------------------- consumo de Claude (el cerebro)
@@ -534,6 +589,11 @@ def _sueltas(pedidos: list[dict]) -> tuple[dict, dict]:
                                  + t.get("reasoning", 0)),
                      ("costo_usd", r.get("costo_usd", 0)), ("costo_equivalente_usd", r.get("costo_equivalente_usd", 0))):
             destino[k] = destino.get(k, 0) + v
+        g = destino.setdefault("agentes", {}).setdefault(r.get("agente", "?"),
+                                                        {"tokens": 0, "costo_usd": 0.0, "costo_equivalente_usd": 0.0})
+        g["tokens"] += t.get("input", 0) + t.get("cache_read", 0) + t.get("output", 0) + t.get("reasoning", 0)
+        g["costo_usd"] += r.get("costo_usd", 0)
+        g["costo_equivalente_usd"] += r.get("costo_equivalente_usd", 0)
         destino["desde"] = min(destino.get("desde", ts), ts)
         destino["hasta"] = max(destino.get("hasta", ts), ts)
     return asignadas, huerfanas
@@ -559,6 +619,7 @@ def datos_panel() -> dict:
             continue
     claude_dia: dict[tuple, dict] = {}
     claude_pedido: dict[str, dict] = {}
+    claude_resp: dict[str, list] = {}
     for r in consumo_claude():
         k = (r["ts"].date().isoformat(), r["modelo"])
         a = claude_dia.setdefault(k, {"dia": k[0], "agente": "claude", "modelo": k[1], "tareas": 0,
@@ -576,29 +637,61 @@ def datos_panel() -> dict:
             c = claude_pedido.setdefault(pid, {"tokens": 0, "costo_equivalente_usd": 0.0})
             c["tokens"] += r["entrada"] + r["salida"]
             c["costo_equivalente_usd"] += r["equivalente"]
+            claude_resp.setdefault(pid, []).append(r)
     for a in claude_dia.values():
         a["costo_equivalente_usd"] = round(a["costo_equivalente_usd"], 5)
 
     sueltas, huerfanas = _sueltas(pedidos)
     filas = []
     for p in pedidos:
+        extra = sueltas.get(p["id"], {})
+        # Trabajo de Claude repartido por ítem según el momento de cada respuesta (los seguimientos sin ítem
+        # forman un ítem virtual al final, con su propia ventana).
+        vent = _ventanas_items(p, consumo)
+        n_extra = len(p["items"]) + 1
+        if extra.get("n"):
+            try:
+                vent.append((datetime.fromisoformat(extra["desde"]), datetime.fromisoformat(extra["hasta"]), n_extra))
+            except (KeyError, ValueError):
+                pass
+        claude_item: dict[int, dict] = {}
+        for r in claude_resp.get(p["id"], []):
+            destino = _items_de(r["ts"], vent) or [1]
+            for n in destino:
+                ci = claude_item.setdefault(n, {"tokens": 0, "costo_usd": 0.0, "costo_equivalente_usd": 0.0})
+                ci["tokens"] += (r["entrada"] + r["salida"]) / len(destino)
+                ci["costo_equivalente_usd"] += r["equivalente"] / len(destino)
+
+        def desglose(agentes: dict, n: int) -> dict:
+            out = {}
+            for nombre, g in (agentes or {}).items():
+                clave = "innti" if nombre == "opencode" else "agy" if nombre == "antigravity" else nombre
+                out[clave] = {k: round(v, 4) for k, v in g.items()}
+            if n in claude_item:
+                out["claude"] = {k: (round(v) if k == "tokens" else round(v, 4)) for k, v in claude_item[n].items()}
+            return out
+
         items = []
         for n, i in enumerate(p["items"], 1):
             c = consumo.get((p["id"], n), vacio)
+            ag = desglose(c.get("agentes"), n)
             items.append({"texto": i["texto"], "estado": i["estado"], "agente": i.get("agente", ""),
                           "modelo": i.get("modelo", ""), "rondas": i.get("rondas", 0),
                           "costo_usd": round(c["costo_usd"] or i.get("costo_usd", 0), 4),
                           "costo_equivalente_usd": round(c["costo_equivalente_usd"], 4),
-                          "tokens": c["tokens_entrada"] + c["tokens_salida"]})
-        extra = sueltas.get(p["id"], {})
+                          "tokens": c["tokens_entrada"] + c["tokens_salida"], "agentes": ag})
+        if extra.get("n") or n_extra in claude_item:
+            items.append({"texto": f"Seguimientos sin ítem ({extra.get('n', 0)} delegaciones)", "estado": "hecho",
+                          "virtual": True, "agente": "", "modelo": "", "rondas": 0,
+                          "costo_usd": round(extra.get("costo_usd", 0), 4),
+                          "costo_equivalente_usd": round(extra.get("costo_equivalente_usd", 0), 4),
+                          "tokens": extra.get("tokens", 0), "agentes": desglose(extra.get("agentes"), n_extra)})
         filas.append({
             "id": p["id"], "titulo": p["titulo"], "ruta": p.get("ruta", ""), "estado": p["estado"],
             "creado": p.get("creado", ""), "actualizado": max(p["actualizado"], extra.get("hasta", "")),
-            "costo_usd": round(sum(i["costo_usd"] for i in items) + extra.get("costo_usd", 0), 4),
-            "costo_equivalente_usd": round(sum(i["costo_equivalente_usd"] for i in items)
-                                           + extra.get("costo_equivalente_usd", 0), 4),
-            "tokens": sum(i["tokens"] for i in items) + extra.get("tokens", 0),
-            "extra": {k: round(v, 4) if isinstance(v, float) else v for k, v in extra.items()},
+            "costo_usd": round(sum(i["costo_usd"] for i in items), 4),
+            "costo_equivalente_usd": round(sum(i["costo_equivalente_usd"] for i in items), 4),
+            "tokens": sum(i["tokens"] for i in items),
             "claude": {k: round(v, 4) for k, v in claude_pedido.get(p["id"], {"tokens": 0,
                                                                               "costo_equivalente_usd": 0.0}).items()},
             "items": items,
@@ -612,8 +705,13 @@ def datos_panel() -> dict:
             "estado": "cerrado", "creado": extra["desde"], "actualizado": extra["hasta"],
             "costo_usd": round(extra.get("costo_usd", 0), 4),
             "costo_equivalente_usd": round(extra.get("costo_equivalente_usd", 0), 4), "tokens": extra.get("tokens", 0),
-            "extra": {k: round(v, 4) if isinstance(v, float) else v for k, v in extra.items()},
-            "claude": {"tokens": 0, "costo_equivalente_usd": 0.0}, "items": []})
+            "claude": {"tokens": 0, "costo_equivalente_usd": 0.0},
+            "items": [{"texto": f"{extra.get('n', 0)} delegaciones sin pedido", "estado": "hecho", "virtual": True,
+                       "agente": "", "modelo": "", "rondas": 0, "costo_usd": round(extra.get("costo_usd", 0), 4),
+                       "costo_equivalente_usd": round(extra.get("costo_equivalente_usd", 0), 4),
+                       "tokens": extra.get("tokens", 0),
+                       "agentes": {("innti" if k == "opencode" else "agy" if k == "antigravity" else k):
+                                   {kk: round(vv, 4) for kk, vv in g.items()} for k, g in extra.get("agentes", {}).items()}}]})
     filas.sort(key=lambda f: f["actualizado"], reverse=True)
     diarios = sorted(costos_diarios() + list(claude_dia.values()), key=lambda a: a["dia"])
     data = {"pedidos": filas, "costos_diarios": diarios, "claude_sesiones": sesiones_claude(), "dias": PANEL_DIAS,

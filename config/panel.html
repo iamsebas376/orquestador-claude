@@ -103,7 +103,7 @@ ol.items li { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; al
 .it-cost { font: .76rem/1.45 var(--f-mono); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
 .it-cost .innti, .kpi .v.innti, td.innti, .it-sub .innti { color: var(--innti); }
 .it-cost .agy, .kpi .v.agy, td.agy, .it-sub .agy { color: var(--agy); }
-.it-cost .cl, .kpi .v.cl, td.cl, .meta .cl { color: var(--cl); }
+.it-cost .cl, .kpi .v.cl, td.cl, .meta .cl, .it-cost .claude { color: var(--cl); }
 .ia { display: inline-block; width: 8px; height: 8px; border-radius: 99px; margin-right: 6px; vertical-align: 1px; }
 .ia.innti { background: var(--innti); } .ia.agy { background: var(--agy); } .ia.cl { background: var(--cl); }
 .chip { display: inline-flex; align-items: center; gap: 5px; font: 600 .72rem/1 var(--f-mono); padding: 5px 8px; border-radius: 99px; white-space: nowrap; }
@@ -385,7 +385,8 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
 
   function renderPedido(p) {
     var items = p.items || [];
-    var hechos = items.filter(function (i) { return i.estado === "hecho" || i.estado === "omitido"; }).length;
+    var reales = items.filter(function (i) { return !i.virtual; });  // los seguimientos sin ítem no cuentan en el avance
+    var hechos = reales.filter(function (i) { return i.estado === "hecho" || i.estado === "omitido"; }).length;
     var card = el("details", "pedido");
     if (abiertos[p.id]) card.open = true;
     card.addEventListener("toggle", function () {
@@ -404,9 +405,9 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
 
     var main = el("div", "ps-main");
     main.appendChild(el("span", "ps-title", p.titulo || p.id));
-    main.appendChild(el("span", "ps-sub", hechos + " de " + items.length + " ítems · actualizado " + fecha(p.actualizado)));
+    main.appendChild(el("span", "ps-sub", hechos + " de " + reales.length + " ítems · actualizado " + fecha(p.actualizado)));
     var bar = el("div", "progress"), fill = el("span");
-    fill.style.width = (items.length ? Math.round(100 * hechos / items.length) : 0) + "%";
+    fill.style.width = (reales.length ? Math.round(100 * hechos / reales.length) : 0) + "%";
     bar.appendChild(fill);
     main.appendChild(bar);
     sum.appendChild(main);
@@ -447,22 +448,23 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
         txt.appendChild(s2);
       }
       li.appendChild(txt);
-      var cost = el("span", "it-cost");
-      if (i.costo_usd) cost.appendChild(el("div", "innti", usd(i.costo_usd)));
-      if (i.costo_equivalente_usd) cost.appendChild(el("div", "agy", "≈ " + usd(i.costo_equivalente_usd)));
-      if (i.tokens) cost.appendChild(el("div", null, compacto(i.tokens) + " tok"));
+      // Desglose por agente: Innti (gasto real), Antigravity y Claude (≈ equivalente API), cada uno con su color.
+      var cost = el("span", "it-cost"), ag = i.agentes || {}, hay = false;
+      [["innti", "Innti"], ["agy", "Antigravity"], ["claude", "Claude"]].forEach(function (a) {
+        var g = ag[a[0]];
+        if (!g || !(g.tokens || g.costo_usd || g.costo_equivalente_usd)) return;
+        hay = true;
+        var clase = a[0] === "claude" ? "cl" : a[0], linea = el("div", clase);
+        linea.appendChild(el("span", "ia " + clase));
+        linea.appendChild(document.createTextNode(g.costo_usd ? usd(g.costo_usd) : "≈ " + usd(g.costo_equivalente_usd || 0)));
+        tip(linea, a[1], [[clase, compacto(g.tokens || 0) + " tokens"], [null, g.costo_usd ? "Gasto real: " + usd(g.costo_usd) : "Equivalente API: ≈ " + usd(g.costo_equivalente_usd || 0)]]);
+        cost.appendChild(linea);
+      });
+      if (!hay) cost.appendChild(el("div", null, "—"));
       li.appendChild(cost);
       ol.appendChild(li);
     });
-    if (items.length) body.appendChild(ol);
-    var ex = p.extra || {};
-    if (ex.n) {
-      // Delegaciones hechas sin ítem (seguimientos): se suman al pedido del mismo proyecto.
-      var exl = el("div", "it-sub", (items.length ? "+ " : "") + num(ex.n) + (ex.n === 1 ? " delegación de seguimiento sin ítem · " : " delegaciones de seguimiento sin ítem · ") + compacto(ex.tokens || 0) + " tokens");
-      if (ex.costo_usd) { exl.appendChild(document.createTextNode(" · ")); exl.appendChild(el("span", "innti", usd(ex.costo_usd))); }
-      if (ex.costo_equivalente_usd) { exl.appendChild(document.createTextNode(" · ")); exl.appendChild(el("span", "agy", "≈ " + usd(ex.costo_equivalente_usd))); }
-      body.appendChild(exl);
-    }
+    body.appendChild(ol);
     card.appendChild(body);
     return card;
   }
