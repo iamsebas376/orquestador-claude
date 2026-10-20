@@ -438,13 +438,21 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
       li.appendChild(chip(i.estado));
       var txt = el("div");
       txt.appendChild(el("div", "it-text", i.texto));
-      var sub = [i.agente, i.modelo].filter(Boolean).join(" · ");
-      if (sub || i.rondas) {
+      // Agentes y modelos que trabajaron en el ítem (de su consumo real; si no hay, lo que quedó anotado en el ítem).
+      var usados = [], agi = i.agentes || {};
+      [["innti", "OpenCode"], ["agy", "Antigravity"], ["claude", "Claude"]].forEach(function (a) {
+        if (agi[a[0]]) usados.push([a[0] === "claude" ? "cl" : a[0], a[1], (agi[a[0]].modelos || []).join(", ")]);
+      });
+      if (!usados.length && i.agente) usados.push([iaClase(i.agente), i.agente, i.modelo || ""]);
+      if (!usados.length && !i.virtual) usados.push(["cl", "Claude", ""]);  // sin delegación: lo hizo Claude
+      if (usados.length || i.rondas) {
         var s2 = el("div", "it-sub");
-        var claseIa = iaClase(i.agente);
-        if (claseIa) s2.appendChild(el("span", "ia " + claseIa));
-        s2.appendChild(document.createTextNode(sub));
-        if (i.rondas) { s2.appendChild(document.createTextNode(sub ? "  " : "")); s2.appendChild(el("span", "rondas", "↻ " + i.rondas + (i.rondas === 1 ? " ronda" : " rondas"))); }
+        usados.forEach(function (u, k) {
+          if (k) s2.appendChild(document.createTextNode("  "));
+          if (u[0]) s2.appendChild(el("span", "ia " + u[0]));
+          s2.appendChild(document.createTextNode(u[1] + (u[2] ? " · " + u[2] : "")));
+        });
+        if (i.rondas) { s2.appendChild(document.createTextNode(usados.length ? "  " : "")); s2.appendChild(el("span", "rondas", "↻ " + i.rondas + (i.rondas === 1 ? " ronda" : " rondas"))); }
         txt.appendChild(s2);
       }
       li.appendChild(txt);

@@ -398,7 +398,10 @@ def consumo_por_item() -> dict:
             a["costo_usd"] += r.get("costo_usd", 0)
             a["costo_equivalente_usd"] += r.get("costo_equivalente_usd", 0)
             a["ts"].append(r.get("ts", ""))
-            g = a["agentes"].setdefault(r.get("agente", "?"), {"tokens": 0, "costo_usd": 0.0, "costo_equivalente_usd": 0.0})
+            g = a["agentes"].setdefault(r.get("agente", "?"), {"tokens": 0, "costo_usd": 0.0, "costo_equivalente_usd": 0.0,
+                                                               "modelos": []})
+            if r.get("modelo") and r["modelo"] not in g["modelos"]:
+                g["modelos"].append(r["modelo"])
             g["tokens"] += sum(t.get(k, 0) for k in ("input", "cache_read", "output", "reasoning"))
             g["costo_usd"] += r.get("costo_usd", 0)
             g["costo_equivalente_usd"] += r.get("costo_equivalente_usd", 0)
@@ -590,7 +593,10 @@ def _sueltas(pedidos: list[dict]) -> tuple[dict, dict]:
                      ("costo_usd", r.get("costo_usd", 0)), ("costo_equivalente_usd", r.get("costo_equivalente_usd", 0))):
             destino[k] = destino.get(k, 0) + v
         g = destino.setdefault("agentes", {}).setdefault(r.get("agente", "?"),
-                                                        {"tokens": 0, "costo_usd": 0.0, "costo_equivalente_usd": 0.0})
+                                                        {"tokens": 0, "costo_usd": 0.0, "costo_equivalente_usd": 0.0,
+                                                         "modelos": []})
+        if r.get("modelo") and r["modelo"] not in g["modelos"]:
+            g["modelos"].append(r["modelo"])
         g["tokens"] += t.get("input", 0) + t.get("cache_read", 0) + t.get("output", 0) + t.get("reasoning", 0)
         g["costo_usd"] += r.get("costo_usd", 0)
         g["costo_equivalente_usd"] += r.get("costo_equivalente_usd", 0)
@@ -658,7 +664,10 @@ def datos_panel() -> dict:
         for r in claude_resp.get(p["id"], []):
             destino = _items_de(r["ts"], vent) or [1]
             for n in destino:
-                ci = claude_item.setdefault(n, {"tokens": 0, "costo_usd": 0.0, "costo_equivalente_usd": 0.0})
+                ci = claude_item.setdefault(n, {"tokens": 0, "costo_usd": 0.0, "costo_equivalente_usd": 0.0,
+                                                "modelos": []})
+                if r["modelo"] not in ci["modelos"]:
+                    ci["modelos"].append(r["modelo"])
                 ci["tokens"] += (r["entrada"] + r["salida"]) / len(destino)
                 ci["costo_equivalente_usd"] += r["equivalente"] / len(destino)
 
@@ -666,9 +675,10 @@ def datos_panel() -> dict:
             out = {}
             for nombre, g in (agentes or {}).items():
                 clave = "innti" if nombre == "opencode" else "agy" if nombre == "antigravity" else nombre
-                out[clave] = {k: round(v, 4) for k, v in g.items()}
+                out[clave] = {k: (round(v, 4) if isinstance(v, float) else v) for k, v in g.items()}
             if n in claude_item:
-                out["claude"] = {k: (round(v) if k == "tokens" else round(v, 4)) for k, v in claude_item[n].items()}
+                out["claude"] = {k: (round(v) if k == "tokens" else round(v, 4) if isinstance(v, float) else v)
+                                 for k, v in claude_item[n].items()}
             return out
 
         items = []
@@ -711,7 +721,8 @@ def datos_panel() -> dict:
                        "costo_equivalente_usd": round(extra.get("costo_equivalente_usd", 0), 4),
                        "tokens": extra.get("tokens", 0),
                        "agentes": {("innti" if k == "opencode" else "agy" if k == "antigravity" else k):
-                                   {kk: round(vv, 4) for kk, vv in g.items()} for k, g in extra.get("agentes", {}).items()}}]})
+                                   {kk: (round(vv, 4) if isinstance(vv, float) else vv) for kk, vv in g.items()}
+                                   for k, g in extra.get("agentes", {}).items()}}]})
     filas.sort(key=lambda f: f["actualizado"], reverse=True)
     diarios = sorted(costos_diarios() + list(claude_dia.values()), key=lambda a: a["dia"])
     data = {"pedidos": filas, "costos_diarios": diarios, "claude_sesiones": sesiones_claude(), "dias": PANEL_DIAS,
