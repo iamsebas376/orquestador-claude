@@ -444,8 +444,11 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
       [["innti", "OpenCode"], ["agy", "Antigravity"], ["claude", "Claude"]].forEach(function (a) {
         if (agi[a[0]]) usados.push([a[0] === "claude" ? "cl" : a[0], a[1], (agi[a[0]].modelos || []).join(", ")]);
       });
-      if (!usados.length && i.agente) usados.push([iaClase(i.agente), i.agente, i.modelo || ""]);
-      if (!usados.length && !i.virtual) usados.push(["cl", "Claude", ""]);  // sin delegación: lo hizo Claude
+      var claseAnotada = iaClase(i.agente);
+      if (i.agente && !usados.some(function (u) { return u[0] === claseAnotada; }))
+        usados.unshift([claseAnotada, i.agente, i.modelo || ""]);  // delegación anotada aunque no registrara consumo
+      // Sin delegación ni agente anotado lo hizo Claude (solo con datos que traen el desglose por agente).
+      if (!usados.length && !i.virtual && i.agentes) usados.push(["cl", "Claude", ""]);
       if (usados.length || i.rondas) {
         var s2 = el("div", "it-sub");
         usados.forEach(function (u, k) {
@@ -458,7 +461,13 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
       }
       li.appendChild(txt);
       // Desglose por agente: Innti (gasto real), Antigravity y Claude (≈ equivalente API), cada uno con su color.
-      var cost = el("span", "it-cost"), ag = i.agentes || {}, hay = false;
+      var cost = el("span", "it-cost"), ag = i.agentes, hay = false;
+      if (!ag) {  // datos sin desglose (servidor sin actualizar): se reparte con lo que trae el ítem
+        ag = {};
+        var c0 = iaClase(i.agente) === "agy" ? "agy" : "innti";
+        if (i.costo_usd || i.costo_equivalente_usd || i.tokens)
+          ag[c0] = { tokens: i.tokens || 0, costo_usd: i.costo_usd || 0, costo_equivalente_usd: i.costo_equivalente_usd || 0 };
+      }
       [["innti", "Innti"], ["agy", "Antigravity"], ["claude", "Claude"]].forEach(function (a) {
         var g = ag[a[0]];
         if (!g || !(g.tokens || g.costo_usd || g.costo_equivalente_usd)) return;
