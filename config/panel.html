@@ -100,6 +100,9 @@ ol.items { list-style: none; margin: 0; padding: 0; display: flex; flex-directio
 ol.items li { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: start; padding: 8px 10px; border-radius: 8px; background: var(--bg); min-width: 0; }
 .it-text { min-width: 0; overflow-wrap: anywhere; }
 .it-sub { font: .76rem/1.4 var(--f-mono); color: var(--muted); }
+.it-agentes { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px 18px; margin-top: 4px; font: .76rem/1.4 var(--f-mono); color: var(--muted); }
+.it-agente-nombre { color: var(--fg); font-family: var(--f-body); font-weight: 600; font-size: .8rem; }
+.it-agente-modelo { padding-left: 14px; }
 .it-cost { font: .76rem/1.45 var(--f-mono); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
 .it-cost .innti, .kpi .v.innti, td.innti, .it-sub .innti { color: var(--innti); }
 .it-cost .agy, .kpi .v.agy, td.agy, .it-sub .agy { color: var(--agy); }
@@ -446,13 +449,17 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
       if (!usados.length && i.agente) usados.push([iaClase(i.agente), i.agente, i.modelo || ""]);
       if (!usados.length && !i.virtual) usados.push(["cl", "Claude", ""]);  // sin delegación: lo hizo Claude
       if (usados.length || i.rondas) {
-        var s2 = el("div", "it-sub");
-        usados.forEach(function (u, k) {
-          if (k) s2.appendChild(document.createTextNode("  "));
-          if (u[0]) s2.appendChild(el("span", "ia " + u[0]));
-          s2.appendChild(document.createTextNode(u[1] + (u[2] ? " · " + u[2] : "")));
+        // Un bloque por agente: el nombre arriba y sus modelos debajo, uno por línea.
+        var s2 = el("div", "it-agentes");
+        usados.forEach(function (u) {
+          var bloque = el("div", "it-agente"), nombre = el("div", "it-agente-nombre");
+          if (u[0]) nombre.appendChild(el("span", "ia " + u[0]));
+          nombre.appendChild(document.createTextNode(u[1]));
+          bloque.appendChild(nombre);
+          (u[2] ? u[2].split(", ") : []).forEach(function (m) { bloque.appendChild(el("div", "it-agente-modelo", m)); });
+          s2.appendChild(bloque);
         });
-        if (i.rondas) { s2.appendChild(document.createTextNode(usados.length ? "  " : "")); s2.appendChild(el("span", "rondas", "↻ " + i.rondas + (i.rondas === 1 ? " ronda" : " rondas"))); }
+        if (i.rondas) s2.appendChild(el("div", "rondas", "↻ " + i.rondas + (i.rondas === 1 ? " ronda" : " rondas")));
         txt.appendChild(s2);
       }
       li.appendChild(txt);
