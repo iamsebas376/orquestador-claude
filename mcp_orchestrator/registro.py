@@ -479,6 +479,41 @@ def _pedido_de(ts: datetime, ventanas: list[tuple]) -> str:
     return max(activos)[1] if activos else ""
 
 
+def _sueltas(pedidos: list[dict]) -> tuple[dict, dict]:
+    """Delegaciones registradas sin pedido (p. ej. seguimientos): cada una se asigna al pedido más reciente del
+    mismo proyecto creado antes de ella (prefiriendo los abiertos). Devuelve ({pedido_id: extra}, {ruta: extra})
+    con lo asignado y lo que no encontró pedido."""
+    def norm(r):
+        return os.path.normcase(os.path.normpath(r)) if r else ""
+
+    def mismo(a, b):
+        return bool(a and b) and (a == b or a.startswith(b + os.sep) or b.startswith(a + os.sep))
+
+    asignadas: dict[str, dict] = {}
+    huerfanas: dict[str, dict] = {}
+    if not COSTOS_FILE.exists():
+        return asignadas, huerfanas
+    for line in COSTOS_FILE.read_text(encoding="utf-8").splitlines():
+        try:
+            r = json.loads(line)
+        except ValueError:
+            continue
+        if r.get("pedido_id"):
+            continue
+        ruta, ts = norm(r.get("ruta", "")), r.get("ts", "")
+        cand = [p for p in pedidos if mismo(ruta, norm(p.get("ruta", ""))) and (p.get("creado") or "") <= ts]
+        cand.sort(key=lambda p: (p["estado"] == "abierto", p.get("creado") or ""), reverse=True)
+        destino = asignadas.setdefault(cand[0]["id"], {}) if cand else huerfanas.setdefault(r.get("ruta", ""), {})
+        t = r.get("tokens") or {}
+        for k, v in (("n", 1), ("tokens", t.get("input", 0) + t.get("cache_read", 0) + t.get("output", 0)
+                                 + t.get("reasoning", 0)),
+                     ("costo_usd", r.get("costo_usd", 0)), ("costo_equivalente_usd", r.get("costo_equivalente_usd", 0))):
+            destino[k] = destino.get(k, 0) + v
+        destino["desde"] = min(destino.get("desde", ts), ts)
+        destino["hasta"] = max(destino.get("hasta", ts), ts)
+    return asignadas, huerfanas
+
+
 def datos_panel() -> dict:
     """Pedidos de los últimos PANEL_DIAS días (con fechas, tokens y gasto) y costos diarios, para el panel."""
     desde = (datetime.now() - timedelta(days=PANEL_DIAS)).isoformat(timespec="seconds")
@@ -519,6 +554,7 @@ def datos_panel() -> dict:
     for a in claude_dia.values():
         a["costo_equivalente_usd"] = round(a["costo_equivalente_usd"], 5)
 
+    sueltas, huerfanas = _sueltas(pedidos)
     filas = []
     for p in pedidos:
         items = []
@@ -529,16 +565,31 @@ def datos_panel() -> dict:
                           "costo_usd": round(c["costo_usd"] or i.get("costo_usd", 0), 4),
                           "costo_equivalente_usd": round(c["costo_equivalente_usd"], 4),
                           "tokens": c["tokens_entrada"] + c["tokens_salida"]})
+        extra = sueltas.get(p["id"], {})
         filas.append({
             "id": p["id"], "titulo": p["titulo"], "ruta": p.get("ruta", ""), "estado": p["estado"],
-            "creado": p.get("creado", ""), "actualizado": p["actualizado"],
-            "costo_usd": round(sum(i["costo_usd"] for i in items), 4),
-            "costo_equivalente_usd": round(sum(i["costo_equivalente_usd"] for i in items), 4),
-            "tokens": sum(i["tokens"] for i in items),
+            "creado": p.get("creado", ""), "actualizado": max(p["actualizado"], extra.get("hasta", "")),
+            "costo_usd": round(sum(i["costo_usd"] for i in items) + extra.get("costo_usd", 0), 4),
+            "costo_equivalente_usd": round(sum(i["costo_equivalente_usd"] for i in items)
+                                           + extra.get("costo_equivalente_usd", 0), 4),
+            "tokens": sum(i["tokens"] for i in items) + extra.get("tokens", 0),
+            "extra": {k: round(v, 4) if isinstance(v, float) else v for k, v in extra.items()},
             "claude": {k: round(v, 4) for k, v in claude_pedido.get(p["id"], {"tokens": 0,
                                                                               "costo_equivalente_usd": 0.0}).items()},
             "items": items,
         })
+    # Lo que no encontró pedido va en un pedido virtual por proyecto, para que los totales cuadren.
+    for ruta, extra in huerfanas.items():
+        if extra.get("hasta", "") < desde:
+            continue
+        filas.append({
+            "id": "sin-pedido-" + _slug(ruta or "general"), "titulo": "Delegaciones sin pedido", "ruta": ruta,
+            "estado": "cerrado", "creado": extra["desde"], "actualizado": extra["hasta"],
+            "costo_usd": round(extra.get("costo_usd", 0), 4),
+            "costo_equivalente_usd": round(extra.get("costo_equivalente_usd", 0), 4), "tokens": extra.get("tokens", 0),
+            "extra": {k: round(v, 4) if isinstance(v, float) else v for k, v in extra.items()},
+            "claude": {"tokens": 0, "costo_equivalente_usd": 0.0}, "items": []})
+    filas.sort(key=lambda f: f["actualizado"], reverse=True)
     diarios = sorted(costos_diarios() + list(claude_dia.values()), key=lambda a: a["dia"])
     data = {"pedidos": filas, "costos_diarios": diarios, "claude_sesiones": sesiones_claude(), "dias": PANEL_DIAS,
             "generado": _now()}

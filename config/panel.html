@@ -101,8 +101,8 @@ ol.items li { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; al
 .it-text { min-width: 0; overflow-wrap: anywhere; }
 .it-sub { font: .76rem/1.4 var(--f-mono); color: var(--muted); }
 .it-cost { font: .76rem/1.45 var(--f-mono); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
-.it-cost .innti, .kpi .v.innti, td.innti { color: var(--innti); }
-.it-cost .agy, .kpi .v.agy, td.agy { color: var(--agy); }
+.it-cost .innti, .kpi .v.innti, td.innti, .it-sub .innti { color: var(--innti); }
+.it-cost .agy, .kpi .v.agy, td.agy, .it-sub .agy { color: var(--agy); }
 .it-cost .cl, .kpi .v.cl, td.cl, .meta .cl { color: var(--cl); }
 .ia { display: inline-block; width: 8px; height: 8px; border-radius: 99px; margin-right: 6px; vertical-align: 1px; }
 .ia.innti { background: var(--innti); } .ia.agy { background: var(--agy); } .ia.cl { background: var(--cl); }
@@ -454,7 +454,15 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
       li.appendChild(cost);
       ol.appendChild(li);
     });
-    body.appendChild(ol);
+    if (items.length) body.appendChild(ol);
+    var ex = p.extra || {};
+    if (ex.n) {
+      // Delegaciones hechas sin ítem (seguimientos): se suman al pedido del mismo proyecto.
+      var exl = el("div", "it-sub", (items.length ? "+ " : "") + num(ex.n) + (ex.n === 1 ? " delegación de seguimiento sin ítem · " : " delegaciones de seguimiento sin ítem · ") + compacto(ex.tokens || 0) + " tokens");
+      if (ex.costo_usd) { exl.appendChild(document.createTextNode(" · ")); exl.appendChild(el("span", "innti", usd(ex.costo_usd))); }
+      if (ex.costo_equivalente_usd) { exl.appendChild(document.createTextNode(" · ")); exl.appendChild(el("span", "agy", "≈ " + usd(ex.costo_equivalente_usd))); }
+      body.appendChild(exl);
+    }
     card.appendChild(body);
     return card;
   }

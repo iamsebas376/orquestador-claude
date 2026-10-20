@@ -188,3 +188,14 @@ def test_desglose_de_claude_por_sesion(tmp_registro, tmp_path, monkeypatch):
     assert ses["info"]["s1"] == {"titulo": "Mi sesión", "carpeta": r"D:\x"}
     d = ses["por_dia"][0]
     assert d["respuestas"] == 2 and d["tokens_cache"] == 2_000_000 and d["costo_equivalente_usd"] == 1.0
+
+
+def test_delegaciones_sin_pedido_se_asignan_al_proyecto(tmp_registro):
+    pid = pedido_id(registro.iniciar_pedido("Tenants", ["A"], ruta=r"D:\w\app"))
+    registro.registrar_costo("opencode", "innti-dsp", {"input": 100, "output": 10}, 0.5, ruta=r"D:\w\app")
+    registro.registrar_costo("opencode", "innti-dsp", {"input": 50}, 0.25, ruta=r"D:\w\otro")
+    data = registro.datos_panel()
+    p = next(p for p in data["pedidos"] if p["id"] == pid)
+    assert p["extra"]["n"] == 1 and p["costo_usd"] == 0.5 and p["tokens"] == 110
+    huerfano = next(p for p in data["pedidos"] if p["titulo"] == "Delegaciones sin pedido")
+    assert huerfano["costo_usd"] == 0.25 and huerfano["ruta"] == r"D:\w\otro"
