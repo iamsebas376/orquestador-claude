@@ -268,7 +268,9 @@ def listar_pedidos(solo_abiertos: bool = True, limite: int = 15) -> str:
 def vincular_delegacion(pedido_id: str, item: int, agente: str, modelo: str, costo: float, resultado: str) -> str:
     """Tras una delegación: pasa el ítem a 'revisando', suma costo y deja nota. Devuelve aviso para Claude."""
     if not pedido_id or not item:
-        return ""
+        # Sin pedido el trabajo no aparece en el checklist ni en el panel (solo en los totales del día).
+        return ("\n⚠ Delegación sin pedido: no queda en el checklist ni en el panel. Si es parte de un pedido "
+                "abierto, usa agregar_items y vuelve a pasar pedido_id e item; si es un encargo nuevo, iniciar_pedido.")
     p = _load(pedido_id)
     if not p or not 1 <= item <= len(p["items"]):
         return f"\n(No se pudo vincular al pedido {pedido_id}, ítem {item}.)"

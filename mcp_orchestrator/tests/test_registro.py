@@ -94,7 +94,7 @@ def test_vincular_delegacion_pasa_a_revisando_y_suma_costo(tmp_registro):
     data = json.loads((registro.TAREAS_DIR / f"{pid}.json").read_text(encoding="utf-8"))
     assert data["items"][0]["estado"] == "revisando"
     assert data["items"][0]["costo_usd"] == 0.5
-    assert registro.vincular_delegacion("", 0, "x", "y", 0, "z") == ""
+    assert "sin pedido" in registro.vincular_delegacion("", 0, "x", "y", 0, "z")
 
 
 def test_costos_diarios_agrupa_por_dia_y_modelo(tmp_registro):
