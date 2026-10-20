@@ -464,6 +464,10 @@ async def ejecutar_trabajo_opencode_innti(
         return (f"Freno de presupuesto: {presupuesto}\nNo se delegó nada. Pide autorización al usuario y, si la da, "
                 "repite con forzar_presupuesto=True (o ajusta PRESUPUESTO_DIA_USD / PRESUPUESTO_MES_USD en .env).")
 
+    aviso_item = ""
+    if not (pedido_id and item):  # ajuste sin pedido: queda como ítem nuevo del pedido del proyecto
+        pedido_id, item, aviso_item = registro.item_automatico(str(target if not target.suffix else target.parent),
+                                                               prompt_tarea)
     target, wt, aviso_aislar = _aislar(target, aislar, prompt_tarea)
     cwd = _work_cwd(target)
     if pedido_id and item:
@@ -520,6 +524,7 @@ async def ejecutar_trabajo_opencode_innti(
                f"{tokens.get('output', 0) + tokens.get('reasoning', 0):,} salida · ≈ US$ {costo:.4f}").replace(",", ".")
     _live(f"■ {estado} | {len(changed)} archivos | {tok_txt} | resumen devuelto a Claude")
     vinculo = registro.vincular_delegacion(pedido_id, item, "OpenCode", modelo.split("/")[-1], costo, estado)
+    vinculo += aviso_item
     if wt:
         w = wt["worktree"]
         sha = control.confirmar_cambios(Path(w), f"orq: {prompt_tarea[:80]}")
@@ -939,6 +944,9 @@ async def preparar_tarea_antigravity(
     folder.mkdir(parents=True, exist_ok=True)
     model = (modelo_antigravity or ANTIGRAVITY_AGY_MODEL).strip()
     _agy_confiar(folder)
+    aviso_item = ""
+    if not (pedido_id and item):  # ajuste sin pedido: queda como ítem nuevo del pedido del proyecto
+        pedido_id, item, aviso_item = registro.item_automatico(str(folder), instruccion)
     task = _agy_prepare(instruccion, contexto_adicional, target, folder, model)
     task.update(pedido_id=pedido_id, item=item,
                 descartados=[m.strip() for m in modelos_descartados.split(",") if m.strip()])
@@ -951,7 +959,7 @@ async def preparar_tarea_antigravity(
     conv = ["--conversation", conversacion] if _conv_valida(conversacion) else []
     cmd = plataforma.run_line(agy, *conv, "-i", plataforma.quote_prompt(_ascii(task["prompt"])), "--model", model,
                               "--mode", "accept-edits", cwd=folder)
-    return (f"task_id: {task['id']}\ncarpeta: {folder}\n"
+    return (f"task_id: {task['id']}\ncarpeta: {folder}{aviso_item}\n"
             f"comando (ejecútalo con run_in_terminal, una sola línea, sin cambios; luego muestra la pestaña con show_pane):\n{cmd}")
 
 

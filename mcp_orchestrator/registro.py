@@ -265,6 +265,31 @@ def listar_pedidos(solo_abiertos: bool = True, limite: int = 15) -> str:
     return "\n".join(out) or ("No hay pedidos abiertos." if solo_abiertos else "No hay pedidos.")
 
 
+def item_automatico(ruta: str, texto: str) -> tuple[str, int, str]:
+    """Para una delegación sin pedido (un ajuste o seguimiento): la agrega como ítem nuevo al pedido más reciente
+    del mismo proyecto (prefiriendo el abierto, que se reabre si estaba cerrado) o crea un pedido de ajustes.
+    Devuelve (pedido_id, ítem, aviso)."""
+    def norm(r):
+        return os.path.normcase(os.path.normpath(r)) if r else ""
+
+    def mismo(a, b):
+        return bool(a and b) and (a == b or a.startswith(b + os.sep) or b.startswith(a + os.sep))
+
+    texto = " ".join(texto.split())[:120] or "Ajuste"
+    cand = [p for f in TAREAS_DIR.glob("*.json") if (p := _load(f.stem)) and mismo(norm(ruta), norm(p.get("ruta", "")))]
+    if cand:
+        p = max(cand, key=lambda p: (p["estado"] == "abierto", p.get("creado") or ""))
+        if p["estado"] != "abierto":
+            p["estado"] = "abierto"
+            _save(p)
+        agregar_items(p["id"], [texto])
+        p = _load(p["id"])
+        return p["id"], len(p["items"]), f"\nChecklist: ajuste agregado como ítem {len(p['items'])} del pedido «{p['titulo']}»."
+    proyecto = Path(ruta).name or "proyecto"
+    pid = iniciar_pedido(f"Ajustes en {proyecto}", [texto], ruta=ruta).split("\n")[0].split(": ")[1]
+    return pid, 1, f"\nChecklist: no había pedido de {proyecto}; se creó «Ajustes en {proyecto}» con este ajuste."
+
+
 def vincular_delegacion(pedido_id: str, item: int, agente: str, modelo: str, costo: float, resultado: str) -> str:
     """Tras una delegación: pasa el ítem a 'revisando', suma costo y deja nota. Devuelve aviso para Claude."""
     if not pedido_id or not item:

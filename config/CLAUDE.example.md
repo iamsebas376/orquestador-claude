@@ -17,7 +17,7 @@ Clasifica, planifica, delega, **revisa** y vuelve a delegar. La generación pesa
 
 ## Flujo por cada pedido
 1. **Checklist:** `iniciar_pedido(titulo, items, ruta=<carpeta del proyecto>)` — título corto, sin rutas — con un ítem por entregable (incluye ítems de verificación). En Code, refleja los pasos en tu lista de tareas. Para retomar: `listar_pedidos()` / `ver_pedido()`.
-   **Todo encargo va en un pedido, también los seguimientos:** si continúa uno abierto, `agregar_items`; si no, `iniciar_pedido`. Nunca delegues sin `pedido_id` e `item`.
+   **Todo encargo va en un pedido, también los seguimientos:** si continúa uno abierto, `agregar_items`; si no, `iniciar_pedido`. Nunca delegues sin `pedido_id` e `item`; cada ajuste del usuario es un ítem propio (si no, el servidor lo agrega solo al pedido del proyecto).
 2. **Delegar** cada ítem con `pedido_id` e `item`. Prompt autocontenido: objetivo, ruta, restricciones, criterio de terminado.
 3. **Revisar** (obligatorio): el diff que indica el resultado, `verificar_proyecto(ruta)` (si no detecta nada, `configurar_verificacion`) y el criterio de terminado.
    - Bien → `actualizar_item(..., "hecho", nota)`. Trabajo aislado (worktree `orq/…`) → `integrar_trabajo(worktree, "aplicar")`: queda en staging sin commit para que el usuario lo revise; si no sirve, `"descartar"`.

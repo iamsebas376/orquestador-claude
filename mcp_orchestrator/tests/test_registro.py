@@ -199,3 +199,14 @@ def test_delegaciones_sin_pedido_se_asignan_al_proyecto(tmp_registro):
     assert p["extra"]["n"] == 1 and p["costo_usd"] == 0.5 and p["tokens"] == 110
     huerfano = next(p for p in data["pedidos"] if p["titulo"] == "Delegaciones sin pedido")
     assert huerfano["costo_usd"] == 0.25 and huerfano["ruta"] == r"D:\w\otro"
+
+
+def test_ajuste_sin_pedido_se_agrega_como_item(tmp_registro):
+    pid = pedido_id(registro.iniciar_pedido("Tenants", ["A"], ruta=r"D:\w\app"))
+    registro.cerrar_pedido(pid, "listo")
+    p2, item, aviso = registro.item_automatico(r"D:\w\app\sub", "Ajusta el color del botón")
+    assert p2 == pid and item == 2 and "ítem 2" in aviso
+    data = json.loads((registro.TAREAS_DIR / f"{pid}.json").read_text(encoding="utf-8"))
+    assert data["estado"] == "abierto" and data["items"][1]["texto"] == "Ajusta el color del botón"
+    p3, item3, aviso3 = registro.item_automatico(r"D:\w\nuevo", "Primer ajuste")
+    assert p3 != pid and item3 == 1 and "Ajustes en nuevo" in aviso3
