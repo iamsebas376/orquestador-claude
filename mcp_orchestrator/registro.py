@@ -534,6 +534,53 @@ def _mensajes_claude(desde: datetime) -> list[dict]:
     return sorted(por_id.values(), key=lambda r: r["ts"])
 
 
+_PREFIJOS_NO_PROMPT = ("<task-notification", "<command-", "<local-command", "<side-sessions", "<ci-monitor",
+                       "Caveat:", "<system-reminder", "[Request interrupted")
+
+
+def _prompts_claude() -> dict[str, list]:
+    """Pedidos del usuario en cada sesión de Claude Code (sus prompts), con su hora: cada uno es una tarea aunque no
+    se haya creado un checklist. Se omiten avisos automáticos, resúmenes de compactación y respuestas de herramientas."""
+    out: dict[str, list] = {}
+    for f in CLAUDE_PROJECTS_DIR.rglob("*.jsonl"):
+        try:
+            lineas = f.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        for line in lineas:
+            if '"type":"user"' not in line.replace(" ", ""):
+                continue
+            try:
+                e = json.loads(line)
+            except ValueError:
+                continue
+            if e.get("type") != "user" or e.get("isMeta") or e.get("isCompactSummary"):
+                continue
+            c = (e.get("message") or {}).get("content")
+            if isinstance(c, list):
+                if any(isinstance(b, dict) and b.get("type") == "tool_result" for b in c):
+                    continue
+                c = " ".join(b.get("text", "") for b in c if isinstance(b, dict) and b.get("type") == "text")
+            if not isinstance(c, str):
+                continue
+            texto = c.strip()
+            if not texto or texto.startswith(_PREFIJOS_NO_PROMPT):
+                continue
+            texto = re.sub(r"</?pasted_content[^>]*>", " ", texto)
+            texto = " ".join(texto.split())[:120]
+            try:
+                ts = datetime.fromisoformat(e["timestamp"].replace("Z", "+00:00")).astimezone().replace(tzinfo=None)
+            except (KeyError, ValueError):
+                continue
+            sid = str(e.get("sessionId") or f.stem)
+            lista = out.setdefault(sid, [])
+            if (ts, texto) not in lista:
+                lista.append((ts, texto))
+    for lista in out.values():
+        lista.sort()
+    return out
+
+
 def _titulos_claude() -> dict[str, str]:
     """Título de cada sesión de Claude Code (el último que le puso la app), por sessionId."""
     titulos: dict[str, str] = {}
@@ -832,9 +879,27 @@ def datos_panel() -> dict:
                                    for k, g in extra.get("agentes", {}).items()}}]})
     # Sesiones: cada pedido va con la sesión de Claude que lo creó (o la primera que lo usó); los que no tienen
     # sesión conocida (delegaciones sueltas, pedidos de otra máquina) van en "Sin sesión de Claude".
+    prompts = _prompts_claude() if sesiones_sin_pedido else {}
     for sid, rs in sesiones_sin_pedido.items():
         ses_agg[sid]["fuera_tokens"] = sum(r["entrada"] + r["salida"] for r in rs)
         ses_agg[sid]["fuera_eq"] = sum(r["equivalente"] for r in rs)
+        # Cada respuesta va al prompt del usuario que la originó (el último antes de ella).
+        ps = prompts.get(sid, [])
+        tareas: dict[int, dict] = {}
+        for r in rs:
+            k = max((i for i, (t, _) in enumerate(ps) if t <= r["ts"]), default=0)
+            ini, texto = ps[k] if ps else (r["ts"], "Trabajo de Claude")
+            t = tareas.setdefault(k, {"texto": texto, "inicio": ini.isoformat(timespec="seconds"),
+                                      "dia": ini.date().isoformat(), "tokens": 0, "eq": 0.0, "modelos": set(),
+                                      "fin": r["ts"]})
+            t["tokens"] += r["entrada"] + r["salida"]
+            t["eq"] += r["equivalente"]
+            t["modelos"].add(r["modelo"])
+            t["fin"] = max(t["fin"], r["ts"])
+        ses_agg[sid]["prompts"] = [
+            {"texto": t["texto"], "inicio": t["inicio"], "dia": t["dia"], "fin": t["fin"].isoformat(timespec="seconds"),
+             "tokens": round(t["tokens"]), "costo_equivalente_usd": round(t["eq"], 4), "modelos": sorted(t["modelos"])}
+            for _, t in sorted(tareas.items())]
     orden_ses = sorted(ses_agg, key=lambda sid: ses_agg[sid]["inicio"])
     duenio = {}
     for sid in orden_ses:
@@ -865,6 +930,7 @@ def datos_panel() -> dict:
                        "modelos": sorted((a or {}).get("modelos", set()))},
             "claude_fuera": {"tokens": round((a or {}).get("fuera_tokens", 0)),
                              "costo_equivalente_usd": round((a or {}).get("fuera_eq", 0.0), 4)},
+            "prompts": (a or {}).get("prompts", []),
             "por_dia": [{"dia": dia, "tokens": round(v["tokens"]), "costo_equivalente_usd": round(v["eq"], 4),
                          "fuera_tokens": round(v["fuera_tokens"]), "fuera_costo_equivalente_usd": round(v["fuera_eq"], 4)}
                         for dia, v in sorted((a or {}).get("por_dia", {}).items())]})

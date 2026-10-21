@@ -655,6 +655,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
       if (iasOn.cl === false) { cl = 0; fuera.costo_equivalente_usd = 0; }
       var fin = parse(s.fin);
       return { s: s, peds: peds, innti: innti, agy: agy, cl: cl, total: innti + agy + cl, fuera: fuera, tok: clTok,
+               prompts: iasOn.cl === false ? [] : (s.prompts || []).filter(function (t) { return t.dia >= desdeD && t.dia <= hastaD; }),
                activa: peds.some(function (p) { return p.estado === "abierto"; }) || (fin && ahora - fin.getTime() < 12 * 3600000),
                visible: (!r.desde || !fin || fin >= r.desde) && (!r.hasta || !parse(s.inicio) || parse(s.inicio) <= r.hasta) };
     }).filter(function (x) { return x.visible && (x.total > 0 || x.peds.length) && (filtro !== "abiertos" || x.activa); });
@@ -671,11 +672,11 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     var cont = document.getElementById("pedidos");
     cont.textContent = "";
     var filas = filasSesiones(r), porSes = {};
-    filas.forEach(function (x) { porSes[x.s.id] = x; x.hijas = []; x.nTareas = x.peds.length; });
+    filas.forEach(function (x) { porSes[x.s.id] = x; x.hijas = []; x.nTareas = x.peds.length + x.prompts.length; });
     filas = filas.filter(function (x) {
       var padre = x.s.padre && porSes[x.s.padre];
       if (!padre || padre === x) return true;
-      padre.innti += x.innti; padre.agy += x.agy; padre.cl += x.cl; padre.total += x.total; padre.nTareas += x.peds.length;
+      padre.innti += x.innti; padre.agy += x.agy; padre.cl += x.cl; padre.total += x.total; padre.nTareas += x.peds.length + x.prompts.length;
       if (x.s.continuacion) {
         // La misma conversación retomada en otro archivo: se une del todo (tareas, trabajo fuera de tareas y fechas).
         padre.peds = padre.peds.concat(x.peds);
@@ -683,6 +684,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
         padre.fuera.costo_equivalente_usd += x.fuera.costo_equivalente_usd;
         padre.fuera.tokens += x.fuera.tokens;
         padre.fuera.dias = padre.fuera.dias.concat(x.fuera.dias);
+        padre.prompts = padre.prompts.concat(x.prompts);
         padre.s = Object.assign({}, padre.s, { inicio: x.s.inicio < padre.s.inicio ? x.s.inicio : padre.s.inicio });
       } else {
         padre.hijas.push(x);  // bifurcación real: suma en la principal y se ve aparte en su detalle
@@ -823,19 +825,22 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
         tdi.appendChild(ul); fi.appendChild(tdi); tb.appendChild(fi);
       }
     });
-    if (x.fuera.costo_equivalente_usd) {
+    // Cada prompt del usuario que no quedó en un checklist es una tarea: el trabajo de Claude que originó.
+    (x.prompts || []).slice().sort(function (a, b) { return b.costo_equivalente_usd - a.costo_equivalente_usd; }).forEach(function (t) {
       var tr = el("tr"), td = el("td");
-      td.appendChild(el("div", "nom", "Fuera de tareas"));
-      td.appendChild(el("div", "sub2", "Conversación y ajustes sin checklist · " + x.fuera.dias.length + (x.fuera.dias.length === 1 ? " día" : " días")));
+      td.appendChild(el("div", "nom", t.texto));
+      td.appendChild(el("div", "sub2", "Prompt · " + rangoFechas(t.inicio, t.fin) + " · " + compacto(t.tokens) + " tokens"));
       tr.appendChild(td);
-      var tdA = el("td"); tdA.appendChild(el("span", "ia cl")); tr.appendChild(tdA);
+      var tdA = el("td"), punto = el("span", "ia cl");
+      tip(punto, "Claude", (t.modelos || []).map(function (m) { return ["cl", m]; }));
+      tdA.appendChild(punto); tr.appendChild(tdA);
       tr.appendChild(celda(0)); tr.appendChild(celda(0));
-      tr.appendChild(celda(x.fuera.costo_equivalente_usd, "cl", true));
-      tr.appendChild(el("td", "n tot", dinero(x.fuera.costo_equivalente_usd)));
-      var tdB = el("td"); tdB.appendChild(barra(0, 0, x.fuera.costo_equivalente_usd)); tr.appendChild(tdB);
+      tr.appendChild(celda(t.costo_equivalente_usd, "cl", true));
+      tr.appendChild(el("td", "n tot", dinero(t.costo_equivalente_usd)));
+      var tdB = el("td"); tdB.appendChild(barra(0, 0, t.costo_equivalente_usd)); tr.appendChild(tdB);
       tr.style.cursor = "default";
       tb.appendChild(tr);
-    }
+    });
     (x.hijas || []).forEach(function (h) {
       var tr = el("tr"), td = el("td");
       td.appendChild(el("div", "nom", "↳ " + h.s.titulo));
@@ -855,7 +860,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     });
     if (!tb.children.length) { var tr0 = el("tr"), td0 = el("td", "pista", "Esta sesión no tiene tareas ni gasto en el período."); td0.colSpan = 7; tr0.appendChild(td0); tb.appendChild(tr0); }
     t.appendChild(tb); wrap.appendChild(t); d.appendChild(wrap);
-    d.appendChild(el("div", "pista", "Clic en una tarea para ver sus ítems. Innti es gasto real; ≈ es el equivalente por API."));
+    d.appendChild(el("div", "pista", "Clic en una tarea con checklist para ver sus ítems; las demás son prompts tuyos sin checklist. Innti es gasto real; ≈ es el equivalente por API."));
     return d;
   }
 
