@@ -1,19 +1,22 @@
-"""Hook PreToolUse de Claude Code: bloquea que Claude edite o cree archivos en las carpetas de proyectos.
+"""Hook PreToolUse de Claude Code: Claude no edita ni crea archivos; solo delega y revisa.
 
-En esas carpetas Claude solo delega y revisa; los cambios los hacen OpenCode (trabajo) o Antigravity (personal).
-Se permite el cambio trivial de la regla: una edición puntual de hasta 3 líneas (Edit sin replace_all).
+Aplica en cualquier carpeta. Los cambios los hacen OpenCode con Innti (solo D:\\workspaces) o Antigravity (todo lo
+demás). Excepciones: la carpeta propia de Claude (~/.claude: memoria, planes), la carpeta temporal (scratchpad) y el
+cambio trivial de la regla: una edición puntual de hasta 3 líneas (Edit sin replace_all).
 """
 import json
 import os
 import sys
+import tempfile
 
-CARPETAS = [r"D:\workspaces", r"D:\personal", r"D:\universidad"]
+TRABAJO = r"D:\workspaces"
 MAX_LINEAS = 3
+PERMITIDAS = [os.path.join(os.path.expanduser("~"), ".claude"), tempfile.gettempdir()]
 
 
-def dentro(ruta: str) -> bool:
-    r = os.path.normcase(os.path.abspath(ruta))
-    return any(r == os.path.normcase(c) or r.startswith(os.path.normcase(c) + os.sep) for c in CARPETAS)
+def dentro(ruta: str, carpeta: str) -> bool:
+    r, c = os.path.normcase(os.path.abspath(ruta)), os.path.normcase(os.path.abspath(carpeta))
+    return r == c or r.startswith(c + os.sep)
 
 
 def lineas(texto: str) -> int:
@@ -28,15 +31,15 @@ def main() -> None:
     herramienta = evento.get("tool_name", "")
     entrada = evento.get("tool_input") or {}
     ruta = entrada.get("file_path") or entrada.get("notebook_path") or ""
-    if not ruta or not dentro(ruta):
+    if not ruta or any(dentro(ruta, c) for c in PERMITIDAS):
         return
     if herramienta == "Edit" and not entrada.get("replace_all") and \
             max(lineas(entrada.get("old_string")), lineas(entrada.get("new_string"))) <= MAX_LINEAS:
         return  # cambio trivial permitido (debe anotarse en el ítem: "Claude corrigió: …")
-    trabajo = os.path.normcase(os.path.abspath(ruta)).startswith(os.path.normcase(CARPETAS[0]))
-    agente = "OpenCode (ejecutar_trabajo_opencode_innti)" if trabajo else "Antigravity (preparar_tarea_antigravity)"
-    motivo = (f"Bloqueado por tu regla: en {ruta} no editas ni creas archivos, solo delegas y revisas. "
-              f"Delega este cambio a {agente} con pedido_id e ítem; solo se permite un cambio trivial de hasta "
+    agente = ("OpenCode con Innti (ejecutar_trabajo_opencode_innti)" if dentro(ruta, TRABAJO)
+              else "Antigravity (preparar_tarea_antigravity)")
+    motivo = (f"Bloqueado por tu regla: no editas ni creas archivos ({ruta}); solo delegas y revisas. "
+              f"Delega este cambio a {agente} con pedido_id e ítem. Solo se permite un cambio trivial de hasta "
               f"{MAX_LINEAS} líneas con Edit, anotado en el ítem.")
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
                                              "permissionDecisionReason": motivo}}, ensure_ascii=False))

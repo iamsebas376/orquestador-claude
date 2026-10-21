@@ -45,6 +45,10 @@ def _env(name: str, default: str = "") -> str:
 TRABAJO_DIR = Path(_env("TRABAJO_DIR") or plataforma.default_dir("workspaces")).expanduser()
 PERSONAL_DIR = Path(_env("PERSONAL_DIR") or plataforma.default_dir("personal")).expanduser()
 UNIVERSIDAD_DIR = Path(_env("UNIVERSIDAD_DIR") or plataforma.default_dir("universidad")).expanduser()
+# Todo lo que no es trabajo va a Antigravity: además de personal y universidad, otras carpetas propias
+# (por defecto la del propio orquestador). Separadas por coma en OTRAS_CARPETAS_PERSONALES.
+OTRAS_CARPETAS = [Path(c.strip()).expanduser() for c in
+                  _env("OTRAS_CARPETAS_PERSONALES", str(plataforma.REPO_ROOT)).split(",") if c.strip()]
 LOGS_DIR = Path(_env("LOGS_DIR") or plataforma.REPO_ROOT / "logs").expanduser()
 
 OPENCODE_CLI_PATH = _env("OPENCODE_CLI_PATH", "opencode")
@@ -581,7 +585,7 @@ async def ejecutar_personal_antigravity(
     _live("")
     _live(f"▶ PERSONAL → Antigravity | salida: {target}")
     _live(f"  instrucción: {instruccion[:300]}")
-    if not _inside(target, PERSONAL_DIR, UNIVERSIDAD_DIR):
+    if not _inside(target, PERSONAL_DIR, UNIVERSIDAD_DIR, *OTRAS_CARPETAS):
         _live(f"  ✖ rechazado: ruta fuera de {PERSONAL_DIR} y {UNIVERSIDAD_DIR}")
         return (f"Rechazado: {target} está fuera de {PERSONAL_DIR} y {UNIVERSIDAD_DIR}. Si es un "
                 "proyecto de trabajo usa ejecutar_trabajo_opencode_innti.")
@@ -652,7 +656,7 @@ AGY_SETTINGS = Path.home() / ".gemini" / "antigravity-cli" / "settings.json"
 def _agy_confiar(folder: Path) -> bool:
     """Marca la carpeta como confiable en agy para que no pida confirmarla. Solo carpetas personales o de
     universidad: la ruta ya pasó por _inside antes de llegar aquí, pero se vuelve a comprobar."""
-    if not _inside(folder, PERSONAL_DIR, UNIVERSIDAD_DIR):
+    if not _inside(folder, PERSONAL_DIR, UNIVERSIDAD_DIR, *OTRAS_CARPETAS):
         return False
     try:
         data = json.loads(AGY_SETTINGS.read_text(encoding="utf-8")) if AGY_SETTINGS.exists() else {}
@@ -934,7 +938,7 @@ async def preparar_tarea_antigravity(
     mostrada es la carpeta personal. Luego llama esperar_resultado_antigravity(task_id) para la síntesis.
     """
     target = _resolve_personal(ruta_salida_opcional or "_antigravity")
-    if not _inside(target, PERSONAL_DIR, UNIVERSIDAD_DIR):
+    if not _inside(target, PERSONAL_DIR, UNIVERSIDAD_DIR, *OTRAS_CARPETAS):
         return (f"Rechazado: {target} está fuera de {PERSONAL_DIR} y {UNIVERSIDAD_DIR}. Si es un proyecto de "
                 "trabajo usa preparar_vista_opencode + ejecutar_trabajo_opencode_innti.")
     agy = _agy_cmd()
@@ -1199,7 +1203,7 @@ async def verificar_proyecto(ruta: str, comandos: list[str] | None = None) -> st
     Usa los comandos guardados con configurar_verificacion o los detecta (Maven, Gradle, npm, pytest, Go).
     Úsala en cada revisión de una delegación de trabajo (también dentro del worktree aislado)."""
     target = _resolve_under(TRABAJO_DIR, ruta)
-    if not _inside(target, TRABAJO_DIR, PERSONAL_DIR, UNIVERSIDAD_DIR):
+    if not _inside(target, TRABAJO_DIR, PERSONAL_DIR, UNIVERSIDAD_DIR, *OTRAS_CARPETAS):
         return f"Rechazado: {target} está fuera de las carpetas configuradas."
     tope = next((b for b in (TRABAJO_DIR, PERSONAL_DIR, UNIVERSIDAD_DIR) if _inside(target, b)), TRABAJO_DIR)
     _live(f"▶ VERIFICACIÓN en {target}")
