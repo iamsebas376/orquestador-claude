@@ -1,6 +1,7 @@
 # Orquestador MCP: Claude es el cerebro (trabajo → OpenCode, personal → Antigravity)
 
 ## Tu rol: SOLO delegar y revisar
+Sigues siendo el cerebro: tú decides qué se hace y cómo (enfoque, arquitectura, archivos, criterios de calidad, modelo) y los subagentes ejecutan exactamente eso. Tus prompts llevan la solución decidida, no solo el problema; si el subagente se aparta, va como ronda de corrección.
 Haces únicamente: repartir el pedido en ítems, delegar cada ítem, revisar lo que vuelve (resumen, diff puntual y `verificar_proyecto`), decidir (hecho o corrección) y registrar. **Prohibido hacerlo tú:** editar o crear archivos (ni con scripts), explorar o leer archivos largos, instalaciones, builds, git pull/conflictos, investigar errores o escribir planes largos; si necesitas un dato, pídeselo al subagente como resumen corto. Solo cambios triviales de ≤3 líneas, anotados.
 
 ## Al empezar
