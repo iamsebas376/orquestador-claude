@@ -290,10 +290,18 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
 <script>
 (function () {
   var ESTADOS = {
-    pendiente: ["○", "pendiente"], en_curso: ["◐", "en curso"], revisando: ["◎", "revisando"],
-    corrigiendo: ["↻", "corrigiendo"], hecho: ["✓", "hecho"], fallido: ["✕", "fallido"], omitido: ["–", "omitido"],
-    abierto: ["◐", "Abierta"], cerrado: ["✓", "Cerrada"], bloqueado: ["✕", "Bloqueada"], cancelado: ["✕", "Cancelada"],
-    terminada: ["✓", "Terminada"]
+    pendiente:   ["○", "Pendiente", "s-pendiente"],
+    abierto:     ["◐", "En curso",  "s-en_curso"],
+    en_curso:    ["◐", "En curso",  "s-en_curso"],
+    revisando:   ["◐", "En curso",  "s-en_curso"],
+    corrigiendo: ["◐", "En curso",  "s-en_curso"],
+    cerrado:     ["✓", "Terminada", "s-hecho"],
+    hecho:       ["✓", "Terminada", "s-hecho"],
+    terminada:   ["✓", "Terminada", "s-hecho"],
+    fallido:     ["✕", "Fallida",   "s-fallido"],
+    bloqueado:   ["✕", "Fallida",   "s-fallido"],
+    cancelado:   ["✕", "Fallida",   "s-fallido"],
+    omitido:     ["–", "Omitida",   "s-omitido"]
   };
   var DAY = 86400000;
   var state = null, filtro = "abiertos", preset = "30d";
@@ -397,10 +405,8 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
   }
 
   function chip(estado) {
-    var e = ESTADOS[estado] || ["•", estado];
-    var cls = estado === "abierto" || estado === "cerrado" || estado === "bloqueado" || estado === "cancelado" ? "p-" + estado
-      : estado === "terminada" ? "s-hecho" : "s-" + estado;
-    var c = el("span", "chip " + cls);
+    var e = ESTADOS[estado] || ["•", estado, "s-" + estado];
+    var c = el("span", "chip " + e[2]);
     c.appendChild(el("span", null, e[0]));
     c.appendChild(el("span", null, e[1]));
     return c;
@@ -452,7 +458,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     sum.appendChild(main);
 
     var side = el("div", "ps-side");
-    side.appendChild(el("span", "chip p-" + p.estado, p.estado));
+    side.appendChild(chip(p.estado));
     side.appendChild(badges(p.costo_usd, p.costo_equivalente_usd, p.tokens, p.claude));
     sum.appendChild(side);
     card.appendChild(sum);
