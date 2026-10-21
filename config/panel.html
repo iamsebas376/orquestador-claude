@@ -100,6 +100,38 @@ th[aria-sort] button::after { content: " ↓"; } th[aria-sort="ascending"] butto
 .pedido.sub .pedido-body { padding: 10px 14px 12px; }
 .pedido.sub ol.items li { background: var(--surface); }
 .fuera-tareas { border-style: dashed; }
+/* Comparativa de sesiones: tabla limpia, barra de reparto por agente y detalle de tareas debajo. */
+.cmp { width: 100%; border-collapse: collapse; min-width: 560px; font-size: .9rem; }
+.cmp th { font: 600 .7rem var(--f-mono); letter-spacing: .05em; text-transform: uppercase; color: var(--muted); background: none; text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.cmp th.n, .cmp td.n { text-align: right; }
+.cmp td { padding: 10px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.cmp tbody tr { cursor: pointer; transition: background .12s; }
+.cmp tbody tr:hover { background: var(--bg); }
+.cmp tbody tr.sel { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+.cmp tr:last-child td { border-bottom: 0; }
+.cmp .nom { font-weight: 600; overflow-wrap: anywhere; }
+.cmp .sub2 { font: .74rem/1.4 var(--f-mono); color: var(--muted); margin-top: 2px; }
+.cmp td.n { font: .84rem var(--f-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cmp td.tot { font-weight: 700; color: var(--fg); }
+.cmp .cero { color: var(--line); }
+.cmp td.fechas { font: .78rem var(--f-mono); color: var(--muted); white-space: nowrap; }
+.cmp .nom { font-size: .9rem; }
+.cmp th:last-child, .cmp td:last-child { width: 96px; }
+.barra { display: flex; height: 6px; width: 100%; min-width: 64px; border-radius: 99px; overflow: hidden; background: var(--idle-soft); }
+.barra span { display: block; height: 100%; }
+.barra .b-innti { background: var(--innti); } .barra .b-agy { background: var(--agy); } .barra .b-cl { background: var(--cl); }
+.detalle { margin-top: 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; }
+.detalle h3 { font: 600 1.02rem/1.3 var(--f-display); margin: 0; }
+.detalle .meta { font-size: .82rem; }
+.cmp tr.items-fila { cursor: default; }
+.cmp tr.items-fila:hover { background: none; }
+.cmp tr.items-fila td { padding: 0 12px 12px 30px; }
+.mini { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.mini li { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; font-size: .84rem; padding: 6px 10px; border-radius: 8px; background: var(--bg); }
+.mini .c { font: .78rem var(--f-mono); color: var(--muted); white-space: nowrap; }
+.caret { display: inline-block; width: 12px; color: var(--muted); transition: transform .15s; }
+tr.abierta .caret { transform: rotate(90deg); }
+.pista { font-size: .8rem; color: var(--muted); }
 .pedido-body { border-top: 1px solid var(--line); padding: 12px 18px 16px; display: flex; flex-direction: column; gap: 12px; }
 .ph { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: baseline; justify-content: space-between; }
 .meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; color: var(--muted); font-size: .86rem; line-height: 1.4; }
@@ -582,6 +614,191 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     return card;
   }
 
+  // Barra apilada con el reparto del gasto entre agentes (Innti real, Antigravity y Claude equivalentes).
+  function barra(innti, agy, cl) {
+    var b = el("div", "barra"), tot = innti + agy + cl;
+    if (tot > 0) [["b-innti", innti], ["b-agy", agy], ["b-cl", cl]].forEach(function (x) {
+      if (x[1] > 0) { var sp = el("span", x[0]); sp.style.width = (100 * x[1] / tot) + "%"; b.appendChild(sp); }
+    });
+    tip(b, "Reparto del gasto", [["innti", "Innti: " + usd(innti)], ["agy", "Antigravity: ≈ " + usd(agy)], ["cl", "Claude: ≈ " + usd(cl)],
+      [null, tot ? "Claude: " + Math.round(100 * cl / tot) + " % del total" : "Sin gasto"]]);
+    return b;
+  }
+  function dinero(v) { return "$" + (v >= 100 ? v.toFixed(0) : v >= 1 ? v.toFixed(2) : v.toFixed(3)); }
+  function celda(v, clase, aprox) {
+    return el("td", "n " + (v ? clase || "" : "cero"), v ? (aprox ? "≈ " : "") + dinero(v) : "—");
+  }
+
+  var selSes = null, abiertaTarea = {}, ordenSes = { k: "total", asc: false };
+
+  // Sesiones del período con sus totales por agente (Claude por día, para respetar el filtro de fechas).
+  function filasSesiones(r) {
+    var porId = {};
+    ((state && state.pedidos) || []).forEach(function (p) { porId[p.id] = p; });
+    var desdeD = r.desde ? ymd(r.desde) : "", hastaD = r.hasta ? ymd(r.hasta) : "9999-12-31", ahora = Date.now();
+    return ((state && state.sesiones) || []).map(function (s) {
+      var peds = (s.pedidos || []).map(function (id) { return porId[id]; }).filter(function (p) { return p && enRango(p, r); });
+      var cl = 0, clTok = 0, fuera = { tokens: 0, costo_equivalente_usd: 0, dias: [] };
+      (s.por_dia || []).forEach(function (d) {
+        if (d.dia < desdeD || d.dia > hastaD) return;
+        cl += d.costo_equivalente_usd; clTok += d.tokens;
+        if (d.fuera_costo_equivalente_usd) { fuera.costo_equivalente_usd += d.fuera_costo_equivalente_usd; fuera.tokens += d.fuera_tokens; fuera.dias.push(d); }
+      });
+      var innti = 0, agy = 0;
+      peds.forEach(function (p) { innti += p.costo_usd || 0; agy += p.costo_equivalente_usd || 0; });
+      if (iasOn.innti === false) innti = 0;
+      if (iasOn.agy === false) agy = 0;
+      if (iasOn.cl === false) { cl = 0; fuera.costo_equivalente_usd = 0; }
+      var fin = parse(s.fin);
+      return { s: s, peds: peds, innti: innti, agy: agy, cl: cl, total: innti + agy + cl, fuera: fuera, tok: clTok,
+               activa: peds.some(function (p) { return p.estado === "abierto"; }) || (fin && ahora - fin.getTime() < 12 * 3600000),
+               visible: (!r.desde || !fin || fin >= r.desde) && (!r.hasta || !parse(s.inicio) || parse(s.inicio) <= r.hasta) };
+    }).filter(function (x) { return x.visible && (x.total > 0 || x.peds.length) && (filtro !== "abiertos" || x.activa); });
+  }
+
+  function rangoFechas(ini, fin) {
+    var MES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+    function c(iso) { var d = parse(iso); return d ? d.getDate() + " " + MES[d.getMonth()] : ""; }
+    var a = c(ini), b = c(fin);
+    return a === b ? a : a + " – " + b;
+  }
+
+  function renderComparativa(r) {
+    var cont = document.getElementById("pedidos");
+    cont.textContent = "";
+    var filas = filasSesiones(r);
+    if (!filas.length) {
+      var e = el("div", "empty");
+      e.appendChild(el("strong", null, !state ? "Todavía no hay datos sincronizados." :
+        filtro === "abiertos" ? "No hay sesiones activas en este período." : "No hay sesiones en este período."));
+      e.appendChild(el("span", null, !state ? "Claude actualiza este panel al terminar cada turno con cambios." : "Prueba con «Todas» o amplía el período."));
+      cont.appendChild(e);
+      return;
+    }
+    function val(x) {
+      return ordenSes.k === "nombre" ? x.s.titulo : ordenSes.k === "fecha" ? x.s.fin : ordenSes.k === "tareas" ? x.peds.length
+        : ordenSes.k === "pct" ? (x.total ? x.cl / x.total : 0) : x[ordenSes.k];
+    }
+    filas.sort(function (a, b) {
+      var x = val(a), y = val(b), c = typeof x === "string" ? x.localeCompare(y) : x - y;
+      return ordenSes.asc ? c : -c;
+    });
+    if (!selSes || !filas.some(function (x) { return x.s.id === selSes; })) selSes = filas[0].s.id;
+
+    var wrap = el("div", "table-scroll"), t = el("table", "cmp"), th = el("thead"), hr = el("tr");
+    [["nombre", "Sesión", ""], ["fecha", "Fechas", ""], ["tareas", "Tareas", "n"], ["innti", "Innti", "n"], ["agy", "Antigravity", "n"],
+     ["cl", "Claude", "n"], ["total", "Total", "n"], ["pct", "Reparto", ""]].forEach(function (c) {
+      var h = el("th", c[2]), b = el("button", null, c[1]);
+      b.type = "button";
+      b.addEventListener("click", function () { ordenSes = { k: c[0], asc: ordenSes.k === c[0] ? !ordenSes.asc : c[0] === "nombre" }; render(); });
+      if (ordenSes.k === c[0]) h.setAttribute("aria-sort", ordenSes.asc ? "ascending" : "descending");
+      h.appendChild(b); hr.appendChild(h);
+    });
+    th.appendChild(hr); t.appendChild(th);
+    var tb = el("tbody");
+    filas.forEach(function (x) {
+      var tr = el("tr" , x.s.id === selSes ? "sel" : null), td = el("td");
+      td.appendChild(el("div", "nom", x.s.titulo));
+      tr.appendChild(td);
+      tr.appendChild(el("td", "fechas", rangoFechas(x.s.inicio, x.s.fin)));
+      tr.appendChild(el("td", "n", String(x.peds.length)));
+      tr.appendChild(celda(x.innti, "innti"));
+      tr.appendChild(celda(x.agy, "agy", true));
+      tr.appendChild(celda(x.cl, "cl", true));
+      tr.appendChild(el("td", "n tot", dinero(x.total)));
+      var tdB = el("td"); tdB.appendChild(barra(x.innti, x.agy, x.cl)); tr.appendChild(tdB);
+      tr.addEventListener("click", function () { selSes = x.s.id; render(); });
+      tb.appendChild(tr);
+    });
+    t.appendChild(tb); wrap.appendChild(t); cont.appendChild(wrap);
+    var sel = filas.filter(function (x) { return x.s.id === selSes; })[0];
+    if (sel) cont.appendChild(renderDetalle(sel));
+  }
+
+  // Tareas de la sesión elegida, con las mismas columnas; los ítems se abren con un clic en la tarea.
+  function renderDetalle(x) {
+    var d = el("div", "detalle");
+    d.appendChild(el("h3", null, x.s.titulo));
+    var meta = el("div", "meta");
+    if (x.s.ruta) meta.appendChild(el("span", "mono", x.s.ruta));
+    meta.appendChild(el("span", null, rangoFechas(x.s.inicio, x.s.fin)));
+    meta.appendChild(el("span", null, compacto(x.tok) + " tokens de Claude"));
+    d.appendChild(meta);
+    var wrap = el("div", "table-scroll"), t = el("table", "cmp"), th = el("thead"), hr = el("tr");
+    [["Tarea", ""], ["Agentes", ""], ["Innti", "n"], ["Antigravity", "n"], ["Claude", "n"], ["Total", "n"], ["Reparto", ""]].forEach(function (c) {
+      hr.appendChild(el("th", c[1], c[0]));
+    });
+    th.appendChild(hr); t.appendChild(th);
+    var tb = el("tbody"), filas = x.peds.map(function (p) {
+      var cl = iasOn.cl === false ? 0 : (p.claude && p.claude.costo_equivalente_usd) || 0;
+      var innti = iasOn.innti === false ? 0 : p.costo_usd || 0, agy = iasOn.agy === false ? 0 : p.costo_equivalente_usd || 0;
+      return { p: p, innti: innti, agy: agy, cl: cl, total: innti + agy + cl };
+    }).sort(function (a, b) { return b.total - a.total; });
+    filas.forEach(function (f) {
+      var p = f.p, tr = el("tr", abiertaTarea[p.id] ? "abierta" : null), td = el("td");
+      var nom = el("div", "nom"); nom.appendChild(el("span", "caret", "›")); nom.appendChild(document.createTextNode(" " + (p.titulo || p.id)));
+      td.appendChild(nom);
+      var items = (p.items || []).filter(function (i) { return !i.virtual; });
+      var hechos = items.filter(function (i) { return i.estado === "hecho" || i.estado === "omitido"; }).length;
+      td.appendChild(el("div", "sub2", hechos + "/" + items.length + " ítems · " + p.estado));
+      tr.appendChild(td);
+      var tdA = el("td"), modelos = {};
+      (p.items || []).forEach(function (i) {
+        Object.keys(i.agentes || {}).forEach(function (k) { (i.agentes[k].modelos || []).forEach(function (m) { modelos[k] = modelos[k] || {}; modelos[k][m] = 1; }); });
+      });
+      [["innti", "innti", "OpenCode"], ["agy", "agy", "Antigravity"], ["claude", "cl", "Claude"]].forEach(function (a) {
+        if (!modelos[a[0]]) return;
+        var punto = el("span", "ia " + a[1]);
+        tip(punto, a[2], Object.keys(modelos[a[0]]).map(function (m) { return [a[1], m]; }));
+        tdA.appendChild(punto);
+      });
+      tr.appendChild(tdA);
+      tr.appendChild(celda(f.innti, "innti"));
+      tr.appendChild(celda(f.agy, "agy", true));
+      tr.appendChild(celda(f.cl, "cl", true));
+      tr.appendChild(el("td", "n tot", dinero(f.total)));
+      var tdB = el("td"); tdB.appendChild(barra(f.innti, f.agy, f.cl)); tr.appendChild(tdB);
+      tr.addEventListener("click", function () { if (abiertaTarea[p.id]) delete abiertaTarea[p.id]; else abiertaTarea[p.id] = 1; render(); });
+      tb.appendChild(tr);
+      if (abiertaTarea[p.id]) {
+        var fi = el("tr", "items-fila"), tdi = el("td"), ul = el("ul", "mini");
+        tdi.colSpan = 7;
+        (p.items || []).forEach(function (i) {
+          var li = el("li");
+          li.appendChild(chip(i.estado));
+          var tx = el("div"); tx.appendChild(document.createTextNode(i.texto));
+          li.appendChild(tx);
+          var c = el("span", "c"), partes = [];
+          [["innti", "Innti"], ["agy", "Antigravity"], ["claude", "Claude"]].forEach(function (a) {
+            var g = (i.agentes || {})[a[0]];
+            if (g && (g.costo_usd || g.costo_equivalente_usd)) partes.push(a[1] + " " + (g.costo_usd ? usd(g.costo_usd) : "≈ " + usd(g.costo_equivalente_usd)));
+          });
+          c.textContent = partes.join(" · ") || "—";
+          li.appendChild(c);
+          ul.appendChild(li);
+        });
+        tdi.appendChild(ul); fi.appendChild(tdi); tb.appendChild(fi);
+      }
+    });
+    if (x.fuera.costo_equivalente_usd) {
+      var tr = el("tr"), td = el("td");
+      td.appendChild(el("div", "nom", "Fuera de tareas"));
+      td.appendChild(el("div", "sub2", "Conversación y ajustes sin checklist · " + x.fuera.dias.length + (x.fuera.dias.length === 1 ? " día" : " días")));
+      tr.appendChild(td);
+      var tdA = el("td"); tdA.appendChild(el("span", "ia cl")); tr.appendChild(tdA);
+      tr.appendChild(celda(0)); tr.appendChild(celda(0));
+      tr.appendChild(celda(x.fuera.costo_equivalente_usd, "cl", true));
+      tr.appendChild(el("td", "n tot", dinero(x.fuera.costo_equivalente_usd)));
+      var tdB = el("td"); tdB.appendChild(barra(0, 0, x.fuera.costo_equivalente_usd)); tr.appendChild(tdB);
+      tr.style.cursor = "default";
+      tb.appendChild(tr);
+    }
+    if (!tb.children.length) { var tr0 = el("tr"), td0 = el("td", "pista", "Esta sesión no tiene tareas ni gasto en el período."); td0.colSpan = 7; tr0.appendChild(td0); tb.appendChild(tr0); }
+    t.appendChild(tb); wrap.appendChild(t); d.appendChild(wrap);
+    d.appendChild(el("div", "pista", "Clic en una tarea para ver sus ítems. Innti es gasto real; ≈ es el equivalente por API."));
+    return d;
+  }
+
   function renderChart(r, costos) {
     var box = document.getElementById("chart");
     box.textContent = "";
@@ -685,45 +902,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
 
     renderChart(r, costos);
 
-    var cont = document.getElementById("pedidos");
-    cont.textContent = "";
-    var porId = {};
-    ((state && state.pedidos) || []).forEach(function (p) { porId[p.id] = p; });
-    var ahora = Date.now();
-    var sesiones = ((state && state.sesiones) || []).map(function (s) {
-      return { s: s, peds: (s.pedidos || []).map(function (id) { return porId[id]; }).filter(function (p) { return p && enRango(p, r); }) };
-    }).filter(function (x) {
-      var ini = parse(x.s.inicio), fin = parse(x.s.fin);
-      if (r.desde && fin && fin < r.desde) return false;
-      if (r.hasta && ini && ini > r.hasta) return false;
-      if (filtro === "abiertos") {  // activas: con un pedido abierto o actividad en las últimas 12 horas
-        return x.peds.some(function (p) { return p.estado === "abierto"; }) || (fin && ahora - fin.getTime() < 12 * 3600000);
-      }
-      return true;
-    });
-    if (!sesiones.length) {
-      var e = el("div", "empty");
-      e.appendChild(el("strong", null, !state ? "Todavía no hay datos sincronizados." :
-        filtro === "abiertos" ? "No hay sesiones activas en este período." : "No hay sesiones en este período."));
-      e.appendChild(el("span", null, !state ? "Claude actualiza este panel al terminar cada turno con cambios." :
-        "Prueba con «Todas» o amplía el período."));
-      cont.appendChild(e);
-    } else {
-      var paginas = Math.ceil(sesiones.length / POR_PAGINA);
-      if (pagina >= paginas) pagina = paginas - 1;
-      sesiones.slice(pagina * POR_PAGINA, (pagina + 1) * POR_PAGINA).forEach(function (x) { cont.appendChild(renderSesion(x.s, x.peds, r)); });
-      if (paginas > 1) {
-        var nav = el("nav", "paginador"); nav.setAttribute("aria-label", "Páginas de sesiones");
-        var ant = el("button", null, "‹ Anterior"), sig = el("button", null, "Siguiente ›");
-        ant.type = sig.type = "button"; ant.disabled = pagina === 0; sig.disabled = pagina === paginas - 1;
-        ant.addEventListener("click", function () { pagina--; render(); document.getElementById("h-ped").scrollIntoView(); });
-        sig.addEventListener("click", function () { pagina++; render(); document.getElementById("h-ped").scrollIntoView(); });
-        nav.appendChild(ant);
-        nav.appendChild(el("span", "mono", (pagina + 1) + " de " + paginas + " · " + sesiones.length + " sesiones"));
-        nav.appendChild(sig);
-        cont.appendChild(nav);
-      }
-    }
+    renderComparativa(r);
 
     var agg = {};
     costos.forEach(function (c) {
