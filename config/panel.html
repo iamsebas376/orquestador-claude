@@ -675,9 +675,18 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     filas = filas.filter(function (x) {
       var padre = x.s.padre && porSes[x.s.padre];
       if (!padre || padre === x) return true;
-      // La bifurcación suma en su sesión principal y se ve aparte en su detalle.
-      padre.hijas.push(x);
       padre.innti += x.innti; padre.agy += x.agy; padre.cl += x.cl; padre.total += x.total; padre.nTareas += x.peds.length;
+      if (x.s.continuacion) {
+        // La misma conversación retomada en otro archivo: se une del todo (tareas, trabajo fuera de tareas y fechas).
+        padre.peds = padre.peds.concat(x.peds);
+        padre.tok += x.tok;
+        padre.fuera.costo_equivalente_usd += x.fuera.costo_equivalente_usd;
+        padre.fuera.tokens += x.fuera.tokens;
+        padre.fuera.dias = padre.fuera.dias.concat(x.fuera.dias);
+        padre.s = Object.assign({}, padre.s, { inicio: x.s.inicio < padre.s.inicio ? x.s.inicio : padre.s.inicio });
+      } else {
+        padre.hijas.push(x);  // bifurcación real: suma en la principal y se ve aparte en su detalle
+      }
       return false;
     });
     if (!filas.length) {

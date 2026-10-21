@@ -308,3 +308,27 @@ def test_la_principal_es_donde_siguio_el_trabajo(tmp_registro, tmp_path, monkeyp
     assert ses["vieja"]["padre"] == "nueva" and "padre" not in ses["nueva"]
     assert ses["nueva"]["claude"]["costo_equivalente_usd"] == 25.0
     assert ses["vieja"]["claude"]["costo_equivalente_usd"] == 5.0
+
+
+def test_misma_conversacion_retomada_es_continuacion(tmp_registro, tmp_path, monkeypatch):
+    import time
+    precios = tmp_path / "precios.json"
+    precios.write_text(json.dumps({"claude-x": [5.0, 0.5, 25.0]}), encoding="utf-8")
+    monkeypatch.setattr(registro, "PRECIOS_FILE", precios)
+    proy = tmp_path / "cp" / "D--x"
+    proy.mkdir(parents=True)
+    monkeypatch.setattr(registro, "CLAUDE_PROJECTS_DIR", proy.parent)
+    ts = datetime.now().astimezone().isoformat()
+
+    def msg(sid, mid):
+        return json.dumps({"timestamp": ts, "sessionId": sid, "message": {
+            "id": mid, "model": "claude-x", "usage": {"input_tokens": 1_000_000, "output_tokens": 0}}})
+
+    def titulo(sid, t):
+        return json.dumps({"type": "custom-title", "customTitle": t, "sessionId": sid})
+    (proy / "a.jsonl").write_text("\n".join([msg("a", "m1"), msg("a", "a1"), titulo("a", "Tenants")]), encoding="utf-8")
+    time.sleep(0.05)
+    (proy / "b.jsonl").write_text("\n".join([msg("b", "m1"), msg("b", "b1"), msg("b", "b2"), titulo("b", "Tenants")]),
+                                  encoding="utf-8")
+    ses = {x["id"]: x for x in registro.datos_panel()["sesiones"]}
+    assert ses["a"]["padre"] == "b" and ses["a"]["continuacion"] is True

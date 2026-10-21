@@ -877,6 +877,9 @@ def datos_panel() -> dict:
             padre = PADRE_SESION[padre]
         if padre and padre in ids_ses and padre != x["id"]:
             x["padre"] = padre
+            # Mismo título = la misma conversación guardada en otro archivo al retomarla (no es una bifurcación).
+            titulo_padre = next((y["titulo"] for y in lista_ses if y["id"] == padre), "")
+            x["continuacion"] = bool(titulo_padre) and x["titulo"] == titulo_padre
     lista_ses.sort(key=lambda x: x["fin"], reverse=True)
     filas.sort(key=lambda f: f["actualizado"], reverse=True)
     diarios = sorted(costos_diarios() + list(claude_dia.values()), key=lambda a: a["dia"])
