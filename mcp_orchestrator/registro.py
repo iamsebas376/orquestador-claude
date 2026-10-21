@@ -452,6 +452,8 @@ def _items_de(ts: datetime, ventanas: list[tuple]) -> list[int]:
         primero = min(despues)[0]
         return [n for ini, n in despues if ini == primero]
     ultimo = max(fin for ini, fin, n in ventanas)
+    if ts - ultimo > timedelta(minutes=5):
+        return [0]  # después del último ítem: trabajo de Claude sin ítem (no se le carga al último)
     return [n for ini, fin, n in ventanas if fin == ultimo]
 
 
@@ -690,6 +692,10 @@ def datos_panel() -> dict:
                           "costo_usd": round(c["costo_usd"] or i.get("costo_usd", 0), 4),
                           "costo_equivalente_usd": round(c["costo_equivalente_usd"], 4),
                           "tokens": c["tokens_entrada"] + c["tokens_salida"], "agentes": ag})
+        if 0 in claude_item:
+            items.append({"texto": "Trabajo de Claude sin ítem (después del último ajuste)", "estado": "hecho",
+                          "virtual": True, "agente": "", "modelo": "", "rondas": 0, "costo_usd": 0.0,
+                          "costo_equivalente_usd": 0.0, "tokens": 0, "agentes": desglose({}, 0)})
         if extra.get("n") or n_extra in claude_item:
             items.append({"texto": f"Seguimientos sin ítem ({extra.get('n', 0)} delegaciones)", "estado": "hecho",
                           "virtual": True, "agente": "", "modelo": "", "rondas": 0,
