@@ -551,25 +551,77 @@ def _mensajes_claude(desde: datetime) -> list[dict]:
 
 _PREFIJOS_NO_PROMPT = ("<task-notification", "<command-", "<local-command", "<side-sessions", "<ci-monitor",
                        "Caveat:", "<system-reminder", "[Request interrupted")
+_TOOLS_PEDIDO = ("mcp__orchestrator__iniciar_pedido", "mcp__orchestrator__agregar_items",
+                 "iniciar_pedido", "agregar_items")
+_TOOLS_DELEGACION = ("mcp__orchestrator__preparar_tarea_antigravity",
+                     "mcp__orchestrator__ejecutar_personal_antigravity",
+                     "mcp__orchestrator__ejecutar_trabajo_opencode_innti",
+                     "preparar_tarea_antigravity", "ejecutar_personal_antigravity",
+                     "ejecutar_trabajo_opencode_innti")
+_TOOLS_PLAN = ("mcp__ccd_turn__update_plan", "TodoWrite")
+_TOOLS_NOMBRE = (*_TOOLS_PEDIDO, *_TOOLS_DELEGACION, *_TOOLS_PLAN)
 
 
-def _prompts_claude() -> dict[str, list]:
-    """Pedidos del usuario en cada sesión de Claude Code (sus prompts), con su hora: cada uno es una tarea aunque no
-    se haya creado un checklist. Se omiten avisos automáticos, resúmenes de compactación y respuestas de herramientas."""
+def _prompts_claude(fusion: dict[str, str] | None = None) -> dict[str, list]:
+    """Pedidos del usuario en cada sesión de Claude Code (sus prompts), con su hora y el nombre inferido de lo que la
+    sesión hizo tras ese prompt y antes del siguiente: a) primer ítem de iniciar_pedido/agregar_items, b) primera frase
+    (máx. 60 caracteres) de instruccion/prompt_tarea al delegar, o c) primer ítem del plan (update_plan/TodoWrite).
+    Se omiten avisos automáticos, resúmenes de compactación y respuestas de herramientas."""
     out: dict[str, list] = {}
+    planes: dict[str, list] = {}
     for f in CLAUDE_PROJECTS_DIR.rglob("*.jsonl"):
         try:
             lineas = f.read_text(encoding="utf-8", errors="replace").splitlines()
         except OSError:
             continue
+        ultimo_ts = None
         for line in lineas:
-            if '"type":"user"' not in line.replace(" ", ""):
+            sin_esp = line.replace(" ", "")
+            tiene_tool = "tool_use" in line and any(k in line for k in _TOOLS_NOMBRE)
+            if '"type":"user"' not in sin_esp and not tiene_tool:
                 continue
             try:
                 e = json.loads(line)
             except ValueError:
                 continue
-            if e.get("type") != "user" or e.get("isMeta") or e.get("isCompactSummary"):
+            try:
+                ts = datetime.fromisoformat(e["timestamp"].replace("Z", "+00:00")).astimezone().replace(tzinfo=None)
+                ultimo_ts, tiene_ts = ts, True
+            except (KeyError, ValueError, AttributeError):
+                ts, tiene_ts = ultimo_ts, False
+            sid = str(e.get("sessionId") or f.stem)
+            if fusion:
+                sid = fusion.get(sid, sid)
+            if tiene_tool and ts:
+                contenido = (e.get("message") or {}).get("content")
+                if isinstance(contenido, list):
+                    for b in contenido:
+                        if not isinstance(b, dict) or b.get("type") != "tool_use":
+                            continue
+                        nom_tool = b.get("name") or ""
+                        inp = b.get("input") or {}
+                        if nom_tool in _TOOLS_PEDIDO:
+                            items = inp.get("items")
+                            if isinstance(items, list) and items:
+                                primero = (items[0].get("texto") or items[0].get("content")
+                                           if isinstance(items[0], dict) else items[0])
+                                item_txt = " ".join(str(primero or "").split())
+                                if item_txt:
+                                    planes.setdefault(sid, []).append((ts, 1, item_txt))
+                        elif nom_tool in _TOOLS_DELEGACION:
+                            raw = " ".join(str(inp.get("instruccion") or inp.get("prompt_tarea") or "").split())
+                            if raw:
+                                frase = re.split(r"(?<=[.?!])\s", raw, maxsplit=1)[0]
+                                frase = (frase[:60].rstrip(" ,;:") + "…") if len(frase) > 60 else frase
+                                planes.setdefault(sid, []).append((ts, 2, frase))
+                        elif nom_tool in _TOOLS_PLAN:
+                            items = inp.get("items")
+                            if isinstance(items, list) and items:
+                                primero = items[0].get("content") if isinstance(items[0], dict) else items[0]
+                                item_txt = " ".join(str(primero or "").split())
+                                if item_txt:
+                                    planes.setdefault(sid, []).append((ts, 3, item_txt))
+            if e.get("type") != "user" or e.get("isMeta") or e.get("isCompactSummary") or not tiene_ts:
                 continue
             c = (e.get("message") or {}).get("content")
             if isinstance(c, list):
@@ -583,17 +635,22 @@ def _prompts_claude() -> dict[str, list]:
                 continue
             texto = re.sub(r"</?pasted_content[^>]*>", " ", texto)
             texto = " ".join(texto.split())[:120]
-            try:
-                ts = datetime.fromisoformat(e["timestamp"].replace("Z", "+00:00")).astimezone().replace(tzinfo=None)
-            except (KeyError, ValueError):
-                continue
-            sid = str(e.get("sessionId") or f.stem)
             lista = out.setdefault(sid, [])
             if (ts, texto) not in lista:
                 lista.append((ts, texto))
-    for lista in out.values():
+    res: dict[str, list] = {}
+    for sid, lista in out.items():
         lista.sort()
-    return out
+        ps_plan = sorted(planes.get(sid, []), key=lambda x: x[0])
+        res[sid] = [
+            (ts, texto, min(
+                ((prio, nom) for tp, prio, nom in ps_plan
+                 if tp >= ts and (i + 1 == len(lista) or tp < lista[i + 1][0])),
+                key=lambda x: x[0], default=(0, ""),
+            )[1])
+            for i, (ts, texto) in enumerate(lista)
+        ]
+    return res
 
 
 NOMBRES_FILE = REPO_ROOT / "nombres_tareas.json"  # huella del prompt -> nombre corto de la tarea (escrito a mano)
@@ -604,20 +661,15 @@ def _huella(texto: str) -> str:
     return hashlib.sha1(texto.encode("utf-8")).hexdigest()[:16]
 
 
-def _nombre_local(texto: str) -> str:
-    """Nombre de respaldo para un prompt sin nombre asignado: la primera frase, corta."""
-    frase = re.split(r"(?<=[.?!])\s", texto, maxsplit=1)[0]
-    return (frase[:60].rstrip(" ,;:") + "…") if len(frase) > 60 else frase
-
-
-def nombres_tareas(textos: list[str]) -> dict[str, str]:
-    """Nombre corto de la tarea de cada prompt sin checklist: el que esté en nombres_tareas.json (escrito una vez
-    a mano) o, si no hay, la primera frase recortada. Lo nuevo debería llegar ya como ítem con su nombre."""
+def nombres_tareas(textos: list[str], planes: dict[str, str] | None = None) -> dict[str, str]:
+    """Nombre corto de la tarea de cada prompt sin checklist: 1) nombres_tareas.json si tiene la huella,
+    2) el primer ítem del plan (update_plan / TodoWrite) tras ese prompt, 3) 'Consulta'."""
     try:
         fijos = json.loads(NOMBRES_FILE.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         fijos = {}
-    return {t: fijos.get(_huella(t)) or _nombre_local(t) for t in textos}
+    planes = planes or {}
+    return {t: fijos.get(_huella(t)) or planes.get(t) or "Consulta" for t in textos}
 
 
 def _titulos_claude() -> dict[str, str]:
@@ -932,10 +984,7 @@ def datos_panel() -> dict:
                                    for k, g in extra.get("agentes", {}).items()}}]})
     # Sesiones: cada pedido va con la sesión de Claude que lo creó (o la primera que lo usó); los que no tienen
     # sesión conocida (delegaciones sueltas, pedidos de otra máquina) van en "Sin sesión de Claude".
-    prompts = _prompts_claude() if sesiones_sin_pedido else {}
-    for sec, pri in fusion.items():
-        if sec in prompts:
-            prompts[pri] = sorted(set(prompts.get(pri, [])) | set(prompts.pop(sec)))
+    prompts = _prompts_claude(fusion) if sesiones_sin_pedido else {}
     for sid, rs in sesiones_sin_pedido.items():
         ses_agg[sid]["fuera_tokens"] = sum(r["entrada"] + r["salida"] for r in rs)
         ses_agg[sid]["fuera_eq"] = sum(r["equivalente"] for r in rs)
@@ -943,19 +992,21 @@ def datos_panel() -> dict:
         ps = prompts.get(sid, [])
         tareas: dict[int, dict] = {}
         for r in rs:
-            k = max((i for i, (t, _) in enumerate(ps) if t <= r["ts"]), default=0)
-            ini, texto = ps[k] if ps else (r["ts"], "Trabajo de Claude")
-            t = tareas.setdefault(k, {"texto": texto, "inicio": ini.isoformat(timespec="seconds"),
+            k = max((i for i, (t, *_) in enumerate(ps) if t <= r["ts"]), default=0)
+            ini, texto, plan = ps[k] if ps else (r["ts"], "", "")
+            t = tareas.setdefault(k, {"texto": texto, "plan": plan, "inicio": ini.isoformat(timespec="seconds"),
                                       "dia": ini.date().isoformat(), "tokens": 0, "eq": 0.0, "modelos": set(),
                                       "fin": r["ts"]})
             t["tokens"] += r["entrada"] + r["salida"]
             t["eq"] += r["equivalente"]
             t["modelos"].add(r["modelo"])
             t["fin"] = max(t["fin"], r["ts"])
-        nombres = nombres_tareas([t["texto"] for t in tareas.values()])
+        nombres = nombres_tareas([t["texto"] for t in tareas.values()],
+                                 {t["texto"]: t["plan"] for t in tareas.values() if t["plan"]})
         ses_agg[sid]["prompts"] = [
-            {"texto": nombres.get(t["texto"], t["texto"]), "inicio": t["inicio"], "dia": t["dia"], "fin": t["fin"].isoformat(timespec="seconds"),
-             "tokens": round(t["tokens"]), "costo_equivalente_usd": round(t["eq"], 4), "modelos": sorted(t["modelos"])}
+            {"texto": nombres.get(t["texto"], "Consulta"), "inicio": t["inicio"], "dia": t["dia"],
+             "fin": t["fin"].isoformat(timespec="seconds"), "tokens": round(t["tokens"]),
+             "costo_equivalente_usd": round(t["eq"], 4), "modelos": sorted(t["modelos"])}
             for _, t in sorted(tareas.items())]
     orden_ses = sorted(ses_agg, key=lambda sid: ses_agg[sid]["inicio"])
     duenio = {}

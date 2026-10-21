@@ -293,5 +293,76 @@ def test_dos_transcripts_con_mensaje_comun_dan_una_sola_sesion(tmp_registro, tmp
     assert ses["id"] == "nueva" and "padre" not in ses and "continuacion" not in ses
     assert ses["claude"]["costo_equivalente_usd"] == 20.0  # m1 + v1 + n1 + n2, sin duplicar m1
     assert ses["pedidos"] == [pid]
-    assert [p["texto"] for p in ses["prompts"]] == ["Revisa el módulo"]
+    assert [p["texto"] for p in ses["prompts"]] == ["Consulta"]
+
+
+def test_nombre_de_prompts_usa_huella_plan_o_consulta(tmp_registro, tmp_path, monkeypatch):
+    assert not hasattr(registro, "_nombre_local")
+    proy = tmp_path / "cp" / "D--x"
+    proy.mkdir(parents=True)
+    monkeypatch.setattr(registro, "CLAUDE_PROJECTS_DIR", proy.parent)
+    nombres_file = tmp_path / "nombres_tareas.json"
+    nombres_file.write_text(json.dumps({registro._huella("Prompt con huella fija"): "Nombre manual fijo"}),
+                            encoding="utf-8")
+    monkeypatch.setattr(registro, "NOMBRES_FILE", nombres_file)
+
+    base = datetime.now().astimezone() - timedelta(minutes=30)
+    t = lambda m: (base + timedelta(minutes=m)).isoformat()
+
+    def user(txt, m):
+        return {"type": "user", "timestamp": t(m), "sessionId": "s1", "message": {"content": txt}}
+
+    def resp(mid, m):
+        return {"timestamp": t(m), "sessionId": "s1", "message": {
+            "id": mid, "model": "claude-x", "usage": {"input_tokens": 100, "output_tokens": 10}}}
+
+    def call(tool, inp, m):
+        return {"timestamp": t(m), "sessionId": "s1", "message": {"content": [
+            {"type": "tool_use", "id": f"p{m}", "name": tool, "input": inp}]}}
+
+    larga = ("Implementar la validación completa de formularios con mensajes detallados para cada campo. "
+             "Segunda frase ignorada.")
+    lineas = [
+        # 1) Con huella en nombres_tareas.json (gana aunque tenga iniciar_pedido y plan después)
+        user("Prompt con huella fija", 1),
+        call("mcp__orchestrator__iniciar_pedido", {"items": ["Ítem ignorado por huella"]}, 2),
+        call("mcp__ccd_turn__update_plan", {"items": [{"content": "Plan ignorado por huella"}]}, 3),
+        resp("m1", 4),
+        # 2) Prioridad a): iniciar_pedido / agregar_items gana sobre delegación y plan
+        user("Texto literal que nunca debe salir a", 5),
+        call("mcp__ccd_turn__update_plan", {"items": [{"content": "Plan previo superado por pedido"}]}, 6),
+        call("mcp__orchestrator__ejecutar_trabajo_opencode_innti", {"prompt_tarea": "Delegación superada."}, 7),
+        call("mcp__orchestrator__agregar_items", {"items": ["Ítem de agregar_items", "Otro"]}, 8),
+        resp("m2", 9),
+        # 3) Prioridad b): primera frase (máx. 60 caracteres) de instruccion / prompt_tarea gana sobre plan
+        user("Texto literal que nunca debe salir b", 10),
+        call("mcp__ccd_turn__update_plan", {"items": [{"content": "Plan superado por delegación"}]}, 11),
+        call("mcp__orchestrator__preparar_tarea_antigravity", {"instruccion": larga}, 12),
+        resp("m3", 13),
+        # 4) Prioridad plan: update_plan toma el primer ítem de la primera llamada con items
+        user("Texto literal que nunca debe salir 1", 15),
+        call("mcp__ccd_turn__update_plan", {}, 16),
+        call("mcp__ccd_turn__update_plan", {"items": [{"content": "Primer ítem del plan"}, {"content": "Segundo ítem"}]}, 17),
+        call("mcp__ccd_turn__update_plan", {"items": [{"content": "Llamada posterior ignorada"}]}, 18),
+        resp("m4", 19),
+        # 5) Sin huella, con TodoWrite
+        user("Texto literal que nunca debe salir 2", 20),
+        call("TodoWrite", {"items": [{"content": "Tarea desde TodoWrite"}]}, 21),
+        resp("m5", 22),
+        # 6) Sin huella y sin acción: 'Consulta' (nunca el texto literal)
+        user(" ¿Por qué falla el login? ", 25),
+        resp("m6", 26),
+    ]
+    (proy / "s1.jsonl").write_text("\n".join(json.dumps(l) for l in lineas), encoding="utf-8")
+
+    ses = next(x for x in registro.datos_panel()["sesiones"] if x["id"] == "s1")
+    assert [p["texto"] for p in ses["prompts"]] == [
+        "Nombre manual fijo",
+        "Ítem de agregar_items",
+        larga[:60].rstrip(" ,;:") + "…",
+        "Primer ítem del plan",
+        "Tarea desde TodoWrite",
+        "Consulta",
+    ]
+
 
