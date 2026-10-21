@@ -123,6 +123,7 @@ th[aria-sort] button::after { content: " ↓"; } th[aria-sort="ascending"] butto
 .detalle { margin-top: 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; }
 .detalle h3 { font: 600 1.02rem/1.3 var(--f-display); margin: 0; }
 .detalle .meta { font-size: .82rem; }
+.detalle .meta .innti { color: var(--innti); } .detalle .meta .agy { color: var(--agy); } .detalle .meta .cl { color: var(--cl); }
 .cmp tr.items-fila { cursor: default; }
 .cmp tr.items-fila:hover { background: none; }
 .cmp tr.items-fila td { padding: 12px 12px 12px 30px; }
@@ -724,7 +725,20 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     var meta = el("div", "meta");
     if (x.s.ruta) meta.appendChild(el("span", "mono", x.s.ruta));
     meta.appendChild(el("span", null, rangoFechas(x.s.inicio, x.s.fin)));
-    meta.appendChild(el("span", null, compacto(x.tok) + " tokens de Claude"));
+    // Tokens de cada agente en la sesión (Innti y Antigravity de sus tareas; Claude de toda la sesión en el período).
+    var tokAg = { innti: 0, agy: 0 };
+    x.peds.forEach(function (p) {
+      (p.items || []).forEach(function (i) {
+        ["innti", "agy"].forEach(function (k) { tokAg[k] += ((i.agentes || {})[k] || {}).tokens || 0; });
+      });
+    });
+    [["innti", "innti", "Innti", tokAg.innti], ["agy", "agy", "Antigravity", tokAg.agy], ["cl", "cl", "Claude", x.tok]].forEach(function (a) {
+      if (!a[3]) return;
+      var t = el("span", a[1]);
+      t.appendChild(el("span", "ia " + a[1]));
+      t.appendChild(document.createTextNode(a[2] + " " + compacto(a[3]) + " tokens"));
+      meta.appendChild(t);
+    });
     d.appendChild(meta);
     var wrap = el("div", "table-scroll"), t = el("table", "cmp"), th = el("thead"), hr = el("tr");
     [["Tarea", ""], ["Agentes", ""], ["Innti", "n"], ["Antigravity", "n"], ["Claude", "n"], ["Total", "n"], ["Reparto", ""]].forEach(function (c) {
