@@ -778,11 +778,14 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
       hr.appendChild(el("th", c[1], c[0]));
     });
     th.appendChild(hr); t.appendChild(th);
-    var tb = el("tbody"), filas = x.peds.map(function (p) {
+    var tb = el("tbody"), todasFilas = x.peds.map(function (p) {
       var cl = iasOn.cl === false ? 0 : (p.claude && p.claude.costo_equivalente_usd) || 0;
       var innti = iasOn.innti === false ? 0 : p.costo_usd || 0, agy = iasOn.agy === false ? 0 : p.costo_equivalente_usd || 0;
-      return { p: p, innti: innti, agy: agy, cl: cl, total: innti + agy + cl };
-    }).sort(function (a, b) { return b.total - a.total; });
+      var reales = (p.items || []).filter(function (i) { return !i.virtual; });
+      return { p: p, innti: innti, agy: agy, cl: cl, total: innti + agy + cl, reales: reales };
+    });
+    var filas = todasFilas.filter(function (f) { return f.reales.length >= 2; }).sort(function (a, b) { return b.total - a.total; });
+    var filasMono = todasFilas.filter(function (f) { return f.reales.length === 1; });
     var TAM_PAG = 10, totalPags = Math.ceil(filas.length / TAM_PAG);
     if (pagDetalle >= totalPags) pagDetalle = Math.max(0, totalPags - 1);
     var filasVisibles = filas.length > TAM_PAG ? filas.slice(pagDetalle * TAM_PAG, (pagDetalle + 1) * TAM_PAG) : filas;
@@ -790,7 +793,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
       var p = f.p, tr = el("tr", abiertaTarea[p.id] ? "abierta" : null), td = el("td");
       var nom = el("div", "nom"); nom.appendChild(el("span", "caret", "›")); nom.appendChild(document.createTextNode(" " + (p.titulo || p.id)));
       td.appendChild(nom);
-      var items = (p.items || []).filter(function (i) { return !i.virtual; });
+      var items = f.reales;
       var hechos = items.filter(function (i) { return i.estado === "hecho" || i.estado === "omitido"; }).length;
       td.appendChild(el("div", "sub2", hechos + "/" + items.length + " ítems"));
       tr.appendChild(td);
@@ -840,48 +843,119 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
         tdi.appendChild(ul); fi.appendChild(tdi); tb.appendChild(fi);
       }
     });
-    // Prompts del usuario sin checklist agrupados en una sola fila plegable ("Otras tareas").
-    var prompts = (x.prompts || []).slice().sort(function (a, b) { return b.costo_equivalente_usd - a.costo_equivalente_usd; });
-    if (prompts.length) {
-      var kOtras = "otras:" + x.s.id, clOtras = prompts.reduce(function (a, p) { return a + (p.costo_equivalente_usd || 0); }, 0);
-      var tokOtras = prompts.reduce(function (a, p) { return a + (p.tokens || 0); }, 0);
+    // Prompts del usuario y tareas con un solo ítem real agrupados en "Otras tareas".
+    var prompts = (x.prompts || []).slice();
+    var cantOtras = prompts.length + filasMono.length;
+    if (cantOtras > 0) {
+      var inntiOtras = filasMono.reduce(function (a, f) { return a + f.innti; }, 0);
+      var agyOtras = filasMono.reduce(function (a, f) { return a + f.agy; }, 0);
+      var clOtras = prompts.reduce(function (a, p) { return a + (p.costo_equivalente_usd || 0); }, 0) + filasMono.reduce(function (a, f) { return a + f.cl; }, 0);
+      var totalOtras = inntiOtras + agyOtras + clOtras;
+      var tokOtras = prompts.reduce(function (a, p) { return a + (p.tokens || 0); }, 0) + filasMono.reduce(function (a, f) {
+        var t = (f.p.tokens || 0) + ((f.p.claude && f.p.claude.tokens) || 0);
+        if (!t) (f.p.items || []).forEach(function (i) { ["innti", "agy", "claude"].forEach(function (k) { t += ((i.agentes || {})[k] || {}).tokens || 0; }); });
+        return a + t;
+      }, 0);
+      var kOtras = "otras:" + x.s.id;
       var trO = el("tr", abiertaTarea[kOtras] ? "abierta" : null), tdO = el("td");
       var nomO = el("div", "nom"); nomO.appendChild(el("span", "caret", "›")); nomO.appendChild(document.createTextNode(" Otras tareas"));
       tdO.appendChild(nomO);
-      tdO.appendChild(el("div", "sub2", prompts.length + (prompts.length === 1 ? " tarea" : " tareas") + " · " + compacto(tokOtras) + " tokens"));
+      tdO.appendChild(el("div", "sub2", cantOtras + (cantOtras === 1 ? " tarea" : " tareas") + " · " + compacto(tokOtras) + " tokens"));
       trO.appendChild(tdO);
-      var tdEO = el("td"); tdEO.appendChild(chip("terminada")); trO.appendChild(tdEO);
-      var tdAO = el("td"), puntoO = el("span", "ia cl"), modsO = {};
-      prompts.forEach(function (p) { (p.modelos || []).forEach(function (m) { modsO[m] = 1; }); });
-      tip(puntoO, "Claude", Object.keys(modsO).map(function (m) { return ["cl", m]; }));
-      tdAO.appendChild(puntoO); trO.appendChild(tdAO);
-      trO.appendChild(celda(0)); trO.appendChild(celda(0));
+      var abiertaMono = filasMono.some(function (f) {
+        return f.p.estado === "abierto" || f.p.estado === "en_curso" || f.p.estado === "revisando" || f.p.estado === "corrigiendo";
+      });
+      var tdEO = el("td"); tdEO.appendChild(chip(abiertaMono ? "en_curso" : "terminada")); trO.appendChild(tdEO);
+      var tdAO = el("td"), modsO = {};
+      prompts.forEach(function (p) {
+        (p.modelos || []).forEach(function (m) { modsO.claude = modsO.claude || {}; modsO.claude[m] = 1; });
+      });
+      filasMono.forEach(function (f) {
+        (f.p.items || []).forEach(function (i) {
+          Object.keys(i.agentes || {}).forEach(function (k) {
+            (i.agentes[k].modelos || []).forEach(function (m) { modsO[k] = modsO[k] || {}; modsO[k][m] = 1; });
+          });
+        });
+        if (f.p.claude && f.p.claude.modelos) {
+          f.p.claude.modelos.forEach(function (m) { modsO.claude = modsO.claude || {}; modsO.claude[m] = 1; });
+        }
+      });
+      [["innti", "innti", "OpenCode"], ["agy", "agy", "Antigravity"], ["claude", "cl", "Claude"]].forEach(function (a) {
+        var mods = modsO[a[0]] ? Object.keys(modsO[a[0]]) : [];
+        var tieneCosto = a[0] === "innti" ? inntiOtras > 0 : a[0] === "agy" ? agyOtras > 0 : clOtras > 0;
+        if (!mods.length && !tieneCosto) return;
+        if (iasOn[a[1]] === false) return;
+        var punto = el("span", "ia " + a[1]);
+        tip(punto, a[2], mods.length ? mods.map(function (m) { return [a[1], m]; }) : [[a[1], a[2]]]);
+        tdAO.appendChild(punto);
+      });
+      trO.appendChild(tdAO);
+      trO.appendChild(celda(inntiOtras, "innti"));
+      trO.appendChild(celda(agyOtras, "agy", true));
       trO.appendChild(celda(clOtras, "cl", true));
-      trO.appendChild(el("td", "n tot", dinero(clOtras)));
-      var tdBO = el("td"); tdBO.appendChild(barra(0, 0, clOtras)); trO.appendChild(tdBO);
+      trO.appendChild(el("td", "n tot", dinero(totalOtras)));
+      var tdBO = el("td"); tdBO.appendChild(barra(inntiOtras, agyOtras, clOtras)); trO.appendChild(tdBO);
       trO.addEventListener("click", function () { if (abiertaTarea[kOtras]) delete abiertaTarea[kOtras]; else abiertaTarea[kOtras] = 1; render(); });
       tb.appendChild(trO);
       if (abiertaTarea[kOtras]) {
         var fiO = el("tr", "items-fila"), tdiO = el("td"), ulO = el("ul", "mini");
         tdiO.colSpan = 8;
-        var TAM_PAG_OTRAS = 10, totalPagsOtras = Math.ceil(prompts.length / TAM_PAG_OTRAS);
+        var listaOtras = [];
+        filasMono.forEach(function (f) {
+          var item = f.reales[0] || (f.p.items && f.p.items[0]) || { texto: f.p.titulo || f.p.id, estado: f.p.estado };
+          listaOtras.push({ tipo: "mono", f: f, item: item, total: f.total });
+        });
+        prompts.forEach(function (p) {
+          listaOtras.push({ tipo: "prompt", prompt: p, total: p.costo_equivalente_usd || 0 });
+        });
+        listaOtras.sort(function (a, b) { return b.total - a.total; });
+        var TAM_PAG_OTRAS = 10, totalPagsOtras = Math.ceil(listaOtras.length / TAM_PAG_OTRAS);
         if (pagOtras >= totalPagsOtras) pagOtras = Math.max(0, totalPagsOtras - 1);
-        var promptsVisibles = prompts.length > TAM_PAG_OTRAS ? prompts.slice(pagOtras * TAM_PAG_OTRAS, (pagOtras + 1) * TAM_PAG_OTRAS) : prompts;
-        promptsVisibles.forEach(function (p) {
+        var visiblesOtras = listaOtras.length > TAM_PAG_OTRAS ? listaOtras.slice(pagOtras * TAM_PAG_OTRAS, (pagOtras + 1) * TAM_PAG_OTRAS) : listaOtras;
+        visiblesOtras.forEach(function (it) {
           var li = el("li");
-          li.appendChild(chip("terminada"));
-          var tx = el("div", null, p.texto);
-          li.appendChild(tx);
-          var c = el("span", "c"), parte = el("span", "cl");
-          parte.appendChild(el("span", "ia cl"));
-          parte.appendChild(document.createTextNode("≈ " + dinero(p.costo_equivalente_usd)));
-          tip(parte, "Claude", [["cl", rangoFechas(p.inicio, p.fin) + " · " + compacto(p.tokens || 0) + " tokens"], [null, (p.modelos || []).join(", ") || ""]]);
-          c.appendChild(parte);
-          li.appendChild(c);
+          if (it.tipo === "prompt") {
+            var p = it.prompt;
+            li.appendChild(chip("terminada"));
+            li.appendChild(el("div", null, p.texto));
+            var c = el("span", "c");
+            if (iasOn.cl !== false && p.costo_equivalente_usd) {
+              var parte = el("span", "cl");
+              parte.appendChild(el("span", "ia cl"));
+              parte.appendChild(document.createTextNode("≈ " + dinero(p.costo_equivalente_usd)));
+              tip(parte, "Claude", [["cl", rangoFechas(p.inicio, p.fin) + " · " + compacto(p.tokens || 0) + " tokens"], [null, (p.modelos || []).join(", ") || ""]]);
+              c.appendChild(parte);
+            } else {
+              c.textContent = "—";
+            }
+            li.appendChild(c);
+          } else {
+            var f = it.f, p = f.p, i = it.item;
+            li.appendChild(chip(i.estado || p.estado));
+            li.appendChild(el("div", null, i.texto || p.titulo || p.id));
+            var c = el("span", "c"), n = 0;
+            var ag = Object.assign({}, i.agentes || {});
+            if (!ag.claude && f.cl) ag.claude = { costo_equivalente_usd: f.cl, tokens: (p.claude && p.claude.tokens) || 0, modelos: (p.claude && p.claude.modelos) || [] };
+            if (!ag.innti && f.innti) ag.innti = { costo_usd: f.innti, tokens: p.tokens || 0, modelos: [] };
+            if (!ag.agy && f.agy) ag.agy = { costo_equivalente_usd: f.agy, tokens: p.tokens || 0, modelos: [] };
+            [["innti", "innti", "Innti"], ["agy", "agy", "Antigravity"], ["claude", "cl", "Claude"]].forEach(function (a) {
+              if (iasOn[a[1]] === false) return;
+              var g = ag[a[0]];
+              if (!g || !(g.costo_usd || g.costo_equivalente_usd)) return;
+              if (n++) c.appendChild(el("span", "sep", " · "));
+              var parte = el("span", a[1]);
+              parte.appendChild(el("span", "ia " + a[1]));
+              parte.appendChild(document.createTextNode(g.costo_usd ? dinero(g.costo_usd) : "≈ " + dinero(g.costo_equivalente_usd)));
+              tip(parte, a[2], [[a[1], compacto(g.tokens || 0) + " tokens"], [null, (g.modelos || []).join(", ") || ""]]);
+              c.appendChild(parte);
+            });
+            if (!n) c.textContent = "—";
+            li.appendChild(c);
+          }
           ulO.appendChild(li);
         });
         tdiO.appendChild(ulO);
-        if (prompts.length > TAM_PAG_OTRAS) {
+        if (listaOtras.length > TAM_PAG_OTRAS) {
           tdiO.appendChild(crearPaginador(pagOtras, totalPagsOtras, function (nueva) {
             pagOtras = nueva;
             render();

@@ -696,7 +696,8 @@ def _agy_prepare(instruccion: str, contexto: str, target: Path, folder: Path, mo
         f"[Tarea delegada por Claude] {instruccion}"
         + (f" Contexto adicional: {contexto}" if contexto else "") + destino +
         f" REGLAS: trabaja solo dentro de {folder}. Trabaja creando y editando archivos con tus herramientas de "
-        "archivos y evita comandos de terminal (solo si es imprescindible, pídelo y el usuario lo aprobará). "
+        "archivos; para leer, listar o buscar usa también tus herramientas de archivos, nunca comandos de terminal "
+        "(el usuario no siempre está para aprobarlos; solo si es imprescindible, pídelo). "
         "No pegues el código completo en el chat. No instales paquetes globales. "
         # El panel de terminal obliga a mandar el prompt sin tildes: se pide explícitamente buena ortografía.
         "ORTOGRAFIA: estas instrucciones te llegan sin tildes por limitaciones tecnicas, pero todo lo que escribas "
