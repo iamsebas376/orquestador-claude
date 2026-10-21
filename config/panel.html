@@ -129,6 +129,8 @@ th[aria-sort] button::after { content: " ↓"; } th[aria-sort="ascending"] butto
 .mini { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .mini li { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; font-size: .84rem; padding: 6px 10px; border-radius: 8px; background: var(--bg); }
 .mini .c { font: .78rem var(--f-mono); color: var(--muted); white-space: nowrap; }
+.mini .c .innti { color: var(--innti); } .mini .c .agy { color: var(--agy); } .mini .c .cl { color: var(--cl); }
+.mini .c .sep { color: var(--line); }
 .caret { display: inline-block; width: 12px; color: var(--muted); transition: transform .15s; }
 tr.abierta .caret { transform: rotate(90deg); }
 .pista { font-size: .8rem; color: var(--muted); }
@@ -768,12 +770,19 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
           li.appendChild(chip(i.estado));
           var tx = el("div"); tx.appendChild(document.createTextNode(i.texto));
           li.appendChild(tx);
-          var c = el("span", "c"), partes = [];
-          [["innti", "Innti"], ["agy", "Antigravity"], ["claude", "Claude"]].forEach(function (a) {
+          // Costo de cada agente en su color (Innti verde azulado, Antigravity morado, Claude naranja).
+          var c = el("span", "c"), n = 0;
+          [["innti", "innti", "Innti"], ["agy", "agy", "Antigravity"], ["claude", "cl", "Claude"]].forEach(function (a) {
             var g = (i.agentes || {})[a[0]];
-            if (g && (g.costo_usd || g.costo_equivalente_usd)) partes.push(a[1] + " " + (g.costo_usd ? usd(g.costo_usd) : "≈ " + usd(g.costo_equivalente_usd)));
+            if (!g || !(g.costo_usd || g.costo_equivalente_usd)) return;
+            if (n++) c.appendChild(el("span", "sep", " · "));
+            var parte = el("span", a[1]);
+            parte.appendChild(el("span", "ia " + a[1]));
+            parte.appendChild(document.createTextNode(g.costo_usd ? dinero(g.costo_usd) : "≈ " + dinero(g.costo_equivalente_usd)));
+            tip(parte, a[2], [[a[1], compacto(g.tokens || 0) + " tokens"], [null, (g.modelos || []).join(", ") || ""]]);
+            c.appendChild(parte);
           });
-          c.textContent = partes.join(" · ") || "—";
+          if (!n) c.textContent = "—";
           li.appendChild(c);
           ul.appendChild(li);
         });
