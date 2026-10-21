@@ -207,3 +207,40 @@ def test_confia_solo_en_carpetas_personales(tmp_dirs, tmp_path, monkeypatch):
     data = json.loads(f.read_text(encoding="utf-8"))
     assert data["trustedWorkspaces"] == [str(proyecto)]
     assert data["permissions"]["allow"] == ["command(npm test)"]  # el resto de la configuración se conserva
+
+
+def test_timeout_reporta_tokens_y_actualiza_inicio(tmp_dirs, monkeypatch):
+    """En caso de tiempo de espera agotado (timeout), _agy_wait reporta tokens y conversación, y actualiza task['inicio']."""
+    from datetime import datetime, timezone
+    dormir = asyncio.sleep
+    monkeypatch.setattr(server, "ANTIGRAVITY_TIMEOUT", 0)
+    monkeypatch.setattr(server.asyncio, "sleep", lambda s: dormir(0))
+    monkeypatch.setattr(server, "_agy_fallo", lambda conv, desde: ("", ""))
+    monkeypatch.setattr(server, "_agy_conversacion", lambda folder: "0123abcd-0000-0000-0000-000000000000")
+
+    llamadas_tokens = []
+
+    def fake_tokens(conv, desde):
+        llamadas_tokens.append((conv, desde))
+        return {"input": 1200, "cache_read": 300, "output": 150}
+
+    monkeypatch.setattr(server, "_agy_tokens", fake_tokens)
+
+    folder = tmp_dirs["personal"] / "p"
+    folder.mkdir(exist_ok=True)
+    inicio_fijado = datetime(2026, 10, 21, 10, 0, 0, tzinfo=timezone.utc)
+    task = server._agy_prepare("tarea_timeout", "", folder, folder, "gemini-3.8-flash-medium")
+    task["inicio"] = inicio_fijado
+    task_id = task["id"]
+
+    res = run(server._agy_wait(task, "terminal de Claude"))
+
+    assert res.startswith("Sin resultado:")
+    assert "Tokens: 1.500 entrada (300 de caché) / 150 salida" in res
+    assert "conversacion_antigravity: 0123abcd-0000-0000-0000-000000000000" in res
+    assert f"task_id: {task_id}" in res
+    assert task_id in server._AGY_TASKS
+    # Verifica que task['inicio'] se haya actualizado a un instante posterior para no duplicar el cómputo de tokens.
+    assert task["inicio"] > inicio_fijado
+    assert len(llamadas_tokens) == 1
+    assert llamadas_tokens[0] == ("0123abcd-0000-0000-0000-000000000000", inicio_fijado)

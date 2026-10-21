@@ -730,8 +730,16 @@ async def _agy_wait(task: dict, via: str) -> str:
                 return _agy_corte(task, tipo, msg)
     else:
         _live("■ Timeout esperando el resultado de Antigravity")
+        conv = _agy_conversacion(folder)
+        tokens = _agy_tokens(conv, task["inicio"]) if conv else {}
+        tok_txt = (f"Tokens: {tokens['input'] + tokens['cache_read']:,} entrada ({tokens['cache_read']:,} de caché) "
+                   f"/ {tokens['output']:,} salida\n".replace(",", ".") if tokens else "")
+        task["inicio"] = datetime.now(timezone.utc)
         return (f"Sin resultado: Antigravity no escribió {result_file.name} en {ANTIGRAVITY_TIMEOUT}s. Su terminal "
-                f"sigue abierta; revisa si espera una aprobación o si sigue trabajando. task_id: {task['id']}")
+                f"sigue abierta; revisa si espera una aprobación o si sigue trabajando.\n"
+                f"{tok_txt}"
+                + (f"conversacion_antigravity: {conv}\n" if conv else "")
+                + f"task_id: {task['id']}")
 
     content = result_file.read_text(encoding="utf-8", errors="replace").strip()
     result_file.unlink(missing_ok=True)
