@@ -537,6 +537,9 @@ def sesiones_claude(dias: int = PANEL_DIAS) -> dict:
     return {"info": info, "por_dia": sorted(por_dia.values(), key=lambda d: d["dia"])}
 
 
+CREADOR_PEDIDO: dict[str, str] = {}  # pedido_id -> sesión de Claude que lo creó (lo llena _pedidos_por_sesion)
+
+
 def _pedidos_por_sesion() -> dict[str, set]:
     """Pedidos que usó cada sesión de Claude Code: los pedido_id que pasó a las herramientas del orquestador y los
     que creó con iniciar_pedido. Así su trabajo se cuenta en sus pedidos y no en el de otra sesión."""
@@ -569,7 +572,10 @@ def _pedidos_por_sesion() -> dict[str, set]:
                         iniciados.add(b.get("id"))
                 elif b.get("type") == "tool_result" and b.get("tool_use_id") in iniciados:
                     texto = json.dumps(b.get("content"), ensure_ascii=False)
-                    por.setdefault(sid, set()).update(re.findall(r"\d{8}-\d{6}-[a-z0-9-]{3,}", texto))
+                    nuevos = re.findall(r"\d{8}-\d{6}-[a-z0-9-]{3,}", texto)
+                    por.setdefault(sid, set()).update(nuevos)
+                    for pid in nuevos:
+                        CREADOR_PEDIDO.setdefault(pid, sid)
     return por
 
 
@@ -665,6 +671,7 @@ def datos_panel() -> dict:
     claude_pedido: dict[str, dict] = {}
     claude_resp: dict[str, list] = {}
     sesiones_sin_pedido: dict[str, list] = {}
+    ses_agg: dict[str, dict] = {}
     por_sesion = _pedidos_por_sesion()
     for r in consumo_claude():
         k = (r["ts"].date().isoformat(), r["modelo"])
@@ -678,6 +685,13 @@ def datos_panel() -> dict:
         a["tokens_cache"] += r["cache"]
         a["tokens_salida"] += r["salida"]
         a["costo_equivalente_usd"] += r["equivalente"]
+        sa = ses_agg.setdefault(r["sesion"], {"inicio": r["ts"], "fin": r["ts"], "tokens": 0, "eq": 0.0,
+                                              "modelos": set(), "cwd": r.get("cwd", ""), "fuera_tokens": 0, "fuera_eq": 0.0})
+        sa["inicio"], sa["fin"] = min(sa["inicio"], r["ts"]), max(sa["fin"], r["ts"])
+        sa["tokens"] += r["entrada"] + r["salida"]
+        sa["eq"] += r["equivalente"]
+        sa["modelos"].add(r["modelo"])
+        sa["cwd"] = sa["cwd"] or r.get("cwd", "")
         propios = [v for v in ventanas if v[2] in por_sesion.get(r["sesion"], ())]
         # Solo cuenta en un pedido de su propia sesión que estuviera activo en ese momento; lo demás es trabajo
         # de la sesión sin pedido (no se le carga a pedidos de otras sesiones).
@@ -772,26 +786,45 @@ def datos_panel() -> dict:
                        "agentes": {("innti" if k == "opencode" else "agy" if k == "antigravity" else k):
                                    {kk: (round(vv, 4) if isinstance(vv, float) else vv) for kk, vv in g.items()}
                                    for k, g in extra.get("agentes", {}).items()}}]})
-    # Sesiones de Claude que no usaron pedidos (p. ej. ajustes del propio orquestador): un pedido virtual cada una.
-    titulos = _titulos_claude() if sesiones_sin_pedido else {}
+    # Sesiones: cada pedido va con la sesión de Claude que lo creó (o la primera que lo usó); los que no tienen
+    # sesión conocida (delegaciones sueltas, pedidos de otra máquina) van en "Sin sesión de Claude".
     for sid, rs in sesiones_sin_pedido.items():
-        tok = sum(r["entrada"] + r["salida"] for r in rs)
-        eq = sum(r["equivalente"] for r in rs)
-        modelos = sorted({r["modelo"] for r in rs})
-        ini, fin = min(r["ts"] for r in rs), max(r["ts"] for r in rs)
-        filas.append({
-            "id": "claude-" + sid[:8], "titulo": titulos.get(sid) or f"Sesión de Claude {sid[:8]}",
-            "ruta": next((r.get("cwd") for r in rs if r.get("cwd")), ""), "estado": "sin pedido",
-            "creado": ini.isoformat(timespec="seconds"), "actualizado": fin.isoformat(timespec="seconds"),
-            "costo_usd": 0.0, "costo_equivalente_usd": 0.0, "tokens": tok,
-            "claude": {"tokens": tok, "costo_equivalente_usd": round(eq, 4)},
-            "items": [{"texto": "Trabajo de Claude en esta sesión (sin pedido)", "estado": "hecho", "virtual": True,
-                       "agente": "", "modelo": "", "rondas": 0, "costo_usd": 0.0, "costo_equivalente_usd": 0.0,
-                       "tokens": 0, "agentes": {"claude": {"tokens": tok, "costo_usd": 0.0,
-                                                           "costo_equivalente_usd": round(eq, 4), "modelos": modelos}}}]})
+        ses_agg[sid]["fuera_tokens"] = sum(r["entrada"] + r["salida"] for r in rs)
+        ses_agg[sid]["fuera_eq"] = sum(r["equivalente"] for r in rs)
+    orden_ses = sorted(ses_agg, key=lambda sid: ses_agg[sid]["inicio"])
+    duenio = {}
+    for sid in orden_ses:
+        for pid in por_sesion.get(sid, ()):
+            duenio.setdefault(pid, sid)
+    duenio.update({pid: sid for pid, sid in CREADOR_PEDIDO.items() if sid in ses_agg})
+    titulos = _titulos_claude()
+    sesiones = {}
+    for f in filas:
+        sid = duenio.get(f["id"], "sin-sesion")
+        f["sesion"] = sid
+        sesiones.setdefault(sid, []).append(f["id"])
+    lista_ses = []
+    for sid in set(ses_agg) | set(sesiones):
+        a = ses_agg.get(sid)
+        pedidos_s = [f for f in filas if f.get("sesion") == sid]
+        ini = a["inicio"].isoformat(timespec="seconds") if a else min((f["creado"] for f in pedidos_s), default="")
+        fin = a["fin"].isoformat(timespec="seconds") if a else max((f["actualizado"] for f in pedidos_s), default="")
+        fin = max([fin] + [f["actualizado"] for f in pedidos_s])
+        if fin < desde:
+            continue
+        lista_ses.append({
+            "id": sid, "titulo": (titulos.get(sid) if a else "") or ("Sin sesión de Claude" if sid == "sin-sesion"
+                                                                    else f"Sesión {sid[:8]}"),
+            "ruta": (a or {}).get("cwd", "") or next((f["ruta"] for f in pedidos_s if f.get("ruta")), ""),
+            "inicio": ini, "fin": fin, "pedidos": sesiones.get(sid, []),
+            "claude": {"tokens": round((a or {}).get("tokens", 0)), "costo_equivalente_usd": round((a or {}).get("eq", 0.0), 4),
+                       "modelos": sorted((a or {}).get("modelos", set()))},
+            "claude_fuera": {"tokens": round((a or {}).get("fuera_tokens", 0)),
+                             "costo_equivalente_usd": round((a or {}).get("fuera_eq", 0.0), 4)}})
+    lista_ses.sort(key=lambda x: x["fin"], reverse=True)
     filas.sort(key=lambda f: f["actualizado"], reverse=True)
     diarios = sorted(costos_diarios() + list(claude_dia.values()), key=lambda a: a["dia"])
-    data = {"pedidos": filas, "costos_diarios": diarios, "claude_sesiones": sesiones_claude(), "dias": PANEL_DIAS,
+    data = {"pedidos": filas, "sesiones": lista_ses, "costos_diarios": diarios, "dias": PANEL_DIAS,
             "generado": _now()}
     # Un documento del panel admite 256 KiB: si se pasa, recorta los pedidos más antiguos.
     while len(json.dumps(data, ensure_ascii=False).encode("utf-8")) > 240_000 and data["pedidos"]:

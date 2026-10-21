@@ -253,7 +253,9 @@ def test_sesion_sin_pedidos_no_se_carga_a_otro_pedido(tmp_registro, tmp_path, mo
                   "id": "m1", "model": "claude-x", "usage": {"input_tokens": 1_000_000, "output_tokens": 0}}},
               {"type": "custom-title", "customTitle": "Ajustes del MCP", "sessionId": "mcp"}]
     (proy / "mcp.jsonl").write_text("\n".join(json.dumps(l) for l in lineas), encoding="utf-8")
-    pedidos = registro.datos_panel()["pedidos"]
-    assert next(p for p in pedidos if p["id"] == pid)["claude"]["costo_equivalente_usd"] == 0
-    virtual = next(p for p in pedidos if p["titulo"] == "Ajustes del MCP")
-    assert virtual["claude"]["costo_equivalente_usd"] == 5.0 and virtual["estado"] == "sin pedido"
+    data = registro.datos_panel()
+    assert next(p for p in data["pedidos"] if p["id"] == pid)["claude"]["costo_equivalente_usd"] == 0
+    ses = next(x for x in data["sesiones"] if x["titulo"] == "Ajustes del MCP")
+    assert ses["claude"]["costo_equivalente_usd"] == 5.0 and ses["claude_fuera"]["costo_equivalente_usd"] == 5.0
+    assert ses["pedidos"] == []
+    assert pid in next(x for x in data["sesiones"] if x["id"] == "sin-sesion")["pedidos"]
