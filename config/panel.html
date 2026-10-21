@@ -155,13 +155,13 @@ ol.items li { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; al
 .s-pendiente { background: var(--idle-soft); color: var(--idle); }
 .s-en_curso { background: var(--run-soft); color: var(--run); }
 .s-revisando { background: var(--review-soft); color: var(--review); }
-.s-corrigiendo { background: var(--fix-soft); color: var(--fix); }
-.s-hecho { background: var(--ok-soft); color: var(--ok); }
-.s-fallido { background: var(--bad-soft); color: var(--bad); }
+.s-corrigiendo { background: var(--run-soft); color: var(--run); }
+.s-hecho, .s-terminada { background: var(--ok-soft); color: var(--ok); }
+.s-descartada, .s-fallido { background: var(--idle-soft); color: var(--idle); }
 .s-omitido { background: var(--idle-soft); color: var(--idle); }
 .p-abierto { background: var(--run-soft); color: var(--run); }
 .p-cerrado { background: var(--ok-soft); color: var(--ok); }
-.p-bloqueado, .p-cancelado { background: var(--bad-soft); color: var(--bad); }
+.p-bloqueado, .p-cancelado { background: var(--idle-soft); color: var(--idle); }
 .rondas { font: 600 .7rem var(--f-mono); color: var(--fix); }
 
 .table-scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
@@ -290,18 +290,18 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
 <script>
 (function () {
   var ESTADOS = {
-    pendiente:   ["○", "Pendiente", "s-pendiente"],
-    abierto:     ["◐", "En curso",  "s-en_curso"],
-    en_curso:    ["◐", "En curso",  "s-en_curso"],
-    revisando:   ["◐", "En curso",  "s-en_curso"],
-    corrigiendo: ["◐", "En curso",  "s-en_curso"],
-    cerrado:     ["✓", "Terminada", "s-hecho"],
-    hecho:       ["✓", "Terminada", "s-hecho"],
-    terminada:   ["✓", "Terminada", "s-hecho"],
-    fallido:     ["✕", "Fallida",   "s-fallido"],
-    bloqueado:   ["✕", "Fallida",   "s-fallido"],
-    cancelado:   ["✕", "Fallida",   "s-fallido"],
-    omitido:     ["–", "Omitida",   "s-omitido"]
+    pendiente:   ["○", "Pendiente",   "s-pendiente"],
+    abierto:     ["◐", "En curso",    "s-en_curso"],
+    en_curso:    ["◐", "En curso",    "s-en_curso"],
+    revisando:   ["◐", "Por revisar", "s-revisando"],
+    corrigiendo: ["◐", "En curso",    "s-en_curso"],
+    cerrado:     ["✓", "Terminada",   "s-terminada"],
+    hecho:       ["✓", "Terminada",   "s-terminada"],
+    terminada:   ["✓", "Terminada",   "s-terminada"],
+    fallido:     ["✕", "Descartada",  "s-descartada"],
+    bloqueado:   ["✕", "Descartada",  "s-descartada"],
+    cancelado:   ["✕", "Descartada",  "s-descartada"],
+    omitido:     ["–", "Descartada",  "s-descartada"]
   };
   var DAY = 86400000;
   var state = null, filtro = "abiertos", preset = "30d";
