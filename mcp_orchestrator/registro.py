@@ -537,6 +537,42 @@ def sesiones_claude(dias: int = PANEL_DIAS) -> dict:
     return {"info": info, "por_dia": sorted(por_dia.values(), key=lambda d: d["dia"])}
 
 
+def _pedidos_por_sesion() -> dict[str, set]:
+    """Pedidos que usó cada sesión de Claude Code: los pedido_id que pasó a las herramientas del orquestador y los
+    que creó con iniciar_pedido. Así su trabajo se cuenta en sus pedidos y no en el de otra sesión."""
+    por: dict[str, set] = {}
+    for f in CLAUDE_PROJECTS_DIR.rglob("*.jsonl"):
+        iniciados: set = set()
+        try:
+            lineas = f.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        for line in lineas:
+            if "mcp__orchestrator__" not in line and "tool_use_id" not in line:
+                continue
+            try:
+                e = json.loads(line)
+                contenido = (e.get("message") or {}).get("content")
+            except (ValueError, AttributeError):
+                continue
+            if not isinstance(contenido, list):
+                continue
+            sid = str(e.get("sessionId") or f.stem)
+            for b in contenido:
+                if not isinstance(b, dict):
+                    continue
+                if b.get("type") == "tool_use" and str(b.get("name", "")).startswith("mcp__orchestrator__"):
+                    pid = (b.get("input") or {}).get("pedido_id")
+                    if pid:
+                        por.setdefault(sid, set()).add(pid)
+                    if b["name"].endswith("iniciar_pedido"):
+                        iniciados.add(b.get("id"))
+                elif b.get("type") == "tool_result" and b.get("tool_use_id") in iniciados:
+                    texto = json.dumps(b.get("content"), ensure_ascii=False)
+                    por.setdefault(sid, set()).update(re.findall(r"\d{8}-\d{6}-[a-z0-9-]{3,}", texto))
+    return por
+
+
 def costo_claude(modelo: str, tokens: dict, fecha: str = "") -> float:
     """Equivalente por la API de Anthropic: escribir caché cuesta 1,25× la entrada (5 min y 1 h: así cuadra con
     el informe de uso de Claude Code)."""
@@ -552,7 +588,7 @@ def consumo_claude(dias: int = PANEL_DIAS) -> list[dict]:
     filas = []
     for r in _mensajes_claude(datetime.now() - timedelta(days=dias)):
         t = r["tokens"]
-        filas.append({"ts": r["ts"], "modelo": r["modelo"], "sesion": r["sesion"],
+        filas.append({"ts": r["ts"], "modelo": r["modelo"], "sesion": r["sesion"], "cwd": r.get("cwd", ""),
                       "entrada": t["input"] + t["cache_read"] + t["cache_write_5m"] + t["cache_write_1h"],
                       "cache": t["cache_read"], "salida": t["output"], "equivalente": costo_claude(r["modelo"], t, r["ts"].isoformat())})
     return filas
@@ -628,6 +664,8 @@ def datos_panel() -> dict:
     claude_dia: dict[tuple, dict] = {}
     claude_pedido: dict[str, dict] = {}
     claude_resp: dict[str, list] = {}
+    sesiones_sin_pedido: dict[str, list] = {}
+    por_sesion = _pedidos_por_sesion()
     for r in consumo_claude():
         k = (r["ts"].date().isoformat(), r["modelo"])
         a = claude_dia.setdefault(k, {"dia": k[0], "agente": "claude", "modelo": k[1], "tareas": 0,
@@ -640,7 +678,12 @@ def datos_panel() -> dict:
         a["tokens_cache"] += r["cache"]
         a["tokens_salida"] += r["salida"]
         a["costo_equivalente_usd"] += r["equivalente"]
-        pid = _pedido_de(r["ts"], ventanas)
+        propios = [v for v in ventanas if v[2] in por_sesion.get(r["sesion"], ())]
+        # Solo cuenta en un pedido de su propia sesión que estuviera activo en ese momento; lo demás es trabajo
+        # de la sesión sin pedido (no se le carga a pedidos de otras sesiones).
+        pid = _pedido_de(r["ts"], propios) if propios else ""
+        if not pid:
+            sesiones_sin_pedido.setdefault(r["sesion"], []).append(r)
         if pid:
             c = claude_pedido.setdefault(pid, {"tokens": 0, "costo_equivalente_usd": 0.0})
             c["tokens"] += r["entrada"] + r["salida"]
@@ -729,6 +772,23 @@ def datos_panel() -> dict:
                        "agentes": {("innti" if k == "opencode" else "agy" if k == "antigravity" else k):
                                    {kk: (round(vv, 4) if isinstance(vv, float) else vv) for kk, vv in g.items()}
                                    for k, g in extra.get("agentes", {}).items()}}]})
+    # Sesiones de Claude que no usaron pedidos (p. ej. ajustes del propio orquestador): un pedido virtual cada una.
+    titulos = _titulos_claude() if sesiones_sin_pedido else {}
+    for sid, rs in sesiones_sin_pedido.items():
+        tok = sum(r["entrada"] + r["salida"] for r in rs)
+        eq = sum(r["equivalente"] for r in rs)
+        modelos = sorted({r["modelo"] for r in rs})
+        ini, fin = min(r["ts"] for r in rs), max(r["ts"] for r in rs)
+        filas.append({
+            "id": "claude-" + sid[:8], "titulo": titulos.get(sid) or f"Sesión de Claude {sid[:8]}",
+            "ruta": next((r.get("cwd") for r in rs if r.get("cwd")), ""), "estado": "sin pedido",
+            "creado": ini.isoformat(timespec="seconds"), "actualizado": fin.isoformat(timespec="seconds"),
+            "costo_usd": 0.0, "costo_equivalente_usd": 0.0, "tokens": tok,
+            "claude": {"tokens": tok, "costo_equivalente_usd": round(eq, 4)},
+            "items": [{"texto": "Trabajo de Claude en esta sesión (sin pedido)", "estado": "hecho", "virtual": True,
+                       "agente": "", "modelo": "", "rondas": 0, "costo_usd": 0.0, "costo_equivalente_usd": 0.0,
+                       "tokens": 0, "agentes": {"claude": {"tokens": tok, "costo_usd": 0.0,
+                                                           "costo_equivalente_usd": round(eq, 4), "modelos": modelos}}}]})
     filas.sort(key=lambda f: f["actualizado"], reverse=True)
     diarios = sorted(costos_diarios() + list(claude_dia.values()), key=lambda a: a["dia"])
     data = {"pedidos": filas, "costos_diarios": diarios, "claude_sesiones": sesiones_claude(), "dias": PANEL_DIAS,

@@ -151,7 +151,9 @@ def test_consumo_de_claude_en_el_panel(tmp_registro, tmp_path, monkeypatch):
            "cache_creation_input_tokens": 1_000_000, "cache_creation": {"ephemeral_1h_input_tokens": 1_000_000}}
     msg = {"timestamp": ts, "sessionId": "abcdef123456", "message": {"id": "msg_1", "model": "claude-x", "usage": uso}}
     # La misma respuesta aparece una vez por bloque de contenido: debe contarse una sola vez.
-    (proy / "s.jsonl").write_text("\n".join([json.dumps(msg)] * 3), encoding="utf-8")
+    uso_pedido = {"sessionId": "abcdef123456", "message": {"content": [{"type": "tool_use", "id": "t1",
+                  "name": "mcp__orchestrator__actualizar_item", "input": {"pedido_id": pid}}]}}
+    (proy / "s.jsonl").write_text("\n".join([json.dumps(msg)] * 3 + [json.dumps(uso_pedido)]), encoding="utf-8")
     # 5 entrada + 0,5 caché + 25 salida + 1,25 × 5 escritura de caché = 36,75
     data = registro.datos_panel()
     cl = [c for c in data["costos_diarios"] if c["agente"] == "claude"]
@@ -226,10 +228,32 @@ def test_desglose_por_agente_en_cada_item(tmp_registro, tmp_path, monkeypatch):
     registro.registrar_costo("opencode", "innti-dsp", {"input": 100}, 0.5, pid, 1)
     registro.registrar_costo("antigravity", "gemini-x", {"input": 50}, 0.0, pid, 1, equivalente=0.2)
     ts = datetime.now().astimezone().isoformat()  # Claude trabaja mientras el ítem 1 está en curso
+    uso_pedido = {"sessionId": "s", "message": {"content": [{"type": "tool_use", "id": "t1",
+                  "name": "mcp__orchestrator__actualizar_item", "input": {"pedido_id": pid}}]}}
     (proy / "s.jsonl").write_text(json.dumps({"timestamp": ts, "sessionId": "s", "message": {
-        "id": "m1", "model": "claude-x", "usage": {"input_tokens": 1_000_000, "output_tokens": 0}}}), encoding="utf-8")
+        "id": "m1", "model": "claude-x", "usage": {"input_tokens": 1_000_000, "output_tokens": 0}}})
+        + "\n" + json.dumps(uso_pedido), encoding="utf-8")
     p = next(p for p in registro.datos_panel()["pedidos"] if p["id"] == pid)
     ag = p["items"][0]["agentes"]
     assert ag["innti"]["costo_usd"] == 0.5 and ag["agy"]["costo_equivalente_usd"] == 0.2
     assert ag["claude"]["costo_equivalente_usd"] == 5.0
     assert "claude" not in p["items"][1]["agentes"]
+
+
+def test_sesion_sin_pedidos_no_se_carga_a_otro_pedido(tmp_registro, tmp_path, monkeypatch):
+    precios = tmp_path / "precios.json"
+    precios.write_text(json.dumps({"claude-x": [5.0, 0.5, 25.0]}), encoding="utf-8")
+    monkeypatch.setattr(registro, "PRECIOS_FILE", precios)
+    proy = tmp_path / "cp" / "D--x"
+    proy.mkdir(parents=True)
+    monkeypatch.setattr(registro, "CLAUDE_PROJECTS_DIR", proy.parent)
+    pid = pedido_id(registro.iniciar_pedido("De otra sesión", ["A"]))
+    ts = datetime.now().astimezone().isoformat()
+    lineas = [{"timestamp": ts, "sessionId": "mcp", "cwd": "D:/claude", "message": {
+                  "id": "m1", "model": "claude-x", "usage": {"input_tokens": 1_000_000, "output_tokens": 0}}},
+              {"type": "custom-title", "customTitle": "Ajustes del MCP", "sessionId": "mcp"}]
+    (proy / "mcp.jsonl").write_text("\n".join(json.dumps(l) for l in lineas), encoding="utf-8")
+    pedidos = registro.datos_panel()["pedidos"]
+    assert next(p for p in pedidos if p["id"] == pid)["claude"]["costo_equivalente_usd"] == 0
+    virtual = next(p for p in pedidos if p["titulo"] == "Ajustes del MCP")
+    assert virtual["claude"]["costo_equivalente_usd"] == 5.0 and virtual["estado"] == "sin pedido"
