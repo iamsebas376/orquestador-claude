@@ -462,17 +462,23 @@ def _items_de(ts: datetime, ventanas: list[tuple]) -> list[int]:
 CLAUDE_PROJECTS_DIR = Path(os.getenv("CLAUDE_PROJECTS_DIR") or Path.home() / ".claude" / "projects")
 
 
-PADRE_SESION: dict[str, str] = {}  # sesión bifurcada -> sesión de la que salió (lo llena _mensajes_claude)
-
-
 def _mensajes_claude(desde: datetime) -> list[dict]:
     """Respuestas de Claude Code desde `desde` (hora local), leídas de sus transcripts locales
     (~/.claude/projects/**/*.jsonl, subagentes incluidos). Cada respuesta se repite por bloque: se deja una por id.
-    Una bifurcación copia el historial de su sesión con los mismos ids: esas respuestas se quedan en la sesión
-    original (el transcript más antiguo) y así se sabe de qué sesión salió cada bifurcación."""
+    Si dos transcripts comparten algún id de mensaje son la misma sesión: la secundaria se fusiona en la principal
+    (la que tiene más respuestas propias)."""
     por_id: dict[str, dict] = {}
-    compartidos: dict[str, set] = {}  # sesión -> ids de mensajes que comparte con la sesión de la que se ligó
-    PADRE_SESION.clear()
+    compartidos: set[str] = set()
+    raiz: dict[str, str] = {}
+    orden: list[str] = []
+
+    def unir(a: str, b: str) -> None:
+        while raiz.get(a, a) != a:
+            a = raiz[a]
+        while raiz.get(b, b) != b:
+            b = raiz[b]
+        if a != b:
+            raiz[b] = a
 
     def creado(f):
         try:
@@ -504,33 +510,42 @@ def _mensajes_claude(desde: datetime) -> list[dict]:
             escritura = u.get("cache_creation_input_tokens", 0)
             clave = m.get("id") or f"{f}:{len(por_id)}"
             sid = str(e.get("sessionId") or f.stem)
+            if sid not in orden:
+                orden.append(sid)
             previo = por_id.get(clave)
             if previo and previo["sesion"] != sid:
-                PADRE_SESION.setdefault(sid, previo["sesion"])
-                compartidos.setdefault(sid, set()).add(clave)
-                continue  # historial copiado: por ahora cuenta en la primera sesión leída (se ajusta abajo)
+                unir(previo["sesion"], sid)
+                compartidos.add(clave)
+                continue
             por_id[clave] = {
-                "ts": ts, "modelo": modelo, "sesion": str(e.get("sessionId") or f.stem), "cwd": e.get("cwd", ""),
+                "ts": ts, "modelo": modelo, "sesion": sid, "cwd": e.get("cwd", ""),
                 "tokens": {"input": u.get("input_tokens", 0), "cache_read": u.get("cache_read_input_tokens", 0),
                            "cache_write_5m": max(0, escritura - escritura_1h), "cache_write_1h": escritura_1h,
                            "output": u.get("output_tokens", 0)},
             }
-    # La principal es la sesión donde siguió el trabajo (más respuestas propias); la otra queda como bifurcación
-    # y el historial compartido cuenta en la principal.
     propias: dict[str, int] = {}
+    for clave, r in por_id.items():
+        if clave not in compartidos:
+            propias[r["sesion"]] = propias.get(r["sesion"], 0) + 1
+    grupos: dict[str, list[str]] = {}
+    for s in orden:
+        if s in raiz or s in raiz.values():
+            r0 = s
+            while raiz.get(r0, r0) != r0:
+                r0 = raiz[r0]
+            grupos.setdefault(r0, []).append(s)
+    fusion: dict[str, str] = {}
+    hijas_de: dict[str, list[str]] = {}
+    for grupo in grupos.values():
+        principal = max(grupo, key=lambda s: propias.get(s, 0))
+        for s in grupo:
+            if s != principal:
+                fusion[s] = principal
+                hijas_de.setdefault(principal, []).append(s)
     for r in por_id.values():
-        propias[r["sesion"]] = propias.get(r["sesion"], 0) + 1
-    for hija, padre in list(PADRE_SESION.items()):
-        ids = compartidos.get(hija, set())
-        if not ids or padre not in propias:
-            continue
-        unicas_padre = propias.get(padre, 0) - len(ids)
-        if propias.get(hija, 0) > unicas_padre:
-            for clave in ids:
-                if clave in por_id:
-                    por_id[clave]["sesion"] = hija
-            del PADRE_SESION[hija]
-            PADRE_SESION[padre] = hija
+        r["sesion"] = fusion.get(r["sesion"], r["sesion"])
+        if r["sesion"] in hijas_de:
+            r["de"] = hijas_de[r["sesion"]]
     return sorted(por_id.values(), key=lambda r: r["ts"])
 
 
@@ -630,7 +645,9 @@ def sesiones_claude(dias: int = PANEL_DIAS) -> dict:
     titulos, info, por_dia = _titulos_claude(), {}, {}
     for r in _mensajes_claude(datetime.now() - timedelta(days=dias)):
         sid, t = r["sesion"], r["tokens"]
-        i = info.setdefault(sid, {"titulo": titulos.get(sid, ""), "carpeta": r["cwd"]})
+        titulo = titulos.get(sid) or next((titulos[s] for s in r.get("de", ()) if s in titulos), "")
+        i = info.setdefault(sid, {"titulo": titulo, "carpeta": r["cwd"]})
+        i["titulo"] = i["titulo"] or titulo
         i["carpeta"] = i["carpeta"] or r["cwd"]
         k = (sid, r["ts"].date().isoformat())
         d = por_dia.setdefault(k, {"sesion": sid, "dia": k[1], "respuestas": 0, "tokens_entrada": 0, "tokens_cache": 0,
@@ -702,9 +719,13 @@ def consumo_claude(dias: int = PANEL_DIAS) -> list[dict]:
     filas = []
     for r in _mensajes_claude(datetime.now() - timedelta(days=dias)):
         t = r["tokens"]
-        filas.append({"ts": r["ts"], "modelo": r["modelo"], "sesion": r["sesion"], "cwd": r.get("cwd", ""),
-                      "entrada": t["input"] + t["cache_read"] + t["cache_write_5m"] + t["cache_write_1h"],
-                      "cache": t["cache_read"], "salida": t["output"], "equivalente": costo_claude(r["modelo"], t, r["ts"].isoformat())})
+        fila = {"ts": r["ts"], "modelo": r["modelo"], "sesion": r["sesion"], "cwd": r.get("cwd", ""),
+                "entrada": t["input"] + t["cache_read"] + t["cache_write_5m"] + t["cache_write_1h"],
+                "cache": t["cache_read"], "salida": t["output"],
+                "equivalente": costo_claude(r["modelo"], t, r["ts"].isoformat())}
+        if r.get("de"):
+            fila["de"] = r["de"]
+        filas.append(fila)
     return filas
 
 
@@ -781,7 +802,15 @@ def datos_panel() -> dict:
     sesiones_sin_pedido: dict[str, list] = {}
     ses_agg: dict[str, dict] = {}
     por_sesion = _pedidos_por_sesion()
-    for r in consumo_claude():
+    respuestas = consumo_claude()
+    fusion = {s: r["sesion"] for r in respuestas for s in r.get("de", ())}
+    for sec, pri in fusion.items():
+        if sec in por_sesion:
+            por_sesion.setdefault(pri, set()).update(por_sesion.pop(sec))
+    for pid, sid in list(CREADOR_PEDIDO.items()):
+        if sid in fusion:
+            CREADOR_PEDIDO[pid] = fusion[sid]
+    for r in respuestas:
         k = (r["ts"].date().isoformat(), r["modelo"])
         a = claude_dia.setdefault(k, {"dia": k[0], "agente": "claude", "modelo": k[1], "tareas": 0,
                                       "tokens_entrada": 0, "tokens_cache": 0, "tokens_salida": 0, "costo_usd": 0.0,
@@ -904,6 +933,9 @@ def datos_panel() -> dict:
     # Sesiones: cada pedido va con la sesión de Claude que lo creó (o la primera que lo usó); los que no tienen
     # sesión conocida (delegaciones sueltas, pedidos de otra máquina) van en "Sin sesión de Claude".
     prompts = _prompts_claude() if sesiones_sin_pedido else {}
+    for sec, pri in fusion.items():
+        if sec in prompts:
+            prompts[pri] = sorted(set(prompts.get(pri, [])) | set(prompts.pop(sec)))
     for sid, rs in sesiones_sin_pedido.items():
         ses_agg[sid]["fuera_tokens"] = sum(r["entrada"] + r["salida"] for r in rs)
         ses_agg[sid]["fuera_eq"] = sum(r["equivalente"] for r in rs)
@@ -932,6 +964,9 @@ def datos_panel() -> dict:
             duenio.setdefault(pid, sid)
     duenio.update({pid: sid for pid, sid in CREADOR_PEDIDO.items() if sid in ses_agg})
     titulos = _titulos_claude()
+    for sec, pri in fusion.items():
+        if sec in titulos and pri not in titulos:
+            titulos[pri] = titulos[sec]
     sesiones = {}
     for f in filas:
         sid = duenio.get(f["id"], "sin-sesion")
@@ -959,18 +994,6 @@ def datos_panel() -> dict:
             "por_dia": [{"dia": dia, "tokens": round(v["tokens"]), "costo_equivalente_usd": round(v["eq"], 4),
                          "fuera_tokens": round(v["fuera_tokens"]), "fuera_costo_equivalente_usd": round(v["fuera_eq"], 4)}
                         for dia, v in sorted((a or {}).get("por_dia", {}).items())]})
-    ids_ses = {x["id"] for x in lista_ses}
-    for x in lista_ses:
-        padre = PADRE_SESION.get(x["id"])
-        vistos = {x["id"]}
-        while padre and padre in PADRE_SESION and padre not in vistos:
-            vistos.add(padre)
-            padre = PADRE_SESION[padre]
-        if padre and padre in ids_ses and padre != x["id"]:
-            x["padre"] = padre
-            # Mismo título = la misma conversación guardada en otro archivo al retomarla (no es una bifurcación).
-            titulo_padre = next((y["titulo"] for y in lista_ses if y["id"] == padre), "")
-            x["continuacion"] = bool(titulo_padre) and x["titulo"] == titulo_padre
     lista_ses.sort(key=lambda x: x["fin"], reverse=True)
     filas.sort(key=lambda f: f["actualizado"], reverse=True)
     diarios = sorted(costos_diarios() + list(claude_dia.values()), key=lambda a: a["dia"])

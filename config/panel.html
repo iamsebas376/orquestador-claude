@@ -135,7 +135,6 @@ th[aria-sort] button::after { content: " ↓"; } th[aria-sort="ascending"] butto
 .caret { display: inline-block; width: 12px; color: var(--muted); transition: transform .15s; }
 tr.abierta .caret { transform: rotate(90deg); }
 .pista { font-size: .8rem; color: var(--muted); }
-.cmp tr.bifurcacion .nom { font-weight: 500; color: var(--muted); }
 .pedido-body { border-top: 1px solid var(--line); padding: 12px 18px 16px; display: flex; flex-direction: column; gap: 12px; }
 .ph { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: baseline; justify-content: space-between; }
 .meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; color: var(--muted); font-size: .86rem; line-height: 1.4; }
@@ -292,7 +291,9 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
 (function () {
   var ESTADOS = {
     pendiente: ["○", "pendiente"], en_curso: ["◐", "en curso"], revisando: ["◎", "revisando"],
-    corrigiendo: ["↻", "corrigiendo"], hecho: ["✓", "hecho"], fallido: ["✕", "fallido"], omitido: ["–", "omitido"]
+    corrigiendo: ["↻", "corrigiendo"], hecho: ["✓", "hecho"], fallido: ["✕", "fallido"], omitido: ["–", "omitido"],
+    abierto: ["◐", "Abierta"], cerrado: ["✓", "Cerrada"], bloqueado: ["✕", "Bloqueada"], cancelado: ["✕", "Cancelada"],
+    terminada: ["✓", "Terminada"]
   };
   var DAY = 86400000;
   var state = null, filtro = "abiertos", preset = "30d";
@@ -397,7 +398,9 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
 
   function chip(estado) {
     var e = ESTADOS[estado] || ["•", estado];
-    var c = el("span", "chip s-" + estado);
+    var cls = estado === "abierto" || estado === "cerrado" || estado === "bloqueado" || estado === "cancelado" ? "p-" + estado
+      : estado === "terminada" ? "s-hecho" : "s-" + estado;
+    var c = el("span", "chip " + cls);
     c.appendChild(el("span", null, e[0]));
     c.appendChild(el("span", null, e[1]));
     return c;
@@ -671,26 +674,8 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
   function renderComparativa(r) {
     var cont = document.getElementById("pedidos");
     cont.textContent = "";
-    var filas = filasSesiones(r), porSes = {};
-    filas.forEach(function (x) { porSes[x.s.id] = x; x.hijas = []; x.nTareas = x.peds.length + x.prompts.length; });
-    filas = filas.filter(function (x) {
-      var padre = x.s.padre && porSes[x.s.padre];
-      if (!padre || padre === x) return true;
-      padre.innti += x.innti; padre.agy += x.agy; padre.cl += x.cl; padre.total += x.total; padre.nTareas += x.peds.length + x.prompts.length;
-      if (x.s.continuacion) {
-        // La misma conversación retomada en otro archivo: se une del todo (tareas, trabajo fuera de tareas y fechas).
-        padre.peds = padre.peds.concat(x.peds);
-        padre.tok += x.tok;
-        padre.fuera.costo_equivalente_usd += x.fuera.costo_equivalente_usd;
-        padre.fuera.tokens += x.fuera.tokens;
-        padre.fuera.dias = padre.fuera.dias.concat(x.fuera.dias);
-        padre.prompts = padre.prompts.concat(x.prompts);
-        padre.s = Object.assign({}, padre.s, { inicio: x.s.inicio < padre.s.inicio ? x.s.inicio : padre.s.inicio });
-      } else {
-        padre.hijas.push(x);  // bifurcación real: suma en la principal y se ve aparte en su detalle
-      }
-      return false;
-    });
+    var filas = filasSesiones(r);
+    filas.forEach(function (x) { x.nTareas = x.peds.length + x.prompts.length; });
     if (!filas.length) {
       var e = el("div", "empty");
       e.appendChild(el("strong", null, !state ? "Todavía no hay datos sincronizados." :
@@ -723,7 +708,6 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     filas.forEach(function (x) {
       var tr = el("tr" , x.s.id === selSes ? "sel" : null), td = el("td");
       td.appendChild(el("div", "nom", x.s.titulo));
-      if (x.hijas.length) td.appendChild(el("div", "sub2", "+ " + x.hijas.length + (x.hijas.length === 1 ? " bifurcación" : " bifurcaciones")));
       tr.appendChild(td);
       tr.appendChild(el("td", "fechas", rangoFechas(x.s.inicio, x.s.fin)));
       tr.appendChild(el("td", "n", String(x.nTareas)));
@@ -763,7 +747,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     });
     d.appendChild(meta);
     var wrap = el("div", "table-scroll"), t = el("table", "cmp"), th = el("thead"), hr = el("tr");
-    [["Tarea", ""], ["Agentes", ""], ["Innti", "n"], ["Antigravity", "n"], ["Claude", "n"], ["Total", "n"], ["Reparto", ""]].forEach(function (c) {
+    [["Tarea", ""], ["Estado", ""], ["Agentes", ""], ["Innti", "n"], ["Antigravity", "n"], ["Claude", "n"], ["Total", "n"], ["Reparto", ""]].forEach(function (c) {
       hr.appendChild(el("th", c[1], c[0]));
     });
     th.appendChild(hr); t.appendChild(th);
@@ -778,8 +762,9 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
       td.appendChild(nom);
       var items = (p.items || []).filter(function (i) { return !i.virtual; });
       var hechos = items.filter(function (i) { return i.estado === "hecho" || i.estado === "omitido"; }).length;
-      td.appendChild(el("div", "sub2", hechos + "/" + items.length + " ítems · " + p.estado));
+      td.appendChild(el("div", "sub2", hechos + "/" + items.length + " ítems"));
       tr.appendChild(td);
+      var tdE = el("td"); tdE.appendChild(chip(p.estado)); tr.appendChild(tdE);
       var tdA = el("td"), modelos = {};
       (p.items || []).forEach(function (i) {
         Object.keys(i.agentes || {}).forEach(function (k) { (i.agentes[k].modelos || []).forEach(function (m) { modelos[k] = modelos[k] || {}; modelos[k][m] = 1; }); });
@@ -800,7 +785,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
       tb.appendChild(tr);
       if (abiertaTarea[p.id]) {
         var fi = el("tr", "items-fila"), tdi = el("td"), ul = el("ul", "mini");
-        tdi.colSpan = 7;
+        tdi.colSpan = 8;
         (p.items || []).forEach(function (i) {
           var li = el("li");
           li.appendChild(chip(i.estado));
@@ -825,42 +810,49 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
         tdi.appendChild(ul); fi.appendChild(tdi); tb.appendChild(fi);
       }
     });
-    // Cada prompt del usuario que no quedó en un checklist es una tarea: el trabajo de Claude que originó.
-    (x.prompts || []).slice().sort(function (a, b) { return b.costo_equivalente_usd - a.costo_equivalente_usd; }).forEach(function (t) {
-      var tr = el("tr"), td = el("td");
-      td.appendChild(el("div", "nom", t.texto));
-      td.appendChild(el("div", "sub2", "Prompt · " + rangoFechas(t.inicio, t.fin) + " · " + compacto(t.tokens) + " tokens"));
-      tr.appendChild(td);
-      var tdA = el("td"), punto = el("span", "ia cl");
-      tip(punto, "Claude", (t.modelos || []).map(function (m) { return ["cl", m]; }));
-      tdA.appendChild(punto); tr.appendChild(tdA);
-      tr.appendChild(celda(0)); tr.appendChild(celda(0));
-      tr.appendChild(celda(t.costo_equivalente_usd, "cl", true));
-      tr.appendChild(el("td", "n tot", dinero(t.costo_equivalente_usd)));
-      var tdB = el("td"); tdB.appendChild(barra(0, 0, t.costo_equivalente_usd)); tr.appendChild(tdB);
-      tr.style.cursor = "default";
-      tb.appendChild(tr);
-    });
-    (x.hijas || []).forEach(function (h) {
-      var tr = el("tr"), td = el("td");
-      td.appendChild(el("div", "nom", "↳ " + h.s.titulo));
-      td.appendChild(el("div", "sub2", "Bifurcación · " + rangoFechas(h.s.inicio, h.s.fin) + " · " + h.peds.length + (h.peds.length === 1 ? " tarea" : " tareas")));
-      tr.appendChild(td);
-      var tdA = el("td");
-      if (h.innti) tdA.appendChild(el("span", "ia innti"));
-      if (h.agy) tdA.appendChild(el("span", "ia agy"));
-      if (h.cl) tdA.appendChild(el("span", "ia cl"));
-      tr.appendChild(tdA);
-      tr.appendChild(celda(h.innti, "innti")); tr.appendChild(celda(h.agy, "agy", true)); tr.appendChild(celda(h.cl, "cl", true));
-      tr.appendChild(el("td", "n tot", dinero(h.total)));
-      var tdB = el("td"); tdB.appendChild(barra(h.innti, h.agy, h.cl)); tr.appendChild(tdB);
-      tr.classList.add("bifurcacion");
-      tr.style.cursor = "default";
-      tb.appendChild(tr);
-    });
-    if (!tb.children.length) { var tr0 = el("tr"), td0 = el("td", "pista", "Esta sesión no tiene tareas ni gasto en el período."); td0.colSpan = 7; tr0.appendChild(td0); tb.appendChild(tr0); }
+    // Prompts del usuario sin checklist agrupados en una sola fila plegable ("Otras tareas").
+    var prompts = (x.prompts || []).slice().sort(function (a, b) { return b.costo_equivalente_usd - a.costo_equivalente_usd; });
+    if (prompts.length) {
+      var kOtras = "otras:" + x.s.id, clOtras = prompts.reduce(function (a, p) { return a + (p.costo_equivalente_usd || 0); }, 0);
+      var tokOtras = prompts.reduce(function (a, p) { return a + (p.tokens || 0); }, 0);
+      var trO = el("tr", abiertaTarea[kOtras] ? "abierta" : null), tdO = el("td");
+      var nomO = el("div", "nom"); nomO.appendChild(el("span", "caret", "›")); nomO.appendChild(document.createTextNode(" Otras tareas"));
+      tdO.appendChild(nomO);
+      tdO.appendChild(el("div", "sub2", prompts.length + (prompts.length === 1 ? " tarea" : " tareas") + " · " + compacto(tokOtras) + " tokens"));
+      trO.appendChild(tdO);
+      var tdEO = el("td"); tdEO.appendChild(chip("terminada")); trO.appendChild(tdEO);
+      var tdAO = el("td"), puntoO = el("span", "ia cl"), modsO = {};
+      prompts.forEach(function (p) { (p.modelos || []).forEach(function (m) { modsO[m] = 1; }); });
+      tip(puntoO, "Claude", Object.keys(modsO).map(function (m) { return ["cl", m]; }));
+      tdAO.appendChild(puntoO); trO.appendChild(tdAO);
+      trO.appendChild(celda(0)); trO.appendChild(celda(0));
+      trO.appendChild(celda(clOtras, "cl", true));
+      trO.appendChild(el("td", "n tot", dinero(clOtras)));
+      var tdBO = el("td"); tdBO.appendChild(barra(0, 0, clOtras)); trO.appendChild(tdBO);
+      trO.addEventListener("click", function () { if (abiertaTarea[kOtras]) delete abiertaTarea[kOtras]; else abiertaTarea[kOtras] = 1; render(); });
+      tb.appendChild(trO);
+      if (abiertaTarea[kOtras]) {
+        var fiO = el("tr", "items-fila"), tdiO = el("td"), ulO = el("ul", "mini");
+        tdiO.colSpan = 8;
+        prompts.forEach(function (p) {
+          var li = el("li");
+          li.appendChild(chip("terminada"));
+          var tx = el("div", null, p.texto);
+          li.appendChild(tx);
+          var c = el("span", "c"), parte = el("span", "cl");
+          parte.appendChild(el("span", "ia cl"));
+          parte.appendChild(document.createTextNode("≈ " + dinero(p.costo_equivalente_usd)));
+          tip(parte, "Claude", [["cl", rangoFechas(p.inicio, p.fin) + " · " + compacto(p.tokens || 0) + " tokens"], [null, (p.modelos || []).join(", ") || ""]]);
+          c.appendChild(parte);
+          li.appendChild(c);
+          ulO.appendChild(li);
+        });
+        tdiO.appendChild(ulO); fiO.appendChild(tdiO); tb.appendChild(fiO);
+      }
+    }
+    if (!tb.children.length) { var tr0 = el("tr"), td0 = el("td", "pista", "Esta sesión no tiene tareas ni gasto en el período."); td0.colSpan = 8; tr0.appendChild(td0); tb.appendChild(tr0); }
     t.appendChild(tb); wrap.appendChild(t); d.appendChild(wrap);
-    d.appendChild(el("div", "pista", "Clic en una tarea con checklist para ver sus ítems; las demás son prompts tuyos sin checklist. Innti es gasto real; ≈ es el equivalente por API."));
+    d.appendChild(el("div", "pista", "Clic en una fila para desplegar sus ítems o prompts. Innti es gasto real; ≈ es el equivalente por API."));
     return d;
   }
 

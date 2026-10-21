@@ -261,32 +261,7 @@ def test_sesion_sin_pedidos_no_se_carga_a_otro_pedido(tmp_registro, tmp_path, mo
     assert pid in next(x for x in data["sesiones"] if x["id"] == "sin-sesion")["pedidos"]
 
 
-def test_bifurcacion_queda_ligada_a_su_sesion(tmp_registro, tmp_path, monkeypatch):
-    import os, time
-    precios = tmp_path / "precios.json"
-    precios.write_text(json.dumps({"claude-x": [5.0, 0.5, 25.0]}), encoding="utf-8")
-    monkeypatch.setattr(registro, "PRECIOS_FILE", precios)
-    proy = tmp_path / "cp" / "D--x"
-    proy.mkdir(parents=True)
-    monkeypatch.setattr(registro, "CLAUDE_PROJECTS_DIR", proy.parent)
-    monkeypatch.setattr(registro, "PADRE_SESION", {})
-    ts = datetime.now().astimezone().isoformat()
-
-    def msg(sid, mid):
-        return json.dumps({"timestamp": ts, "sessionId": sid, "message": {
-            "id": mid, "model": "claude-x", "usage": {"input_tokens": 1_000_000, "output_tokens": 0}}})
-    (proy / "padre.jsonl").write_text("\n".join([msg("padre", m) for m in ("m1", "m2", "m4", "m5")]),
-                                      encoding="utf-8")
-    time.sleep(0.05)
-    # La bifurcación copia m1 y m2 con su propio sessionId y agrega m3.
-    (proy / "hija.jsonl").write_text("\n".join([msg("hija", "m1"), msg("hija", "m2"), msg("hija", "m3")]),
-                                     encoding="utf-8")
-    ses = {x["id"]: x for x in registro.datos_panel()["sesiones"]}
-    assert ses["padre"]["claude"]["costo_equivalente_usd"] == 20.0  # el historial copiado no se cuenta dos veces
-    assert ses["hija"]["claude"]["costo_equivalente_usd"] == 5.0 and ses["hija"]["padre"] == "padre"
-
-
-def test_la_principal_es_donde_siguio_el_trabajo(tmp_registro, tmp_path, monkeypatch):
+def test_dos_transcripts_con_mensaje_comun_dan_una_sola_sesion(tmp_registro, tmp_path, monkeypatch):
     import time
     precios = tmp_path / "precios.json"
     precios.write_text(json.dumps({"claude-x": [5.0, 0.5, 25.0]}), encoding="utf-8")
@@ -294,41 +269,29 @@ def test_la_principal_es_donde_siguio_el_trabajo(tmp_registro, tmp_path, monkeyp
     proy = tmp_path / "cp" / "D--x"
     proy.mkdir(parents=True)
     monkeypatch.setattr(registro, "CLAUDE_PROJECTS_DIR", proy.parent)
+    pid = pedido_id(registro.iniciar_pedido("Pedido compartido", ["A"]))
     ts = datetime.now().astimezone().isoformat()
+    ts_antes = (datetime.now().astimezone() - timedelta(minutes=10)).isoformat()
 
-    def msg(sid, mid):
-        return json.dumps({"timestamp": ts, "sessionId": sid, "message": {
+    def msg(sid, mid, t=ts):
+        return json.dumps({"timestamp": t, "sessionId": sid, "message": {
             "id": mid, "model": "claude-x", "usage": {"input_tokens": 1_000_000, "output_tokens": 0}}})
-    # "vieja" se dejó tras 1 respuesta propia; en "nueva" se siguió trabajando (3 propias).
-    (proy / "vieja.jsonl").write_text("\n".join([msg("vieja", m) for m in ("m1", "m2", "v1")]), encoding="utf-8")
-    time.sleep(0.05)
-    (proy / "nueva.jsonl").write_text("\n".join([msg("nueva", m) for m in ("m1", "m2", "n1", "n2", "n3")]),
+
+    uso_pedido = json.dumps({"sessionId": "vieja", "message": {"content": [{"type": "tool_use", "id": "t1",
+                             "name": "mcp__orchestrator__actualizar_item", "input": {"pedido_id": pid}}]}})
+    prompt = json.dumps({"type": "user", "timestamp": ts_antes, "sessionId": "vieja",
+                         "message": {"content": "Revisa el módulo"}})
+    # "vieja" tiene m1 + 1 respuesta propia; "nueva" repite m1 y suma 2 respuestas propias (es la principal).
+    (proy / "vieja.jsonl").write_text("\n".join([msg("vieja", "m1"), msg("vieja", "v1", ts_antes), uso_pedido, prompt]),
                                       encoding="utf-8")
-    ses = {x["id"]: x for x in registro.datos_panel()["sesiones"]}
-    assert ses["vieja"]["padre"] == "nueva" and "padre" not in ses["nueva"]
-    assert ses["nueva"]["claude"]["costo_equivalente_usd"] == 25.0
-    assert ses["vieja"]["claude"]["costo_equivalente_usd"] == 5.0
-
-
-def test_misma_conversacion_retomada_es_continuacion(tmp_registro, tmp_path, monkeypatch):
-    import time
-    precios = tmp_path / "precios.json"
-    precios.write_text(json.dumps({"claude-x": [5.0, 0.5, 25.0]}), encoding="utf-8")
-    monkeypatch.setattr(registro, "PRECIOS_FILE", precios)
-    proy = tmp_path / "cp" / "D--x"
-    proy.mkdir(parents=True)
-    monkeypatch.setattr(registro, "CLAUDE_PROJECTS_DIR", proy.parent)
-    ts = datetime.now().astimezone().isoformat()
-
-    def msg(sid, mid):
-        return json.dumps({"timestamp": ts, "sessionId": sid, "message": {
-            "id": mid, "model": "claude-x", "usage": {"input_tokens": 1_000_000, "output_tokens": 0}}})
-
-    def titulo(sid, t):
-        return json.dumps({"type": "custom-title", "customTitle": t, "sessionId": sid})
-    (proy / "a.jsonl").write_text("\n".join([msg("a", "m1"), msg("a", "a1"), titulo("a", "Tenants")]), encoding="utf-8")
     time.sleep(0.05)
-    (proy / "b.jsonl").write_text("\n".join([msg("b", "m1"), msg("b", "b1"), msg("b", "b2"), titulo("b", "Tenants")]),
-                                  encoding="utf-8")
-    ses = {x["id"]: x for x in registro.datos_panel()["sesiones"]}
-    assert ses["a"]["padre"] == "b" and ses["a"]["continuacion"] is True
+    (proy / "nueva.jsonl").write_text("\n".join([msg("nueva", "m1"), msg("nueva", "n1"), msg("nueva", "n2")]),
+                                      encoding="utf-8")
+    sesiones = registro.datos_panel()["sesiones"]
+    assert len(sesiones) == 1
+    ses = sesiones[0]
+    assert ses["id"] == "nueva" and "padre" not in ses and "continuacion" not in ses
+    assert ses["claude"]["costo_equivalente_usd"] == 20.0  # m1 + v1 + n1 + n2, sin duplicar m1
+    assert ses["pedidos"] == [pid]
+    assert [p["texto"] for p in ses["prompts"]] == ["Revisa el módulo"]
+
