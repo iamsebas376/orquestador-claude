@@ -462,11 +462,23 @@ def _items_de(ts: datetime, ventanas: list[tuple]) -> list[int]:
 CLAUDE_PROJECTS_DIR = Path(os.getenv("CLAUDE_PROJECTS_DIR") or Path.home() / ".claude" / "projects")
 
 
+PADRE_SESION: dict[str, str] = {}  # sesión bifurcada -> sesión de la que salió (lo llena _mensajes_claude)
+
+
 def _mensajes_claude(desde: datetime) -> list[dict]:
     """Respuestas de Claude Code desde `desde` (hora local), leídas de sus transcripts locales
-    (~/.claude/projects/**/*.jsonl, subagentes incluidos). Cada respuesta se repite por bloque: se deja una por id."""
+    (~/.claude/projects/**/*.jsonl, subagentes incluidos). Cada respuesta se repite por bloque: se deja una por id.
+    Una bifurcación copia el historial de su sesión con los mismos ids: esas respuestas se quedan en la sesión
+    original (el transcript más antiguo) y así se sabe de qué sesión salió cada bifurcación."""
     por_id: dict[str, dict] = {}
-    for f in CLAUDE_PROJECTS_DIR.rglob("*.jsonl"):
+
+    def creado(f):
+        try:
+            return f.stat().st_ctime
+        except OSError:
+            return 0
+
+    for f in sorted(CLAUDE_PROJECTS_DIR.rglob("*.jsonl"), key=creado):
         try:
             if datetime.fromtimestamp(f.stat().st_mtime) < desde:
                 continue
@@ -488,7 +500,13 @@ def _mensajes_claude(desde: datetime) -> list[dict]:
             cc = u.get("cache_creation") or {}
             escritura_1h = cc.get("ephemeral_1h_input_tokens", 0)
             escritura = u.get("cache_creation_input_tokens", 0)
-            por_id[m.get("id") or f"{f}:{len(por_id)}"] = {
+            clave = m.get("id") or f"{f}:{len(por_id)}"
+            sid = str(e.get("sessionId") or f.stem)
+            previo = por_id.get(clave)
+            if previo and previo["sesion"] != sid:
+                PADRE_SESION.setdefault(sid, previo["sesion"])
+                continue  # historial copiado por una bifurcación: cuenta en la sesión original
+            por_id[clave] = {
                 "ts": ts, "modelo": modelo, "sesion": str(e.get("sessionId") or f.stem), "cwd": e.get("cwd", ""),
                 "tokens": {"input": u.get("input_tokens", 0), "cache_read": u.get("cache_read_input_tokens", 0),
                            "cache_write_5m": max(0, escritura - escritura_1h), "cache_write_1h": escritura_1h,
@@ -831,6 +849,15 @@ def datos_panel() -> dict:
             "por_dia": [{"dia": dia, "tokens": round(v["tokens"]), "costo_equivalente_usd": round(v["eq"], 4),
                          "fuera_tokens": round(v["fuera_tokens"]), "fuera_costo_equivalente_usd": round(v["fuera_eq"], 4)}
                         for dia, v in sorted((a or {}).get("por_dia", {}).items())]})
+    ids_ses = {x["id"] for x in lista_ses}
+    for x in lista_ses:
+        padre = PADRE_SESION.get(x["id"])
+        vistos = {x["id"]}
+        while padre and padre in PADRE_SESION and padre not in vistos:
+            vistos.add(padre)
+            padre = PADRE_SESION[padre]
+        if padre and padre in ids_ses and padre != x["id"]:
+            x["padre"] = padre
     lista_ses.sort(key=lambda x: x["fin"], reverse=True)
     filas.sort(key=lambda f: f["actualizado"], reverse=True)
     diarios = sorted(costos_diarios() + list(claude_dia.values()), key=lambda a: a["dia"])

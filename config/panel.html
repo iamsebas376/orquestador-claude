@@ -135,6 +135,7 @@ th[aria-sort] button::after { content: " ↓"; } th[aria-sort="ascending"] butto
 .caret { display: inline-block; width: 12px; color: var(--muted); transition: transform .15s; }
 tr.abierta .caret { transform: rotate(90deg); }
 .pista { font-size: .8rem; color: var(--muted); }
+.cmp tr.bifurcacion .nom { font-weight: 500; color: var(--muted); }
 .pedido-body { border-top: 1px solid var(--line); padding: 12px 18px 16px; display: flex; flex-direction: column; gap: 12px; }
 .ph { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: baseline; justify-content: space-between; }
 .meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; color: var(--muted); font-size: .86rem; line-height: 1.4; }
@@ -669,7 +670,16 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
   function renderComparativa(r) {
     var cont = document.getElementById("pedidos");
     cont.textContent = "";
-    var filas = filasSesiones(r);
+    var filas = filasSesiones(r), porSes = {};
+    filas.forEach(function (x) { porSes[x.s.id] = x; x.hijas = []; x.nTareas = x.peds.length; });
+    filas = filas.filter(function (x) {
+      var padre = x.s.padre && porSes[x.s.padre];
+      if (!padre || padre === x) return true;
+      // La bifurcación suma en su sesión principal y se ve aparte en su detalle.
+      padre.hijas.push(x);
+      padre.innti += x.innti; padre.agy += x.agy; padre.cl += x.cl; padre.total += x.total; padre.nTareas += x.peds.length;
+      return false;
+    });
     if (!filas.length) {
       var e = el("div", "empty");
       e.appendChild(el("strong", null, !state ? "Todavía no hay datos sincronizados." :
@@ -679,7 +689,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
       return;
     }
     function val(x) {
-      return ordenSes.k === "nombre" ? x.s.titulo : ordenSes.k === "fecha" ? x.s.fin : ordenSes.k === "tareas" ? x.peds.length
+      return ordenSes.k === "nombre" ? x.s.titulo : ordenSes.k === "fecha" ? x.s.fin : ordenSes.k === "tareas" ? x.nTareas
         : ordenSes.k === "pct" ? (x.total ? x.cl / x.total : 0) : x[ordenSes.k];
     }
     filas.sort(function (a, b) {
@@ -702,9 +712,10 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     filas.forEach(function (x) {
       var tr = el("tr" , x.s.id === selSes ? "sel" : null), td = el("td");
       td.appendChild(el("div", "nom", x.s.titulo));
+      if (x.hijas.length) td.appendChild(el("div", "sub2", "+ " + x.hijas.length + (x.hijas.length === 1 ? " bifurcación" : " bifurcaciones")));
       tr.appendChild(td);
       tr.appendChild(el("td", "fechas", rangoFechas(x.s.inicio, x.s.fin)));
-      tr.appendChild(el("td", "n", String(x.peds.length)));
+      tr.appendChild(el("td", "n", String(x.nTareas)));
       tr.appendChild(celda(x.innti, "innti"));
       tr.appendChild(celda(x.agy, "agy", true));
       tr.appendChild(celda(x.cl, "cl", true));
@@ -816,6 +827,23 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
       tr.style.cursor = "default";
       tb.appendChild(tr);
     }
+    (x.hijas || []).forEach(function (h) {
+      var tr = el("tr"), td = el("td");
+      td.appendChild(el("div", "nom", "↳ " + h.s.titulo));
+      td.appendChild(el("div", "sub2", "Bifurcación · " + rangoFechas(h.s.inicio, h.s.fin) + " · " + h.peds.length + (h.peds.length === 1 ? " tarea" : " tareas")));
+      tr.appendChild(td);
+      var tdA = el("td");
+      if (h.innti) tdA.appendChild(el("span", "ia innti"));
+      if (h.agy) tdA.appendChild(el("span", "ia agy"));
+      if (h.cl) tdA.appendChild(el("span", "ia cl"));
+      tr.appendChild(tdA);
+      tr.appendChild(celda(h.innti, "innti")); tr.appendChild(celda(h.agy, "agy", true)); tr.appendChild(celda(h.cl, "cl", true));
+      tr.appendChild(el("td", "n tot", dinero(h.total)));
+      var tdB = el("td"); tdB.appendChild(barra(h.innti, h.agy, h.cl)); tr.appendChild(tdB);
+      tr.classList.add("bifurcacion");
+      tr.style.cursor = "default";
+      tb.appendChild(tr);
+    });
     if (!tb.children.length) { var tr0 = el("tr"), td0 = el("td", "pista", "Esta sesión no tiene tareas ni gasto en el período."); td0.colSpan = 7; tr0.appendChild(td0); tb.appendChild(tr0); }
     t.appendChild(tb); wrap.appendChild(t); d.appendChild(wrap);
     d.appendChild(el("div", "pista", "Clic en una tarea para ver sus ítems. Innti es gasto real; ≈ es el equivalente por API."));

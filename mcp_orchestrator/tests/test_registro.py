@@ -259,3 +259,27 @@ def test_sesion_sin_pedidos_no_se_carga_a_otro_pedido(tmp_registro, tmp_path, mo
     assert ses["claude"]["costo_equivalente_usd"] == 5.0 and ses["claude_fuera"]["costo_equivalente_usd"] == 5.0
     assert ses["pedidos"] == []
     assert pid in next(x for x in data["sesiones"] if x["id"] == "sin-sesion")["pedidos"]
+
+
+def test_bifurcacion_queda_ligada_a_su_sesion(tmp_registro, tmp_path, monkeypatch):
+    import os, time
+    precios = tmp_path / "precios.json"
+    precios.write_text(json.dumps({"claude-x": [5.0, 0.5, 25.0]}), encoding="utf-8")
+    monkeypatch.setattr(registro, "PRECIOS_FILE", precios)
+    proy = tmp_path / "cp" / "D--x"
+    proy.mkdir(parents=True)
+    monkeypatch.setattr(registro, "CLAUDE_PROJECTS_DIR", proy.parent)
+    monkeypatch.setattr(registro, "PADRE_SESION", {})
+    ts = datetime.now().astimezone().isoformat()
+
+    def msg(sid, mid):
+        return json.dumps({"timestamp": ts, "sessionId": sid, "message": {
+            "id": mid, "model": "claude-x", "usage": {"input_tokens": 1_000_000, "output_tokens": 0}}})
+    (proy / "padre.jsonl").write_text("\n".join([msg("padre", "m1"), msg("padre", "m2")]), encoding="utf-8")
+    time.sleep(0.05)
+    # La bifurcación copia m1 y m2 con su propio sessionId y agrega m3.
+    (proy / "hija.jsonl").write_text("\n".join([msg("hija", "m1"), msg("hija", "m2"), msg("hija", "m3")]),
+                                     encoding="utf-8")
+    ses = {x["id"]: x for x in registro.datos_panel()["sesiones"]}
+    assert ses["padre"]["claude"]["costo_equivalente_usd"] == 10.0  # el historial copiado no se cuenta dos veces
+    assert ses["hija"]["claude"]["costo_equivalente_usd"] == 5.0 and ses["hija"]["padre"] == "padre"
