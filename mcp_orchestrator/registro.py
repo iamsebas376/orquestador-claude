@@ -471,6 +471,8 @@ def _mensajes_claude(desde: datetime) -> list[dict]:
     Una bifurcación copia el historial de su sesión con los mismos ids: esas respuestas se quedan en la sesión
     original (el transcript más antiguo) y así se sabe de qué sesión salió cada bifurcación."""
     por_id: dict[str, dict] = {}
+    compartidos: dict[str, set] = {}  # sesión -> ids de mensajes que comparte con la sesión de la que se ligó
+    PADRE_SESION.clear()
 
     def creado(f):
         try:
@@ -505,13 +507,30 @@ def _mensajes_claude(desde: datetime) -> list[dict]:
             previo = por_id.get(clave)
             if previo and previo["sesion"] != sid:
                 PADRE_SESION.setdefault(sid, previo["sesion"])
-                continue  # historial copiado por una bifurcación: cuenta en la sesión original
+                compartidos.setdefault(sid, set()).add(clave)
+                continue  # historial copiado: por ahora cuenta en la primera sesión leída (se ajusta abajo)
             por_id[clave] = {
                 "ts": ts, "modelo": modelo, "sesion": str(e.get("sessionId") or f.stem), "cwd": e.get("cwd", ""),
                 "tokens": {"input": u.get("input_tokens", 0), "cache_read": u.get("cache_read_input_tokens", 0),
                            "cache_write_5m": max(0, escritura - escritura_1h), "cache_write_1h": escritura_1h,
                            "output": u.get("output_tokens", 0)},
             }
+    # La principal es la sesión donde siguió el trabajo (más respuestas propias); la otra queda como bifurcación
+    # y el historial compartido cuenta en la principal.
+    propias: dict[str, int] = {}
+    for r in por_id.values():
+        propias[r["sesion"]] = propias.get(r["sesion"], 0) + 1
+    for hija, padre in list(PADRE_SESION.items()):
+        ids = compartidos.get(hija, set())
+        if not ids or padre not in propias:
+            continue
+        unicas_padre = propias.get(padre, 0) - len(ids)
+        if propias.get(hija, 0) > unicas_padre:
+            for clave in ids:
+                if clave in por_id:
+                    por_id[clave]["sesion"] = hija
+            del PADRE_SESION[hija]
+            PADRE_SESION[padre] = hija
     return sorted(por_id.values(), key=lambda r: r["ts"])
 
 
