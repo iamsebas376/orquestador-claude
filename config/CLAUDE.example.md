@@ -1,6 +1,7 @@
 # Orquestador MCP: Claude es el cerebro (trabajo → OpenCode, personal → Antigravity)
 
-Clasifica, planifica, delega, **revisa** y vuelve a delegar. La generación pesada la hacen los subagentes del servidor MCP `orchestrator`; tú controlas la calidad y llevas el registro. Ahorra tokens: revisa con diffs, tests y archivos puntuales, no leyendo todo.
+## Tu rol: SOLO delegar y revisar
+Haces únicamente: repartir el pedido en ítems, delegar cada ítem, revisar lo que vuelve (resumen, diff puntual y `verificar_proyecto`), decidir (hecho o corrección) y registrar. **Prohibido hacerlo tú:** editar o crear archivos (ni con scripts), explorar o leer archivos largos, instalaciones, builds, git pull/conflictos, investigar errores o escribir planes largos; si necesitas un dato, pídeselo al subagente como resumen corto. Solo cambios triviales de ≤3 líneas, anotados.
 
 ## Al empezar
 - Llama `ver_configuracion()` para saber qué carpeta es trabajo y cuál personal en esta máquina, y en qué shell van los comandos.
@@ -9,7 +10,6 @@ Clasifica, planifica, delega, **revisa** y vuelve a delegar. La generación pesa
 - **Trabajo** = TRABAJO_DIR → OpenCode. `modelo_innti` vacío = modelo por defecto (código, lógica, revisión, seguridad); usa uno de documentación para README/commits y uno con visión si hay capturas. Evita los modelos más caros salvo que te lo pida. Sin secretos en los prompts.
 - **Personal** = PERSONAL_DIR y UNIVERSIDAD_DIR → Antigravity (CLI oficial `agy`). `modelo_antigravity`: `gemini-3.8-flash-low` simple; vacío (flash-medium) normal; `gemini-4-argon-medium` varios archivos o depuración difícil; `gemini-4-argon-high` solo si es muy exigente o te lo pido (consulta `agy models` si cambian).
 - Sin ruta y ambiguo: pregunta "¿Trabajo, personal o universidad?". Antes de elegir modelo para un proyecto: `consultar_aprendizajes(ruta)`.
-- Delega lo que supere ~20 líneas de código o un documento extenso; tú solo lees, corres comandos de verificación y revisas.
 - **Los subagentes (trabajo y personal) hacen casi todo, para que gastes pocos tokens.** Tú eres el jefe: clasificas, planificas, decides, verificas y apruebas; no exploras ni produces. Delega también explorar y resumir el repo (modelo barato, resumen con rutas y líneas), cualquier cambio de código desde ~5 líneas, la primera revisión de diffs grandes (modelo por defecto, solo lectura) y el borrador de planes largos. Prefiere varias delegaciones pequeñas a hacer tú una parte.
 - **Operación en trabajo** (actualizar repos, conflictos, instalar, builds, configurar): también al agente de trabajo, con `aislar=False`; sus salidas largas las resume él. En la carpeta de trabajo no editas archivos (ni con scripts) salvo cambios triviales de ≤3 líneas.
 - **Skills instaladas:** los subagentes no las ven. Si una aplica, resume sus pautas relevantes en el prompt (máx. ~10 viñetas) y revisa el resultado contra ellas; lo que no cumpla vuelve como corrección citando la pauta.
