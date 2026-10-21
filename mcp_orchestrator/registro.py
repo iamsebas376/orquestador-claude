@@ -698,6 +698,13 @@ def datos_panel() -> dict:
         pid = _pedido_de(r["ts"], propios) if propios else ""
         if not pid:
             sesiones_sin_pedido.setdefault(r["sesion"], []).append(r)
+        dd = sa.setdefault("por_dia", {}).setdefault(r["ts"].date().isoformat(),
+                                                     {"tokens": 0, "eq": 0.0, "fuera_tokens": 0, "fuera_eq": 0.0})
+        dd["tokens"] += r["entrada"] + r["salida"]
+        dd["eq"] += r["equivalente"]
+        if not pid:
+            dd["fuera_tokens"] += r["entrada"] + r["salida"]
+            dd["fuera_eq"] += r["equivalente"]
         if pid:
             c = claude_pedido.setdefault(pid, {"tokens": 0, "costo_equivalente_usd": 0.0})
             c["tokens"] += r["entrada"] + r["salida"]
@@ -774,12 +781,12 @@ def datos_panel() -> dict:
         if extra.get("hasta", "") < desde:
             continue
         filas.append({
-            "id": "sin-pedido-" + _slug(ruta or "general"), "titulo": "Delegaciones sin pedido", "ruta": ruta,
+            "id": "sin-pedido-" + _slug(ruta or "general"), "titulo": "Delegaciones sin tarea", "ruta": ruta,
             "estado": "cerrado", "creado": extra["desde"], "actualizado": extra["hasta"],
             "costo_usd": round(extra.get("costo_usd", 0), 4),
             "costo_equivalente_usd": round(extra.get("costo_equivalente_usd", 0), 4), "tokens": extra.get("tokens", 0),
             "claude": {"tokens": 0, "costo_equivalente_usd": 0.0},
-            "items": [{"texto": f"{extra.get('n', 0)} delegaciones sin pedido", "estado": "hecho", "virtual": True,
+            "items": [{"texto": f"{extra.get('n', 0)} delegaciones sin tarea", "estado": "hecho", "virtual": True,
                        "agente": "", "modelo": "", "rondas": 0, "costo_usd": round(extra.get("costo_usd", 0), 4),
                        "costo_equivalente_usd": round(extra.get("costo_equivalente_usd", 0), 4),
                        "tokens": extra.get("tokens", 0),
@@ -820,7 +827,10 @@ def datos_panel() -> dict:
             "claude": {"tokens": round((a or {}).get("tokens", 0)), "costo_equivalente_usd": round((a or {}).get("eq", 0.0), 4),
                        "modelos": sorted((a or {}).get("modelos", set()))},
             "claude_fuera": {"tokens": round((a or {}).get("fuera_tokens", 0)),
-                             "costo_equivalente_usd": round((a or {}).get("fuera_eq", 0.0), 4)}})
+                             "costo_equivalente_usd": round((a or {}).get("fuera_eq", 0.0), 4)},
+            "por_dia": [{"dia": dia, "tokens": round(v["tokens"]), "costo_equivalente_usd": round(v["eq"], 4),
+                         "fuera_tokens": round(v["fuera_tokens"]), "fuera_costo_equivalente_usd": round(v["fuera_eq"], 4)}
+                        for dia, v in sorted((a or {}).get("por_dia", {}).items())]})
     lista_ses.sort(key=lambda x: x["fin"], reverse=True)
     filas.sort(key=lambda f: f["actualizado"], reverse=True)
     diarios = sorted(costos_diarios() + list(claude_dia.values()), key=lambda a: a["dia"])

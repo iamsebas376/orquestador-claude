@@ -99,7 +99,7 @@ th[aria-sort] button::after { content: " ↓"; } th[aria-sort="ascending"] butto
 .pedido.sub .ps-title { font-size: .94rem; }
 .pedido.sub .pedido-body { padding: 10px 14px 12px; }
 .pedido.sub ol.items li { background: var(--surface); }
-.fuera { font-size: .84rem; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.fuera-tareas { border-style: dashed; }
 .pedido-body { border-top: 1px solid var(--line); padding: 12px 18px 16px; display: flex; flex-direction: column; gap: 12px; }
 .ph { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: baseline; justify-content: space-between; }
 .meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; color: var(--muted); font-size: .86rem; line-height: 1.4; }
@@ -207,7 +207,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
   </section>
 
   <section class="kpis" aria-label="Indicadores del período">
-    <div class="kpi"><span class="v" id="k-pedidos">—</span><span class="l">Pedidos</span></div>
+    <div class="kpi"><span class="v" id="k-pedidos">—</span><span class="l">Tareas</span></div>
     <div class="kpi"><span class="v" id="k-revision">—</span><span class="l">Ítems por revisar</span></div>
     <div class="kpi"><span class="v" id="k-rondas">—</span><span class="l">Rondas de corrección</span></div>
     <div class="kpi"><span class="v" id="k-delegaciones">—</span><span class="l">Delegaciones</span></div>
@@ -234,7 +234,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
       </div>
     </div>
     <div class="pedidos" id="pedidos">
-      <div class="empty"><strong>Todavía no hay pedidos sincronizados.</strong><span>Claude actualiza este panel cada vez que cierra un pedido o termina una ronda de revisión.</span></div>
+      <div class="empty"><strong>Todavía no hay tareas sincronizadas.</strong><span>Claude actualiza este panel cada vez que cierra una tarea o termina una ronda de revisión.</span></div>
     </div>
   </section>
 
@@ -497,7 +497,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
   }
 
   // Sesión de Claude: tarjeta principal con sus pedidos dentro (y lo que Claude hizo fuera de ellos).
-  function renderSesion(s, peds) {
+  function renderSesion(s, peds, r) {
     var card = el("details", "pedido sesion"), clave = "ses:" + s.id;
     if (abiertos[clave]) card.open = true;
     card.addEventListener("toggle", function () {
@@ -509,13 +509,23 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     var main = el("div", "ps-main");
     main.appendChild(el("span", "ps-title", s.titulo));
     var nAb = peds.filter(function (p) { return p.estado === "abierto"; }).length;
-    var txtPed = peds.length ? peds.length + (peds.length === 1 ? " pedido" : " pedidos") + (nAb ? " (" + nAb + (nAb === 1 ? " abierto)" : " abiertos)") : "") : "sin pedidos";
+    var txtPed = peds.length ? peds.length + (peds.length === 1 ? " tarea" : " tareas") + (nAb ? " (" + nAb + (nAb === 1 ? " abierta)" : " abiertas)") : "") : "sin tareas";
     main.appendChild(el("span", "ps-sub", txtPed + " · última actividad " + fecha(s.fin)));
     sum.appendChild(main);
-    var innti = 0, agy = 0, tok = (s.claude && s.claude.tokens) || 0;
+    // Claude del período filtrado (una sesión se puede retomar días después): se suma por día.
+    var desdeD = r.desde ? ymd(r.desde) : "", hastaD = r.hasta ? ymd(r.hasta) : "9999-12-31";
+    var dias = (s.por_dia || []).filter(function (d) { return d.dia >= desdeD && d.dia <= hastaD; });
+    var cl = { tokens: 0, costo_equivalente_usd: 0 }, fuera = { tokens: 0, costo_equivalente_usd: 0, dias: [] };
+    dias.forEach(function (d) {
+      cl.tokens += d.tokens; cl.costo_equivalente_usd += d.costo_equivalente_usd;
+      if (d.fuera_costo_equivalente_usd || d.fuera_tokens) {
+        fuera.tokens += d.fuera_tokens; fuera.costo_equivalente_usd += d.fuera_costo_equivalente_usd; fuera.dias.push(d);
+      }
+    });
+    var innti = 0, agy = 0, tok = cl.tokens;
     peds.forEach(function (p) { innti += p.costo_usd || 0; agy += p.costo_equivalente_usd || 0; tok += p.tokens || 0; });
     var side = el("div", "ps-side");
-    side.appendChild(badges(innti, agy, tok, s.claude));
+    side.appendChild(badges(innti, agy, tok, cl));
     sum.appendChild(side);
     card.appendChild(sum);
 
@@ -524,13 +534,50 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     var lista = el("div", "pedidos-sesion");
     peds.forEach(function (p) { var c = renderPedido(p); c.classList.add("sub"); lista.appendChild(c); });
     body.appendChild(lista);
-    var fuera = s.claude_fuera || {};
-    if (fuera.costo_equivalente_usd) {
-      var f = el("div", "fuera");
-      f.appendChild(el("span", "ia cl"));
-      f.appendChild(document.createTextNode("Claude fuera de pedidos (conversación y ajustes sin checklist): ≈ " + usd(fuera.costo_equivalente_usd) + " · " + compacto(fuera.tokens || 0) + " tokens"));
-      body.appendChild(f);
-    }
+    if (fuera.costo_equivalente_usd) lista.appendChild(renderFuera(s, fuera));
+    card.appendChild(body);
+    return card;
+  }
+
+  // Lo que Claude hizo en la sesión sin una tarea (conversación, ajustes sin checklist), con el mismo aspecto
+  // que una tarea: resumen colapsable y el detalle por día dentro.
+  function renderFuera(s, fuera) {
+    var card = el("details", "pedido sub fuera-tareas"), clave = "fuera:" + s.id;
+    if (abiertos[clave]) card.open = true;
+    card.addEventListener("toggle", function () {
+      if (card.open) abiertos[clave] = 1; else delete abiertos[clave];
+      try { localStorage.setItem("panel-abiertos", JSON.stringify(abiertos)); } catch (e) {}
+    });
+    var sum = el("summary");
+    sum.appendChild(chevron());
+    var main = el("div", "ps-main");
+    main.appendChild(el("span", "ps-title", "Fuera de tareas"));
+    main.appendChild(el("span", "ps-sub", "Conversación y ajustes de Claude sin checklist · " + fuera.dias.length + (fuera.dias.length === 1 ? " día" : " días")));
+    sum.appendChild(main);
+    var side = el("div", "ps-side");
+    side.appendChild(badges(0, 0, fuera.tokens, fuera));
+    sum.appendChild(side);
+    card.appendChild(sum);
+    var body = el("div", "pedido-body"), ol = el("ol", "items");
+    fuera.dias.forEach(function (d) {
+      var li = el("li");
+      li.appendChild(el("span", "chip s-hecho", parse(d.dia).toLocaleDateString("es-CO", { day: "2-digit", month: "short" })));
+      var txt = el("div");
+      txt.appendChild(el("div", "it-text", "Trabajo de Claude sin tarea"));
+      var sub = el("div", "it-sub");
+      sub.appendChild(el("span", "ia cl"));
+      sub.appendChild(document.createTextNode("Claude · " + ((s.claude && s.claude.modelos) || []).join(", ")));
+      txt.appendChild(sub);
+      li.appendChild(txt);
+      var cost = el("span", "it-cost"), linea = el("div", "cl");
+      linea.appendChild(el("span", "ia cl"));
+      linea.appendChild(document.createTextNode("≈ " + usd(d.fuera_costo_equivalente_usd)));
+      tip(linea, "Claude", [["cl", compacto(d.fuera_tokens) + " tokens"], [null, "Equivalente API: ≈ " + usd(d.fuera_costo_equivalente_usd)]]);
+      cost.appendChild(linea);
+      li.appendChild(cost);
+      ol.appendChild(li);
+    });
+    body.appendChild(ol);
     card.appendChild(body);
     return card;
   }
@@ -664,7 +711,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     } else {
       var paginas = Math.ceil(sesiones.length / POR_PAGINA);
       if (pagina >= paginas) pagina = paginas - 1;
-      sesiones.slice(pagina * POR_PAGINA, (pagina + 1) * POR_PAGINA).forEach(function (x) { cont.appendChild(renderSesion(x.s, x.peds)); });
+      sesiones.slice(pagina * POR_PAGINA, (pagina + 1) * POR_PAGINA).forEach(function (x) { cont.appendChild(renderSesion(x.s, x.peds, r)); });
       if (paginas > 1) {
         var nav = el("nav", "paginador"); nav.setAttribute("aria-label", "Páginas de sesiones");
         var ant = el("button", null, "‹ Anterior"), sig = el("button", null, "Siguiente ›");
@@ -733,7 +780,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
       sync.classList.remove("off");
       sync.classList.toggle("stale", horas > 24);
       document.getElementById("sync-text").textContent = horas > 24
-        ? "Datos de hace " + Math.floor(horas / 24) + (horas < 48 ? " día" : " días") + " · se actualizan al cerrar un pedido"
+        ? "Datos de hace " + Math.floor(horas / 24) + (horas < 48 ? " día" : " días") + " · se actualizan al cerrar una tarea"
         : "Sincronizado " + fecha(state.generado);
     }
   }

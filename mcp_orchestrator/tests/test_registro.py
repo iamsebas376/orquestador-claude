@@ -201,7 +201,7 @@ def test_delegaciones_sin_pedido_se_asignan_al_proyecto(tmp_registro):
     virtual = p["items"][-1]
     assert virtual["virtual"] and virtual["agentes"]["innti"]["costo_usd"] == 0.5
     assert p["costo_usd"] == 0.5 and p["tokens"] == 110
-    huerfano = next(p for p in data["pedidos"] if p["titulo"] == "Delegaciones sin pedido")
+    huerfano = next(p for p in data["pedidos"] if p["titulo"] == "Delegaciones sin tarea")
     assert huerfano["costo_usd"] == 0.25 and huerfano["ruta"] == r"D:\w\otro"
 
 
