@@ -21,6 +21,7 @@ def sin_efectos_externos(tmp_path, monkeypatch):
     monkeypatch.setattr(registro, "APRENDIZAJES_FILE", tmp_path / "aprendizajes-aislados.jsonl")
     monkeypatch.setattr(registro, "CLAUDE_PROJECTS_DIR", tmp_path / "claude-projects-aislado")
     monkeypatch.setattr(server, "AGY_SETTINGS", tmp_path / "agy-settings-aislado.json")
+    monkeypatch.setattr(registro, "NOMBRES_FILE", tmp_path / "nombres-aislado.json")
 
 
 @pytest.fixture

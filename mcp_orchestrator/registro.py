@@ -581,6 +581,30 @@ def _prompts_claude() -> dict[str, list]:
     return out
 
 
+NOMBRES_FILE = REPO_ROOT / "nombres_tareas.json"  # huella del prompt -> nombre corto de la tarea (escrito a mano)
+
+
+def _huella(texto: str) -> str:
+    import hashlib
+    return hashlib.sha1(texto.encode("utf-8")).hexdigest()[:16]
+
+
+def _nombre_local(texto: str) -> str:
+    """Nombre de respaldo para un prompt sin nombre asignado: la primera frase, corta."""
+    frase = re.split(r"(?<=[.?!])\s", texto, maxsplit=1)[0]
+    return (frase[:60].rstrip(" ,;:") + "…") if len(frase) > 60 else frase
+
+
+def nombres_tareas(textos: list[str]) -> dict[str, str]:
+    """Nombre corto de la tarea de cada prompt sin checklist: el que esté en nombres_tareas.json (escrito una vez
+    a mano) o, si no hay, la primera frase recortada. Lo nuevo debería llegar ya como ítem con su nombre."""
+    try:
+        fijos = json.loads(NOMBRES_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        fijos = {}
+    return {t: fijos.get(_huella(t)) or _nombre_local(t) for t in textos}
+
+
 def _titulos_claude() -> dict[str, str]:
     """Título de cada sesión de Claude Code (el último que le puso la app), por sessionId."""
     titulos: dict[str, str] = {}
@@ -896,8 +920,9 @@ def datos_panel() -> dict:
             t["eq"] += r["equivalente"]
             t["modelos"].add(r["modelo"])
             t["fin"] = max(t["fin"], r["ts"])
+        nombres = nombres_tareas([t["texto"] for t in tareas.values()])
         ses_agg[sid]["prompts"] = [
-            {"texto": t["texto"], "inicio": t["inicio"], "dia": t["dia"], "fin": t["fin"].isoformat(timespec="seconds"),
+            {"texto": nombres.get(t["texto"], t["texto"]), "inicio": t["inicio"], "dia": t["dia"], "fin": t["fin"].isoformat(timespec="seconds"),
              "tokens": round(t["tokens"]), "costo_equivalente_usd": round(t["eq"], 4), "modelos": sorted(t["modelos"])}
             for _, t in sorted(tareas.items())]
     orden_ses = sorted(ses_agg, key=lambda sid: ses_agg[sid]["inicio"])
