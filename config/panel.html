@@ -636,7 +636,30 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     return el("td", "n " + (v ? clase || "" : "cero"), v ? (aprox ? "≈ " : "") + dinero(v) : "—");
   }
 
-  var selSes = null, abiertaTarea = {}, ordenSes = { k: "total", asc: false };
+  var selSes = null, ultSes = null, abiertaTarea = {}, ordenSes = { k: "total", asc: false };
+  var pagDetalle = 0, pagOtras = 0;
+
+  function crearPaginador(actual, total, onCambiar) {
+    var p = el("div", "paginador");
+    var btnAnt = el("button", null, "Anterior");
+    btnAnt.type = "button";
+    btnAnt.disabled = actual <= 0;
+    btnAnt.addEventListener("click", function (ev) {
+      ev.stopPropagation();
+      if (actual > 0) onCambiar(actual - 1);
+    });
+    p.appendChild(btnAnt);
+    p.appendChild(el("span", null, (actual + 1) + " de " + total));
+    var btnSig = el("button", null, "Siguiente");
+    btnSig.type = "button";
+    btnSig.disabled = actual >= total - 1;
+    btnSig.addEventListener("click", function (ev) {
+      ev.stopPropagation();
+      if (actual < total - 1) onCambiar(actual + 1);
+    });
+    p.appendChild(btnSig);
+    return p;
+  }
 
   // Sesiones del período con sus totales por agente (Claude por día, para respetar el filtro de fechas).
   function filasSesiones(r) {
@@ -693,6 +716,11 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
       return ordenSes.asc ? c : -c;
     });
     if (!selSes || !filas.some(function (x) { return x.s.id === selSes; })) selSes = filas[0].s.id;
+    if (selSes !== ultSes) {
+      pagDetalle = 0;
+      pagOtras = 0;
+      ultSes = selSes;
+    }
 
     var wrap = el("div", "table-scroll"), t = el("table", "cmp"), th = el("thead"), hr = el("tr");
     [["nombre", "Sesión", ""], ["fecha", "Fechas", ""], ["tareas", "Tareas", "n"], ["innti", "Innti", "n"], ["agy", "Antigravity", "n"],
@@ -716,7 +744,15 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
       tr.appendChild(celda(x.cl, "cl", true));
       tr.appendChild(el("td", "n tot", dinero(x.total)));
       var tdB = el("td"); tdB.appendChild(barra(x.innti, x.agy, x.cl)); tr.appendChild(tdB);
-      tr.addEventListener("click", function () { selSes = x.s.id; render(); });
+      tr.addEventListener("click", function () {
+        if (selSes !== x.s.id) {
+          selSes = x.s.id;
+          pagDetalle = 0;
+          pagOtras = 0;
+          ultSes = selSes;
+        }
+        render();
+      });
       tb.appendChild(tr);
     });
     t.appendChild(tb); wrap.appendChild(t); cont.appendChild(wrap);
@@ -756,7 +792,10 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
       var innti = iasOn.innti === false ? 0 : p.costo_usd || 0, agy = iasOn.agy === false ? 0 : p.costo_equivalente_usd || 0;
       return { p: p, innti: innti, agy: agy, cl: cl, total: innti + agy + cl };
     }).sort(function (a, b) { return b.total - a.total; });
-    filas.forEach(function (f) {
+    var TAM_PAG = 10, totalPags = Math.ceil(filas.length / TAM_PAG);
+    if (pagDetalle >= totalPags) pagDetalle = Math.max(0, totalPags - 1);
+    var filasVisibles = filas.length > TAM_PAG ? filas.slice(pagDetalle * TAM_PAG, (pagDetalle + 1) * TAM_PAG) : filas;
+    filasVisibles.forEach(function (f) {
       var p = f.p, tr = el("tr", abiertaTarea[p.id] ? "abierta" : null), td = el("td");
       var nom = el("div", "nom"); nom.appendChild(el("span", "caret", "›")); nom.appendChild(document.createTextNode(" " + (p.titulo || p.id)));
       td.appendChild(nom);
@@ -834,7 +873,10 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
       if (abiertaTarea[kOtras]) {
         var fiO = el("tr", "items-fila"), tdiO = el("td"), ulO = el("ul", "mini");
         tdiO.colSpan = 8;
-        prompts.forEach(function (p) {
+        var TAM_PAG_OTRAS = 10, totalPagsOtras = Math.ceil(prompts.length / TAM_PAG_OTRAS);
+        if (pagOtras >= totalPagsOtras) pagOtras = Math.max(0, totalPagsOtras - 1);
+        var promptsVisibles = prompts.length > TAM_PAG_OTRAS ? prompts.slice(pagOtras * TAM_PAG_OTRAS, (pagOtras + 1) * TAM_PAG_OTRAS) : prompts;
+        promptsVisibles.forEach(function (p) {
           var li = el("li");
           li.appendChild(chip("terminada"));
           var tx = el("div", null, p.texto);
@@ -847,11 +889,24 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
           li.appendChild(c);
           ulO.appendChild(li);
         });
-        tdiO.appendChild(ulO); fiO.appendChild(tdiO); tb.appendChild(fiO);
+        tdiO.appendChild(ulO);
+        if (prompts.length > TAM_PAG_OTRAS) {
+          tdiO.appendChild(crearPaginador(pagOtras, totalPagsOtras, function (nueva) {
+            pagOtras = nueva;
+            render();
+          }));
+        }
+        fiO.appendChild(tdiO); tb.appendChild(fiO);
       }
     }
     if (!tb.children.length) { var tr0 = el("tr"), td0 = el("td", "pista", "Esta sesión no tiene tareas ni gasto en el período."); td0.colSpan = 8; tr0.appendChild(td0); tb.appendChild(tr0); }
     t.appendChild(tb); wrap.appendChild(t); d.appendChild(wrap);
+    if (filas.length > TAM_PAG) {
+      d.appendChild(crearPaginador(pagDetalle, totalPags, function (nueva) {
+        pagDetalle = nueva;
+        render();
+      }));
+    }
     d.appendChild(el("div", "pista", "Clic en una fila para desplegar sus ítems o prompts. Innti es gasto real; ≈ es el equivalente por API."));
     return d;
   }
@@ -1028,10 +1083,10 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
   // Las fechas personalizadas no se recuerdan entre visitas; los períodos que ya no existen vuelven a 30 días.
   if (["hoy", "7d", "30d", "todo"].indexOf(preset) < 0) preset = "30d";
   document.querySelectorAll(".presets button").forEach(function (b) {
-    b.addEventListener("click", function () { preset = b.dataset.p; pagina = 0; guardar(); render(); });
+    b.addEventListener("click", function () { preset = b.dataset.p; pagina = 0; pagDetalle = 0; pagOtras = 0; guardar(); render(); });
   });
   [fDesde, fHasta].forEach(function (inp) {
-    inp.addEventListener("change", function () { preset = "custom"; pagina = 0; render(); });
+    inp.addEventListener("change", function () { preset = "custom"; pagina = 0; pagDetalle = 0; pagOtras = 0; render(); });
   });
   function syncIas() {
     document.querySelectorAll(".ias button").forEach(function (b) { b.setAttribute("aria-pressed", String(iasOn[b.dataset.ia] !== false)); });
@@ -1054,7 +1109,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
   document.querySelectorAll(".tabs button").forEach(function (b) {
     b.setAttribute("aria-selected", String(b.dataset.f === filtro));
     b.addEventListener("click", function () {
-      filtro = b.dataset.f; pagina = 0; guardar();
+      filtro = b.dataset.f; pagina = 0; pagDetalle = 0; pagOtras = 0; guardar();
       document.querySelectorAll(".tabs button").forEach(function (x) { x.setAttribute("aria-selected", String(x === b)); });
       render();
     });
