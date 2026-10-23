@@ -11,7 +11,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from plataforma import DATOS_DIR, REPO_ROOT
+from plataforma import DATOS_DIR
 
 BASE_DIR = Path(__file__).resolve().parent
 TAREAS_DIR = Path(os.getenv("TAREAS_DIR") or DATOS_DIR / "tareas")
