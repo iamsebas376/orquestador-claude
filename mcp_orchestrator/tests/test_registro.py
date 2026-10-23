@@ -221,9 +221,32 @@ def test_sesion_sin_pedidos_no_se_carga_a_otro_pedido(tmp_registro, tmp_path, mo
                   "id": "m1", "model": "claude-x", "usage": {"input_tokens": 1_000_000, "output_tokens": 0}}},
               {"type": "custom-title", "customTitle": "Ajustes del MCP", "sessionId": "mcp"}]
     (proy / "mcp.jsonl").write_text("\n".join(json.dumps(l) for l in lineas), encoding="utf-8")
+    registro.registrar_costo("opencode", "innti-dsp", {"input": 100}, 0.5, pid, 1)
     data = registro.datos_panel()
-    assert next(p for p in data["pedidos"] if p["id"] == pid)["claude"]["costo_equivalente_usd"] == 0
+    # El pedido no pertenece a ninguna sesión que siga existiendo (su sesión se eliminó): no se muestra ni su gasto.
+    assert pid not in [p["id"] for p in data["pedidos"]]
+    assert not [c for c in data["costos_diarios"] if c["agente"] == "opencode"]
+    assert "sin-sesion" not in [x["id"] for x in data["sesiones"]]
     ses = next(x for x in data["sesiones"] if x["titulo"] == "Ajustes del MCP")
     assert ses["claude"]["costo_equivalente_usd"] == 5.0 and ses["claude_fuera"]["costo_equivalente_usd"] == 5.0
     assert ses["pedidos"] == []
-    assert pid in next(x for x in data["sesiones"] if x["id"] == "sin-sesion")["pedidos"]
+
+
+def test_delegacion_sin_pedido_explicito_queda_en_su_sesion(tmp_registro, tmp_path, monkeypatch):
+    proy = tmp_path / "cp" / "D--x"
+    proy.mkdir(parents=True)
+    monkeypatch.setattr(registro, "CLAUDE_PROJECTS_DIR", proy.parent)
+    pid = pedido_id(registro.iniciar_pedido("Ajuste suelto", ["A"]))
+    ts = datetime.now().astimezone().isoformat()
+    lineas = [
+        {"timestamp": ts, "sessionId": "viva", "message": {
+            "id": "m1", "model": "claude-x", "usage": {"input_tokens": 10, "output_tokens": 1}}},
+        {"sessionId": "viva", "message": {"content": [{"type": "tool_use", "id": "d1", "input": {"instruccion": "x"},
+                                                       "name": "mcp__orchestrator__ejecutar_personal_antigravity"}]}},
+        {"sessionId": "viva", "message": {"content": [{"type": "tool_result", "tool_use_id": "d1",
+                                                       "content": f"Éxito. Checklist: ítem 1 del pedido {pid} → revisando"}]}},
+    ]
+    (proy / "viva.jsonl").write_text("\n".join(json.dumps(l) for l in lineas), encoding="utf-8")
+    data = registro.datos_panel()
+    assert pid in [p["id"] for p in data["pedidos"]]
+    assert next(p for p in data["pedidos"] if p["id"] == pid)["sesion"] == "viva"

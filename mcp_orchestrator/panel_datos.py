@@ -63,11 +63,14 @@ def _procesar(c: dict, f, line: str) -> None:
                 c["pedidos"].setdefault(sid, set()).add(pid)
             if b["name"].endswith("iniciar_pedido"):
                 c["iniciados"].add(b.get("id"))
-        elif b.get("type") == "tool_result" and b.get("tool_use_id") in c["iniciados"]:
+            elif b["name"].endswith(("ejecutar_trabajo_opencode_innti", "ejecutar_personal_antigravity")):
+                c["delegados"].add(b.get("id"))
+        elif b.get("type") == "tool_result" and b.get("tool_use_id") in (c["iniciados"] | c["delegados"]):
             nuevos = _PEDIDO_EN_TEXTO.findall(json.dumps(b.get("content"), ensure_ascii=False))
             c["pedidos"].setdefault(sid, set()).update(nuevos)
-            for pid in nuevos:
-                c["creador"].setdefault(pid, sid)
+            if b.get("tool_use_id") in c["iniciados"]:
+                for pid in nuevos:
+                    c["creador"].setdefault(pid, sid)
 
 
 def _leer(f) -> dict | None:
@@ -79,7 +82,7 @@ def _leer(f) -> dict | None:
             return c
         if not c or st.st_size < c["size"]:  # nuevo o reescrito
             c = _CACHE[str(f)] = {"pos": 0, "size": 0, "mtime": 0, "msgs": {}, "titulos": {}, "pedidos": {},
-                                  "creador": {}, "iniciados": set()}
+                                  "creador": {}, "iniciados": set(), "delegados": set()}
         with open(f, "rb") as fh:
             fh.seek(c["pos"])
             datos = fh.read()
@@ -253,13 +256,16 @@ def datos_panel() -> dict:
             "items": items,
         })
     # Sesiones: cada pedido va con la sesión de Claude que lo creó (o la primera que lo usó); los que no tienen
-    # sesión conocida (delegaciones sueltas, pedidos de otra máquina) van en "Sin sesión de Claude".
+    # sesión viva se omiten (su sesión se eliminó). Solo sin transcripts disponibles van en "Sin sesión de Claude".
     orden_ses = sorted(ses_agg, key=lambda sid: ses_agg[sid]["inicio"])
     duenio = {}
     for sid in orden_ses:
         for pid in por_sesion.get(sid, ()):
             duenio.setdefault(pid, sid)
     duenio.update({pid: sid for pid, sid in CREADOR_PEDIDO.items() if sid in ses_agg})
+    if ses_agg:  # sin transcripts (otra máquina) no hay con qué comparar: se muestra todo
+        filas = [f for f in filas if f["id"] in duenio]
+    visibles = {f["id"] for f in filas} if ses_agg else None
     titulos = _titulos_claude()
     sesiones = {}
     for f in filas:
@@ -289,7 +295,7 @@ def datos_panel() -> dict:
                         for dia, v in sorted((a or {}).get("por_dia", {}).items())]})
     lista_ses.sort(key=lambda x: x["fin"], reverse=True)
     filas.sort(key=lambda f: f["actualizado"], reverse=True)
-    diarios = sorted(costos_diarios() + list(claude_dia.values()), key=lambda a: a["dia"])
+    diarios = sorted(costos_diarios(pedidos=visibles) + list(claude_dia.values()), key=lambda a: a["dia"])
     data = {"pedidos": filas, "sesiones": lista_ses, "costos_diarios": diarios, "dias": R.PANEL_DIAS,
             "generado": _now()}
     # Un documento del panel admite 256 KiB: si se pasa, recorta los pedidos más antiguos.

@@ -98,8 +98,9 @@ def resumen_costos(dias: int = 1) -> str:
     return "\n".join(lineas)
 
 
-def costos_diarios(dias: int = R.PANEL_DIAS) -> list[dict]:
-    """Costo agregado por día, agente y modelo (para filtrar por fechas en el panel)."""
+def costos_diarios(dias: int = R.PANEL_DIAS, pedidos: set | None = None) -> list[dict]:
+    """Costo agregado por día, agente y modelo (para filtrar por fechas en el panel).
+    `pedidos`: si se indica, solo cuentan las filas de esos pedidos (los de sesiones eliminadas se omiten)."""
     desde = datetime.now() - timedelta(days=dias)
     agg: dict[tuple, dict] = {}
     if R.COSTOS_FILE.exists():
@@ -109,7 +110,7 @@ def costos_diarios(dias: int = R.PANEL_DIAS) -> list[dict]:
                 ts = datetime.fromisoformat(r["ts"])
             except (ValueError, KeyError):
                 continue
-            if ts < desde:
+            if ts < desde or (pedidos is not None and r.get("pedido_id") not in pedidos):
                 continue
             k = (ts.date().isoformat(), r["agente"], r["modelo"])
             t = r.get("tokens") or {}
