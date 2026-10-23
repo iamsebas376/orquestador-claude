@@ -227,7 +227,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     <p class="muted" style="margin-top:8px;font-size:.84rem">Innti es gasto real; Antigravity y Claude (≈) son el equivalente por API, sus planes no cobran por token. Pasa el mouse por una fila para ver el detalle.</p>
   </section>
 
-  <footer>Datos escritos por Claude desde el registro local (<span class="mono">D:\claude\tareas</span>). Esta página solo los muestra.</footer>
+  <footer>Datos escritos por Claude desde el registro local (<span class="mono">datos/tareas</span>). Esta página solo los muestra.</footer>
 </div>
 
 <script>
@@ -413,7 +413,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
       var fin = parse(s.fin);
       return { s: s, peds: peds, innti: innti, agy: agy, cl: cl, total: innti + agy + cl, tok: clTok,
                visible: (!r.desde || !fin || fin >= r.desde) && (!r.hasta || !parse(s.inicio) || parse(s.inicio) <= r.hasta) };
-    }).filter(function (x) { return x.visible && (x.total > 0 || x.peds.length); });
+    }).filter(function (x) { return x.visible && x.peds.length; });  // sin tareas en el período no hay qué mostrar
   }
 
   function rangoFechas(ini, fin) {
