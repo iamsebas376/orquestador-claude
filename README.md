@@ -20,7 +20,7 @@ Servidor MCP que convierte a Claude en el **cerebro** de un equipo de agentes: c
 - **Aprendizajes por proyecto:** qué modelo funcionó bien o mal, para elegir mejor la próxima vez.
 - **Verificación por proyecto:** detecta y corre tests/lint (Maven, Gradle, npm, pytest, Go) o los comandos que configures. Antigravity no ejecuta comandos, así que los tests los corre Claude con `verificar_proyecto`.
 - **Presupuesto:** límite diario y mensual de gasto en el proveedor, con aviso y freno.
-- **Seguridad:** el servidor de OpenCode exige contraseña; Antigravity solo edita archivos.
+- **Seguridad:** el servidor de OpenCode exige contraseña. En `~/.config/opencode/opencode.jsonc` el bloque `permission.bash` niega borrar archivos (`rm`, `del`, `Remove-Item`…) y los comandos git destructivos (`reset --hard`, `clean`, `push`, `checkout --`…); fuera de la carpeta del proyecto OpenCode ya queda bloqueado. Antigravity, en cambio, corre con `--dangerously-skip-permissions` solo en carpetas personales.
 
 ## Requisitos
 
