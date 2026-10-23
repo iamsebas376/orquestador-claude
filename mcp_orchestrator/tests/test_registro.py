@@ -277,3 +277,11 @@ def test_solo_sesiones_activas_de_la_app(tmp_registro, tmp_path, monkeypatch):
     assert sum(c["costo_equivalente_usd"] for c in data["costos_diarios"] if c["agente"] == "claude") == 10.0
     monkeypatch.setattr(registro, "PANEL_ARCHIVADAS", True)
     assert sorted(s["id"] for s in registro.datos_panel()["sesiones"]) == ["arch", "viva"]
+
+
+def test_pedido_abierto_con_todo_terminado_se_muestra_cerrado(tmp_registro):
+    pid = pedido_id(registro.iniciar_pedido("Olvidado", ["A", "B"]))
+    registro.actualizar_item(pid, 1, "hecho")
+    assert next(p for p in registro.datos_panel()["pedidos"] if p["id"] == pid)["estado"] == "abierto"
+    registro.actualizar_item(pid, 2, "omitido")
+    assert next(p for p in registro.datos_panel()["pedidos"] if p["id"] == pid)["estado"] == "cerrado"

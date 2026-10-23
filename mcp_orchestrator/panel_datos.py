@@ -183,6 +183,14 @@ def consumo_claude(dias: int = R.PANEL_DIAS) -> list[dict]:
     return filas
 
 
+def _estado_pedido(p: dict) -> str:
+    """Un pedido que quedó 'abierto' pero con todos sus ítems terminados (nadie lo cerró) se muestra como cerrado."""
+    final = {"hecho", "omitido", "fallido"}
+    if p["estado"] == "abierto" and p["items"] and all(i["estado"] in final for i in p["items"]):
+        return "cerrado"
+    return p["estado"]
+
+
 def _pedido_de(ts: datetime, ventanas: list[tuple]) -> str:
     """El pedido activo en ese momento (el más reciente si se solapan): ahí se cuenta el trabajo de Claude."""
     activos = [(ini, pid) for ini, fin, pid in ventanas if ini <= ts <= fin]
@@ -279,7 +287,7 @@ def datos_panel() -> dict:
                           "costo_equivalente_usd": round(c["costo_equivalente_usd"], 4),
                           "tokens": c["tokens_entrada"] + c["tokens_salida"], "agentes": desglose(c.get("agentes"))})
         filas.append({
-            "id": p["id"], "titulo": p["titulo"], "ruta": p.get("ruta", ""), "estado": p["estado"],
+            "id": p["id"], "titulo": p["titulo"], "ruta": p.get("ruta", ""), "estado": _estado_pedido(p),
             "creado": p.get("creado", ""), "actualizado": p["actualizado"],
             "costo_usd": round(sum(i["costo_usd"] for i in items), 4),
             "costo_equivalente_usd": round(sum(i["costo_equivalente_usd"] for i in items), 4),
