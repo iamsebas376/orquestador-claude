@@ -301,3 +301,19 @@ def test_actividad_del_pedido_no_cambia_al_cerrarlo(tmp_registro):
     registro.cerrar_pedido(pid, "listo")
     despues = next(p for p in registro.datos_panel()["pedidos"] if p["id"] == pid)
     assert despues["actividad"] == antes  # la fecha de actividad sale del último gasto, no de la última edición
+
+
+def test_sesion_activa_que_solo_usa_claude_tambien_se_muestra(tmp_registro, tmp_path, monkeypatch):
+    proy = tmp_path / "cp" / "D--x"
+    proy.mkdir(parents=True)
+    monkeypatch.setattr(registro, "CLAUDE_PROJECTS_DIR", proy.parent)
+    app = tmp_path / "app" / "org" / "claude-code-sessions" / "a"
+    app.mkdir(parents=True)
+    monkeypatch.setattr(registro, "CLAUDE_APP_DIR", tmp_path / "app")
+    (app / "local_solo.json").write_text(json.dumps({"cliSessionId": "solo", "isArchived": False, "title": "Solo Claude"}), encoding="utf-8")
+    msg = {"timestamp": datetime.now().astimezone().isoformat(), "sessionId": "solo",
+           "message": {"id": "m1", "model": "claude-x", "usage": {"input_tokens": 1000, "output_tokens": 10}}}
+    (proy / "solo.jsonl").write_text(json.dumps(msg), encoding="utf-8")
+    data = registro.datos_panel()
+    assert [s["titulo"] for s in data["sesiones"]] == ["Solo Claude"] and data["sesiones"][0]["pedidos"] == []
+    assert any(c["agente"] == "claude" for c in data["costos_diarios"])

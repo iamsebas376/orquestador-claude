@@ -65,8 +65,8 @@ Lo que quede vacío usa el valor por defecto. Las variables principales:
 
 Publica `config/panel.html` como artefacto en claude.ai con la capacidad `db` (pídeselo a Claude) y pon su URL en `PANEL_URL`. Claude llama `exportar_panel()` al final de cada turno con cambios y al cerrar cada pedido, y sincroniza los datos.
 
-- **Qué muestra:** solo las sesiones de Claude activas (no archivadas ni eliminadas, según la app) donde intervino el orquestador, es decir, que tienen pedidos. Las continuaciones de una sesión se unen en una. Con `PANEL_INCLUIR_ARCHIVADAS=1` también salen las archivadas.
-- **Tarjetas y gráfica:** estado y revisiones, costo de Innti (real), Antigravity y Claude (equivalente por API), total y el porcentaje del gasto que se quedó en Claude. Usan el mismo alcance que la tabla.
+- **Qué muestra:** las sesiones de Claude activas (no archivadas ni eliminadas, según la app), tengan o no pedidos: las que solo usan Claude aparecen con su gasto y sin tareas. Las continuaciones de una sesión se unen en una. Con `PANEL_INCLUIR_ARCHIVADAS=1` también salen las archivadas.
+- **Tarjetas y gráfica:** estado y revisiones, costo de Innti (real), Antigravity y Claude (equivalente por API), total y el porcentaje del gasto que se quedó en Claude. Usan el mismo alcance que la tabla (todas las sesiones activas).
 - **Tabla de sesiones:** gasto por agente y reparto. Al elegir una sesión se ven sus tareas; las de un solo ítem van juntas en «Otras tareas».
 - **Filtros:** por período (hoy, 7 y 30 días, todo o fechas) y por IA. El período usa la fecha de la última actividad real (gasto registrado), no la de la última edición.
 - **Datos:** se leen de los transcripts de Claude Code y de los archivos de la app de Claude (`CLAUDE_APP_DIR`, por defecto `%LOCALAPPDATA%\Claude-Data`).

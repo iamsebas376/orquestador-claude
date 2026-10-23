@@ -230,10 +230,6 @@ def datos_panel() -> dict:
                 fusion.setdefault(mapa[sid], set()).update(pids)
         por_sesion = fusion
         creador = {pid: mapa[s] for pid, s in creador.items() if s in mapa}
-        # Alcance del panel: solo sesiones donde intervino el orquestador (tienen algún pedido de los mostrados).
-        ids = {p["id"] for p in pedidos}
-        orquestadas = {s for s, pids in por_sesion.items() if pids & ids} | {s for pid, s in creador.items() if pid in ids}
-        consumo_cl = [r for r in consumo_cl if r["sesion"] in orquestadas]
     for r in consumo_cl:
         k = (r["ts"].date().isoformat(), r["modelo"])
         a = claude_dia.setdefault(k, {"dia": k[0], "agente": "claude", "modelo": k[1], "tareas": 0,
