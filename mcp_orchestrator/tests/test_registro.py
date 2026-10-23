@@ -267,10 +267,16 @@ def test_solo_sesiones_activas_de_la_app(tmp_registro, tmp_path, monkeypatch):
     for k, v in meta.items():
         (app / f"local_{k}.json").write_text(json.dumps(v), encoding="utf-8")
     ts = datetime.now().astimezone().isoformat()
+    p_viva, p_arch = pedido_id(registro.iniciar_pedido("De la viva", ["A"])), pedido_id(registro.iniciar_pedido("De la archivada", ["A"]))
     for sid in ("viva", "previa", "arch", "eliminada"):  # "eliminada" no tiene metadatos en la app
         msg = {"timestamp": ts, "sessionId": sid, "message": {
             "id": "m-" + sid, "model": "claude-x", "usage": {"input_tokens": 1_000_000, "output_tokens": 0}}}
-        (proy / f"{sid}.jsonl").write_text(json.dumps(msg), encoding="utf-8")
+        lineas = [json.dumps(msg)]
+        if sid in ("viva", "arch"):  # solo cuentan las sesiones donde intervino el orquestador (tienen un pedido)
+            lineas.append(json.dumps({"sessionId": sid, "message": {"content": [{
+                "type": "tool_use", "id": "t-" + sid, "name": "mcp__orchestrator__actualizar_item",
+                "input": {"pedido_id": p_viva if sid == "viva" else p_arch}}]}}))
+        (proy / f"{sid}.jsonl").write_text("\n".join(lineas), encoding="utf-8")
     data = registro.datos_panel()
     assert [s["id"] for s in data["sesiones"]] == ["viva"]
     assert data["sesiones"][0]["titulo"] == "Mi sesión" and data["sesiones"][0]["claude"]["tokens"] == 2_000_000
@@ -285,3 +291,13 @@ def test_pedido_abierto_con_todo_terminado_se_muestra_cerrado(tmp_registro):
     assert next(p for p in registro.datos_panel()["pedidos"] if p["id"] == pid)["estado"] == "abierto"
     registro.actualizar_item(pid, 2, "omitido")
     assert next(p for p in registro.datos_panel()["pedidos"] if p["id"] == pid)["estado"] == "cerrado"
+
+
+def test_actividad_del_pedido_no_cambia_al_cerrarlo(tmp_registro):
+    pid = pedido_id(registro.iniciar_pedido("Viejo", ["A"]))
+    registro.registrar_costo("opencode", "innti-dsp", {"input": 10}, 0.1, pid, 1)
+    antes = next(p for p in registro.datos_panel()["pedidos"] if p["id"] == pid)["actividad"]
+    registro.actualizar_item(pid, 1, "hecho")
+    registro.cerrar_pedido(pid, "listo")
+    despues = next(p for p in registro.datos_panel()["pedidos"] if p["id"] == pid)
+    assert despues["actividad"] == antes  # la fecha de actividad sale del último gasto, no de la última edición

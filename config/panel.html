@@ -193,7 +193,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
   <section class="kpis" aria-label="Indicadores del período">
     <div class="kpi"><span class="v" id="k-pedidos">—</span><span class="l">Tareas</span></div>
     <div class="kpi"><span class="v" id="k-revision">—</span><span class="l">Ítems por revisar</span></div>
-    <div class="kpi"><span class="v" id="k-rondas">—</span><span class="l">Rondas de corrección</span></div>
+    <div class="kpi"><span class="v" id="k-pctcl">—</span><span class="l">Costo que se quedó en Claude</span></div>
     <div class="kpi"><span class="v" id="k-delegaciones">—</span><span class="l">Delegaciones</span></div>
     <div class="kpi"><span class="v innti" id="k-costo">—</span><span class="l">Costo Innti</span></div>
     <div class="kpi"><span class="v agy" id="k-agy">—</span><span class="l">Antigravity</span></div>
@@ -299,7 +299,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
   }
 
   function enRango(p, r) {
-    var act = parse(p.actualizado), cre = parse(p.creado) || act;
+    var act = parse(p.actividad || p.actualizado), cre = parse(p.creado) || act;
     if (r.desde && act && act < r.desde) return false;
     if (r.hasta && cre && cre > r.hasta) return false;
     return true;
@@ -744,7 +744,6 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
 
     document.getElementById("k-pedidos").textContent = state ? pedidos.length : "—";
     document.getElementById("k-revision").textContent = state ? items.filter(function (i) { return i.estado === "revisando"; }).length : "—";
-    document.getElementById("k-rondas").textContent = state ? items.reduce(function (a, i) { return a + (i.rondas || 0); }, 0) : "—";
     var deleg = costos.filter(function (c) { return c.agente !== "claude"; });
     document.getElementById("k-delegaciones").textContent = state ? deleg.reduce(function (a, c) { return a + (c.tareas || 0); }, 0) : "—";
     document.getElementById("k-costo").textContent = state ? usd(costos.reduce(function (a, c) { return a + (c.costo_usd || 0); }, 0)) : "—";
@@ -755,6 +754,9 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     document.getElementById("k-claude").textContent = state ? "≈ " + usd(clEq) : "—";
     var real = costos.reduce(function (a, c) { return a + (c.costo_usd || 0); }, 0);
     document.getElementById("k-total").textContent = state ? usd(real + agyEq + clEq) : "—";
+    // Cuánto del gasto quedó en Claude (orquestar y revisar) frente a lo delegado: menos es mejor.
+    var totAll = real + agyEq + clEq;
+    document.getElementById("k-pctcl").textContent = state && totAll > 0 ? Math.round(100 * clEq / totAll) + " %" : "—";
 
     renderChart(r, costos);
 
@@ -813,10 +815,11 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     if (state) {
       var sync = document.getElementById("sync"), horas = (Date.now() - new Date(state.generado).getTime()) / 3600000;
       sync.classList.remove("off");
-      sync.classList.toggle("stale", horas > 24);
-      document.getElementById("sync-text").textContent = horas > 24
-        ? "Datos de hace " + Math.floor(horas / 24) + (horas < 48 ? " día" : " días") + " · se actualizan al cerrar una tarea"
-        : "Sincronizado " + fecha(state.generado);
+      sync.classList.toggle("stale", horas > 6);
+      var edad = horas < 1 ? "hace " + Math.max(1, Math.round(horas * 60)) + " min" : horas < 24 ? "hace " + Math.floor(horas) + " h"
+        : "hace " + Math.floor(horas / 24) + (horas < 48 ? " día" : " días");
+      document.getElementById("sync-text").textContent = (horas > 6 ? "Datos de " + edad + " · se actualizan cuando Claude cierra un turno con cambios"
+        : "Actualizado " + edad) + (state.recortados ? " · " + state.recortados + " pedidos antiguos omitidos por tamaño" : "");
     }
   }
 

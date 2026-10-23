@@ -230,6 +230,10 @@ def datos_panel() -> dict:
                 fusion.setdefault(mapa[sid], set()).update(pids)
         por_sesion = fusion
         creador = {pid: mapa[s] for pid, s in creador.items() if s in mapa}
+        # Alcance del panel: solo sesiones donde intervino el orquestador (tienen algún pedido de los mostrados).
+        ids = {p["id"] for p in pedidos}
+        orquestadas = {s for s, pids in por_sesion.items() if pids & ids} | {s for pid, s in creador.items() if pid in ids}
+        consumo_cl = [r for r in consumo_cl if r["sesion"] in orquestadas]
     for r in consumo_cl:
         k = (r["ts"].date().isoformat(), r["modelo"])
         a = claude_dia.setdefault(k, {"dia": k[0], "agente": "claude", "modelo": k[1], "tareas": 0,
@@ -286,8 +290,12 @@ def datos_panel() -> dict:
                           "costo_usd": round(c["costo_usd"] or i.get("costo_usd", 0), 4),
                           "costo_equivalente_usd": round(c["costo_equivalente_usd"], 4),
                           "tokens": c["tokens_entrada"] + c["tokens_salida"], "agentes": desglose(c.get("agentes"))})
+        # Fecha de la última actividad real (gasto registrado), no de la última edición del pedido: cerrar o
+        # corregir un pedido viejo no lo debe hacer aparecer en "Hoy".
+        actividad = max([p.get("creado") or p["actualizado"]]
+                        + [consumo.get((p["id"], n), vacio).get("ts", "") for n in range(1, len(p["items"]) + 1)])
         filas.append({
-            "id": p["id"], "titulo": p["titulo"], "ruta": p.get("ruta", ""), "estado": _estado_pedido(p),
+            "id": p["id"], "actividad": actividad, "titulo": p["titulo"], "ruta": p.get("ruta", ""), "estado": _estado_pedido(p),
             "creado": p.get("creado", ""), "actualizado": p["actualizado"],
             "costo_usd": round(sum(i["costo_usd"] for i in items), 4),
             "costo_equivalente_usd": round(sum(i["costo_equivalente_usd"] for i in items), 4),
@@ -318,8 +326,8 @@ def datos_panel() -> dict:
         a = ses_agg.get(sid)
         pedidos_s = [f for f in filas if f.get("sesion") == sid]
         ini = a["inicio"].isoformat(timespec="seconds") if a else min((f["creado"] for f in pedidos_s), default="")
-        fin = a["fin"].isoformat(timespec="seconds") if a else max((f["actualizado"] for f in pedidos_s), default="")
-        fin = max([fin] + [f["actualizado"] for f in pedidos_s])
+        fin = a["fin"].isoformat(timespec="seconds") if a else max((f["actividad"] for f in pedidos_s), default="")
+        fin = max([fin] + [f["actividad"] for f in pedidos_s])
         if fin < desde:
             continue
         lista_ses.append({
@@ -342,4 +350,5 @@ def datos_panel() -> dict:
     # Un documento del panel admite 256 KiB: si se pasa, recorta los pedidos más antiguos.
     while len(json.dumps(data, ensure_ascii=False).encode("utf-8")) > 240_000 and data["pedidos"]:
         data["pedidos"].pop()
+        data["recortados"] = data.get("recortados", 0) + 1  # el panel avisa que faltan pedidos antiguos
     return data

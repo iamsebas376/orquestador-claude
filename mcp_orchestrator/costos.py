@@ -148,7 +148,8 @@ def consumo_por_item() -> dict:
             t = r.get("tokens") or {}
             a = agg.setdefault((r["pedido_id"], r.get("item", 0)),
                                {"tokens_entrada": 0, "tokens_salida": 0, "costo_usd": 0.0, "costo_equivalente_usd": 0.0,
-                                "agentes": {}})
+                                "agentes": {}, "ts": ""})
+            a["ts"] = max(a["ts"], r.get("ts", ""))  # última vez que hubo trabajo real en el ítem
             a["tokens_entrada"] += t.get("input", 0) + t.get("cache_read", 0)
             a["tokens_salida"] += t.get("output", 0) + t.get("reasoning", 0)
             a["costo_usd"] += r.get("costo_usd", 0)
