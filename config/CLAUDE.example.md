@@ -27,15 +27,16 @@ Haces únicamente: repartir el pedido en ítems, delegar cada ítem, revisar lo 
    **Cerrar:** `cerrar_pedido(pedido_id, resumen)`, luego `exportar_panel()` y ejecuta tal cual la llamada `ArtifactData` que devuelve. Gasto: `resumen_costos(dias)`.
 6. Responde con el checklist final en pocas líneas, sin pegar código generado.
 
-## Delegación directa y en paralelo
-- Sin terminales ni ventanas: `ejecutar_trabajo_opencode_innti(prompt_tarea, modelo_innti, ruta, sesion_opencode, pedido_id, item)` y `ejecutar_personal_antigravity(instruccion, ..., pedido_id, item)` corren el agente en segundo plano, esperan a que termine y devuelven la síntesis.
-- **Ver el trabajo en vivo:** con `VER_EN_VIVO=cli` (por defecto) cada tarea abre sola una ventana con el CLI del agente; tú no abres terminales. Con `VER_EN_VIVO=log` la tarea corre directo y el seguimiento es una pestaña "En vivo" (`powershell -NoProfile -File <repo>\mcp_orchestrator\ver-en-vivo.ps1`): ábrela una sola vez por sesión con `run_in_terminal` y `show_pane`.
-- Ítems independientes (sin archivos en común) → varias llamadas en el mismo mensaje, se ejecutan en paralelo. Nunca dos subagentes sobre los mismos archivos.
-- Antigravity (`agy -p`) edita archivos pero no ejecuta comandos (se deniegan): tests y builds los corres tú con `verificar_proyecto`.
+## Pestañas de terminal integradas (se ve el trabajo en vivo)
+- Trabajo: `preparar_vista_opencode(ruta)` → `run_in_terminal` con el comando devuelto, sin cambiarlo (título "OpenCode") → `show_pane(pane="terminal", tab_id=<tab_id>)` → `ejecutar_trabajo_opencode_innti(prompt_tarea, modelo_innti, ruta_proyecto_o_archivo=<ruta_para_ejecutar>, sesion_opencode=<session_id>, pedido_id, item)`. Cierra la pestaña con `stop_terminal_tab` al terminar el ítem.
+- Personal: `preparar_tarea_antigravity(..., pedido_id, item)` → `run_in_terminal` con el comando (título "Antigravity", sin cwd) → `show_pane` → `esperar_resultado_antigravity(task_id)`. El CLI corre con `--dangerously-skip-permissions` en carpetas personales, así que no pide permisos. Deja la pestaña abierta al terminar.
+- Muestra cada pestaña con `show_pane` apenas la abras (si son varias, la última), antes de lanzar la delegación.
+- Ítems independientes (sin archivos en común) → una pestaña por subagente y las llamadas en el mismo mensaje, en paralelo. Nunca dos subagentes sobre los mismos archivos.
+- **Límite de modelo (Antigravity):** si `esperar_resultado_antigravity` devuelve "Límite:", cierra esa pestaña (`stop_terminal_tab`) y relanza el mismo ítem con `modelo_antigravity=<siguiente_modelo>`, `conversacion=<conversacion_antigravity>` y `modelos_descartados=<modelos_descartados>` (no cuenta como ronda de corrección); avisa del cambio en una línea. Con "siguiente_modelo: ninguno" o "Sin conexión:", para y consúltame.
+- Sin `run_in_terminal` (Chat): `ejecutar_trabajo_opencode_innti` sin `sesion_opencode` corre sin pestaña; para personal usa Code.
 
-## Presupuesto y límites
+## Presupuesto
 - "Freno de presupuesto" → no insistas: muestra el gasto y pregunta si autoriza (`forzar_presupuesto=True`). Aviso ⚠ → menciónalo en una línea.
-- **Límite de modelo (Antigravity):** el servidor relanza solo con el siguiente de `ANTIGRAVITY_CADENA` y te avisa. Con "Límite:" y "siguiente_modelo: ninguno", o "Sin conexión:", para y consulta.
 
 ## Otros
 - Si el servidor `orchestrator` no está disponible, avísalo y pregunta antes de hacer el trabajo directamente.

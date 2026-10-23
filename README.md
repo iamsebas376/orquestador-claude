@@ -10,12 +10,12 @@ Servidor MCP que convierte a Claude en el **cerebro** de un equipo de agentes: c
 ## Qué hace
 
 - **Enrutamiento por carpeta:** cada herramienta rechaza rutas del otro contexto.
-- **Ver el trabajo en vivo (`VER_EN_VIVO`):** con `cli` (por defecto) cada tarea abre una ventana con el CLI del agente: la TUI de OpenCode pegada a su sesión y el CLI de Antigravity (`agy -i`), así ves todo y sabes que está trabajando. Con `log` la tarea corre directo (`opencode run` / `agy -p`) y el seguimiento es una sola pestaña con `mcp_orchestratorer-en-vivo.ps1`, con una etiqueta por agente, ítem y modelo y un aviso cada 20 s.
-- **Sin avisos de permisos en Antigravity:** en la ventana de Antigravity (solo carpetas personales) se aprueba todo sin preguntar (`ANTIGRAVITY_SIN_PERMISOS=1`); ponlo en `0` si prefieres que pregunte. A Claude solo vuelve una síntesis y varias delegaciones en el mismo mensaje corren en paralelo.
+- **Pestañas integradas de Claude Code:** cada tarea se ve en vivo en una pestaña de terminal de Claude: la TUI de OpenCode pegada a su sesión y el CLI de Antigravity. Claude las abre con `run_in_terminal` y los comandos que le devuelven `preparar_vista_opencode` y `preparar_tarea_antigravity`; varias en paralelo, una pestaña cada una.
+- **Sin avisos de permisos en Antigravity:** el CLI corre con `--dangerously-skip-permissions` (solo en carpetas personales y de universidad); pon `ANTIGRAVITY_SIN_PERMISOS=0` si prefieres que pregunte. A Claude solo vuelve una síntesis.
 - **Checklist por pedido** (`datos/tareas/`), con estados, rondas de corrección (límite configurable) y notas de revisión.
 - **Correcciones con memoria:** OpenCode reutiliza la sesión y Antigravity la conversación.
 - **Respaldo de modelos:** si un modelo de Antigravity llega a su límite, se reintenta solo con el siguiente de `ANTIGRAVITY_CADENA`.
-- **Corte por inactividad:** una tarea sin ninguna línea de salida durante 10 minutos se corta (`OPENCODE_IDLE_SECONDS`, `ANTIGRAVITY_IDLE_SECONDS`).
+- **Corte por inactividad:** una tarea de OpenCode sin ninguna línea de salida durante 10 minutos se corta (`OPENCODE_IDLE_SECONDS`); la de Antigravity se corta por tiempo total.
 - **Costos:** tokens reales de OpenCode × tu tabla de precios (`precios.json`); Antigravity y Claude se registran como equivalente por API.
 - **Aprendizajes por proyecto:** qué modelo funcionó bien o mal, para elegir mejor la próxima vez.
 - **Verificación por proyecto:** detecta y corre tests/lint (Maven, Gradle, npm, pytest, Go) o los comandos que configures. Antigravity no ejecuta comandos, así que los tests los corre Claude con `verificar_proyecto`.
@@ -55,8 +55,8 @@ Lo que quede vacío usa el valor por defecto. Las variables principales:
 | `TRABAJO_DIR`, `PERSONAL_DIR`, `UNIVERSIDAD_DIR`, `OTRAS_CARPETAS_PERSONALES` | Enrutamiento por carpeta |
 | `OPENCODE_CLI_PATH`, `INNTI_PROVIDER`, `INNTI_DEFAULT_MODEL` | OpenCode y modelo por defecto |
 | `ANTIGRAVITY_AGY_MODEL`, `ANTIGRAVITY_CADENA` | Modelo por defecto de Antigravity y orden de respaldo |
-| `VER_EN_VIVO`, `ANTIGRAVITY_SIN_PERMISOS` | `cli` o `log`; aprobar todo en la ventana de Antigravity |
-| `OPENCODE_IDLE_SECONDS`, `ANTIGRAVITY_IDLE_SECONDS`, `*_TIMEOUT_SECONDS` | Cortes por inactividad y por tiempo total |
+| `ANTIGRAVITY_SIN_PERMISOS` | Aprobar todo en el CLI de Antigravity (1) o que pregunte (0) |
+| `OPENCODE_IDLE_SECONDS`, `*_TIMEOUT_SECONDS` | Cortes por inactividad y por tiempo total |
 | `PRESUPUESTO_DIA_USD`, `PRESUPUESTO_MES_USD`, `PRESUPUESTO_AVISO_PCT` | Presupuesto de Innti |
 | `MAX_RONDAS_CORRECCION` | Rondas de corrección por ítem antes de consultarte |
 | `PANEL_URL`, `PANEL_DIAS`, `PANEL_INCLUIR_ARCHIVADAS` | Panel de control |
@@ -105,8 +105,8 @@ En `~/.claude/settings.json`:
 
 | Herramienta | Para qué |
 |---|---|
-| `ejecutar_trabajo_opencode_innti` | Tarea de trabajo en OpenCode con un modelo Innti |
-| `ejecutar_personal_antigravity` | Tarea personal en Antigravity (`agy -p`; edita archivos, sin comandos) |
+| `preparar_vista_opencode` → `ejecutar_trabajo_opencode_innti` | Tarea de trabajo en OpenCode con un modelo Innti (la pestaña muestra su TUI) |
+| `preparar_tarea_antigravity` → `esperar_resultado_antigravity` | Tarea personal en el CLI de Antigravity, en una pestaña |
 | `iniciar_pedido`, `actualizar_item`, `agregar_items`, `cerrar_pedido`, `ver_pedido`, `listar_pedidos` | Checklist |
 | `verificar_proyecto`, `configurar_verificacion` | Tests/lint en cada revisión |
 | `resumen_costos`, `registrar_aprendizaje`, `consultar_aprendizajes`, `exportar_panel` | Control |

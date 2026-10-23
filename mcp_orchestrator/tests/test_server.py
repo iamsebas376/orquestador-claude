@@ -30,7 +30,7 @@ def test_trabajo_rechaza_ruta_personal(tmp_dirs):
 
 
 def test_personal_rechaza_ruta_de_trabajo(tmp_dirs):
-    out = run(server.ejecutar_personal_antigravity("x", "", str(tmp_dirs["workspaces"] / "p")))
+    out = run(server.preparar_tarea_antigravity("x", "", str(tmp_dirs["workspaces"] / "p")))
     assert out.startswith("Rechazado")
 
 
@@ -78,7 +78,8 @@ def test_exportar_panel_crea_y_borra_el_anterior(tmp_registro, monkeypatch):
 
 def test_todas_las_herramientas_registradas():
     nombres = {t.name for t in run(server.mcp.list_tools())}
-    esperadas = {"ejecutar_trabajo_opencode_innti", "ejecutar_personal_antigravity",
+    esperadas = {"preparar_vista_opencode", "ejecutar_trabajo_opencode_innti", "preparar_tarea_antigravity",
+                 "esperar_resultado_antigravity",
                  "iniciar_pedido", "actualizar_item", "agregar_items", "cerrar_pedido", "ver_pedido",
                  "listar_pedidos", "resumen_costos", "registrar_aprendizaje", "consultar_aprendizajes",
                  "exportar_panel", "verificar_proyecto", "configurar_verificacion"}
@@ -128,49 +129,77 @@ def test_detecta_limite_y_red_en_el_transcript(tmp_path, monkeypatch):
     assert server._agy_fallo(conv, inicio) == ("", "")  # agy reintentó y siguió
 
 
-def _agy_falso(monkeypatch, respuestas, vistos=None):
-    """Sustituye server._run: devuelve (código, salida) por llamada y anota los comandos."""
-    respuestas = list(respuestas)
+def _preparar(tmp_dirs, monkeypatch, modelo="gemini-3.8-flash-low", **kw):
     monkeypatch.setattr(server, "_agy_cmd", lambda: "agy")
     monkeypatch.setattr(server, "_agy_conversacion", lambda folder: "")
     monkeypatch.setattr(server, "_agy_fallo", lambda conv, desde: ("", ""))
-
-    async def falso(cmd, cwd, timeout, idle=0, **_):
-        if vistos is not None:
-            vistos.append(cmd)
-        return respuestas.pop(0)
-
-    monkeypatch.setattr(server, "_run", falso)
+    dormir = asyncio.sleep
+    monkeypatch.setattr(server.asyncio, "sleep", lambda s: dormir(0))
+    out = run(server.preparar_tarea_antigravity("Crea una nota con ñ y acentos", "", "p", modelo, **kw))
+    task_id = out.split("\n")[0].split(": ")[1]
+    return out, server._AGY_TASKS[task_id]
 
 
-def test_personal_corre_directo_sin_terminal(tmp_dirs, monkeypatch):
-    vistos = []
-    _agy_falso(monkeypatch, [(0, "## RESUMEN\n- Creó notas.md")], vistos)
-    out = run(server.ejecutar_personal_antigravity("Crea notas con acentuación", "", "proyecto", "gemini-3.8-flash-low"))
-    assert out.startswith("Éxito") and "Creó notas.md" in out
-    cmd = vistos[0]
-    assert cmd[0] == "agy" and "-p" in cmd and "-i" not in cmd
-    assert cmd[cmd.index("--model") + 1] == "gemini-3.8-flash-low"
-    assert "accept-edits" in cmd and "Crea notas con acentuación" in cmd[cmd.index("-p") + 1]
+def test_preparar_antigravity_da_un_comando_corto_ascii_y_el_prompt_va_en_un_archivo(tmp_dirs, monkeypatch):
+    monkeypatch.setattr(server, "ANTIGRAVITY_SIN_PERMISOS", True)
+    out, task = _preparar(tmp_dirs, monkeypatch)
+    cmd = out.split("\n")[-1]
+    assert cmd.startswith(f"Set-Location '{tmp_dirs['personal'] / 'p'}'; & 'agy' -i \"Lee el archivo ")
+    assert cmd.isascii() and len(cmd.encode()) < 2000
+    assert "--model gemini-3.8-flash-low --mode accept-edits --dangerously-skip-permissions" in cmd
+    texto = task["prompt_file"].read_text(encoding="utf-8")
+    assert "ñ" in texto and str(task["resultado"]) in texto and "## RESUMEN" in texto
 
 
-def test_limite_relanza_con_el_siguiente_modelo(tmp_dirs, tmp_registro, monkeypatch):
+def test_preparar_antigravity_sin_saltar_permisos_si_se_desactiva(tmp_dirs, monkeypatch):
+    monkeypatch.setattr(server, "ANTIGRAVITY_SIN_PERMISOS", False)
+    out, _ = _preparar(tmp_dirs, monkeypatch)
+    assert "--dangerously-skip-permissions" not in out
+
+
+def test_esperar_resultado_devuelve_la_sintesis_y_vincula_el_item(tmp_dirs, tmp_registro, monkeypatch):
     from conftest import pedido_id
-    vistos = []
-    monkeypatch.setattr(server, "ANTIGRAVITY_CADENA", ["a-high", "a-medium"])
-    _agy_falso(monkeypatch, [(1, "Individual quota reached. Resets in 26h"), (0, "## RESUMEN\n- ok")], vistos)
+    pid = pedido_id(registro.iniciar_pedido("Con Antigravity", ["A"]))
+    _, task = _preparar(tmp_dirs, monkeypatch, pedido_id=pid, item=1)
+    task["resultado"].write_text("## RESUMEN\n- Creó la nota con acentos.", encoding="utf-8")
+    res = run(server.esperar_resultado_antigravity(task["id"]))
+    assert res.startswith("Éxito") and "Creó la nota" in res and "pestaña de Antigravity sigue abierta" in res
+    assert "🔍" in registro.ver_pedido(pid)  # el ítem quedó en revisión
+    assert task["id"] not in server._AGY_TASKS
+
+
+def test_esperar_corta_al_llegar_al_limite_y_propone_el_siguiente_modelo(tmp_dirs, tmp_registro, monkeypatch):
+    from conftest import pedido_id
     pid = pedido_id(registro.iniciar_pedido("Límite", ["A"]))
-    out = run(server.ejecutar_personal_antigravity("tarea", "", "p", "a-high", pedido_id=pid, item=1))
-    assert out.startswith("Éxito") and "a-high llegó a su límite; se relanzó con a-medium" in out
-    assert [c[c.index("--model") + 1] for c in vistos] == ["a-high", "a-medium"]
-    assert "hecho" not in registro.ver_pedido(pid).lower() or "revisando" in registro.ver_pedido(pid)
+    monkeypatch.setattr(server, "ANTIGRAVITY_CADENA", ["a-high", "a-medium"])
+    _, task = _preparar(tmp_dirs, monkeypatch, modelo="a-high", pedido_id=pid, item=1)
+    monkeypatch.setattr(server, "_agy_fallo", lambda conv, desde: ("limite", "429 RESOURCE_EXHAUSTED"))
+    res = run(server.esperar_resultado_antigravity(task["id"]))
+    assert res.startswith("Límite") and "siguiente_modelo: a-medium" in res and "modelos_descartados: a-high" in res
+    assert "preparar_tarea_antigravity" in res and "Límite de a-high" in registro.ver_pedido(pid)
 
 
-def test_limite_sin_modelos_de_respaldo_se_informa(tmp_dirs, monkeypatch):
-    monkeypatch.setattr(server, "ANTIGRAVITY_CADENA", ["a-only"])
-    _agy_falso(monkeypatch, [(1, "429 RESOURCE_EXHAUSTED quota")])
-    out = run(server.ejecutar_personal_antigravity("tarea", "", "p", "a-only"))
-    assert out.startswith("Límite") and "siguiente_modelo: ninguno" in out
+def test_esperar_sin_resultado_a_tiempo_deja_la_tarea_pendiente(tmp_dirs, monkeypatch):
+    monkeypatch.setattr(server, "ANTIGRAVITY_TIMEOUT", 0)
+    _, task = _preparar(tmp_dirs, monkeypatch)
+    res = run(server.esperar_resultado_antigravity(task["id"]))
+    assert res.startswith("Sin resultado") and task["id"] in server._AGY_TASKS
+
+
+def test_preparar_vista_opencode_no_expone_la_contrasena(tmp_dirs, monkeypatch):
+    async def ok(_cli):
+        return True
+
+    async def sesion(_cwd, _t):
+        return "ses_prueba"
+
+    monkeypatch.setattr(server, "_opencode_cmd", lambda: "opencode")
+    monkeypatch.setattr(server, "_ensure_opencode_server", ok)
+    monkeypatch.setattr(server, "_create_session", sesion)
+    monkeypatch.setenv("OPENCODE_SERVER_PASSWORD", "secreto-123")
+    out = run(server.preparar_vista_opencode("proyecto"))
+    assert "session_id: ses_prueba" in out and "oc_attach.py" in out and "--session ses_prueba" in out
+    assert "secreto-123" not in out
 
 
 def test_confia_solo_en_carpetas_personales(tmp_dirs, tmp_path, monkeypatch):

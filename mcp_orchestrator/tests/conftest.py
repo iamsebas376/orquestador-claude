@@ -13,7 +13,6 @@ import server  # noqa: E402
 def sin_efectos_externos(tmp_path, monkeypatch):
     """Ningún test escribe en el log real ni abre ventanas."""
     monkeypatch.setattr(server, "LIVE_LOG", tmp_path / "en-vivo.log")
-    monkeypatch.setattr(server, "VER_EN_VIVO", "log")  # los tests no abren ventanas
     # Ni el registro de pedidos/costos ni la config de agy reales (antes un test creó pedidos de verdad).
     monkeypatch.setattr(registro, "TAREAS_DIR", tmp_path / "tareas-aisladas")
     monkeypatch.setattr(registro, "LOGS_DIR", tmp_path / "logs-aislados")

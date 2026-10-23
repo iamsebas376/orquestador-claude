@@ -142,7 +142,7 @@ footer { color: var(--muted); font-size: .88rem; border-top: 1px solid var(--lin
     <div class="lane personal">
       <span class="tag">Personal</span>
       <span class="path">D:\personal · D:\universidad · el resto</span>
-      <span class="arrow">→ ejecutar_personal_antigravity</span>
+      <span class="arrow">→ preparar_tarea_antigravity</span>
       <ul>
         <li>Proyectos propios, automatizaciones caseras, estudio</li>
         <li>A Claude solo vuelve la síntesis; los comandos de terminal se deniegan (los tests los corre Claude)</li>
@@ -157,7 +157,7 @@ footer { color: var(--muted); font-size: .88rem; border-top: 1px solid var(--lin
   <h2 id="h-flujo">Cómo trabaja el cerebro</h2>
   <ol class="steps">
     <li><strong>Checklist:</strong> por cada pedido, Claude crea un checklist con un ítem por entregable y por verificación (<code>iniciar_pedido</code>). Queda en <code>datos\tareas</code> y, en Code, también en la lista de tareas bajo sus mensajes.</li>
-    <li><strong>Delegar:</strong> cada ítem va al subagente que corresponde, vinculado al checklist. Los ítems independientes corren en paralelo, en segundo plano.</li>
+    <li><strong>Delegar:</strong> cada ítem va al subagente que corresponde, vinculado al checklist. Los ítems independientes corren en paralelo, cada uno en su pestaña de terminal de Claude.</li>
     <li><strong>Revisar:</strong> Claude revisa el diff, corre los tests y prueba casos borde. Si algo falla, devuelve solo la corrección concreta (OpenCode con la misma sesión, Antigravity con la misma conversación). Máximo 2 rondas por ítem; después te consulta.</li>
     <li><strong>Aprender:</strong> registra qué modelo funcionó bien o mal en cada proyecto y lo consulta antes de elegir la próxima vez.</li>
     <li><strong>Cerrar:</strong> cierra el pedido con un resumen y sincroniza el <a href="https://claude.ai/artifact/Req7satjgULss34xqDHckb">Panel del Orquestador</a>, que muestra sesiones, tareas y costos. También lo sincroniza al final de cada turno con cambios.</li>
@@ -167,28 +167,24 @@ footer { color: var(--muted); font-size: .88rem; border-top: 1px solid var(--lin
 
 <section aria-labelledby="h-live">
   <h2 id="h-live">Cómo se ejecuta</h2>
-  <p>El orquestador lanza el agente, espera a que termine y entrega a Claude solo el resumen final. Cómo lo ves depende de <code>VER_EN_VIVO</code> en el <code>.env</code>:</p>
+  <p>En la pestaña Code, cada agente corre en una pestaña de terminal integrada de Claude y ves su trabajo en vivo. Claude abre las pestañas con <code>run_in_terminal</code> y los comandos que le devuelve el servidor, espera a que el agente termine y recibe solo el resumen final.</p>
   <div class="grid2">
-    <div class="card"><h3><code>cli</code> (por defecto)</h3><p>Cada tarea abre una ventana con el CLI del agente: la TUI de OpenCode pegada a su sesión y el CLI de Antigravity (<code>agy -i</code>). Ves lo que lee, edita y ejecuta, y sabes que está trabajando.</p></div>
-    <div class="card"><h3><code>log</code></h3><p>La tarea corre directo (<code>opencode run</code> / <code>agy -p</code>) y una sola pestaña, <code>mcp_orchestratorer-en-vivo.ps1</code>, muestra los pasos de cada agente con una etiqueta (por ejemplo <code>[OpenCode #3 innti-dsf-last]</code>) y un aviso «sigue trabajando» cada 20 s.</p></div>
+    <div class="card"><h3>Trabajo: OpenCode</h3><p><code>preparar_vista_opencode</code> crea una sesión en el servidor de OpenCode (<code>127.0.0.1:4096</code>, se inicia solo) y devuelve el comando de su TUI (<code>oc_attach.py</code>, que usa la contraseña sin mostrarla). La pestaña muestra la sesión mientras <code>ejecutar_trabajo_opencode_innti</code> trabaja en ella; esa sesión se reutiliza en las rondas de corrección. Si pasa 10 minutos sin ninguna línea de salida, la tarea se corta.</p></div>
+    <div class="card"><h3>Personal: Antigravity</h3><p><code>preparar_tarea_antigravity</code> guarda el prompt completo en un archivo y devuelve un comando corto con el CLI (<code>agy -i</code>); al terminar, el agente deja su resumen en otro archivo y <code>esperar_resultado_antigravity</code> lo recoge. Si un modelo llega a su límite, el servidor propone el siguiente de <code>ANTIGRAVITY_CADENA</code> para relanzar la tarea.</p></div>
   </div>
-  <div class="note"><p><strong>Permisos de Antigravity:</strong> en la ventana se ejecuta con <code>--dangerously-skip-permissions</code> (solo en carpetas personales y de universidad), así que no pregunta por cada comando; pon <code>ANTIGRAVITY_SIN_PERMISOS=0</code> si prefieres que pregunte. Sus reglas de permisos solo valen para el comando exacto, por eso no hay una lista que cubra «todo lo parecido».</p></div>
-  <div class="grid2">
-    <div class="card"><h3>Trabajo: OpenCode</h3><p>El orquestador mantiene un servidor de OpenCode en <code>127.0.0.1:4096</code> (se inicia solo) y ejecuta <code>opencode run</code> pegado a una sesión, que se reutiliza en las rondas de corrección. Si pasa 10 minutos sin ninguna línea de salida, la tarea se corta.</p></div>
-    <div class="card"><h3>Personal: Antigravity</h3><p>En modo <code>cli</code> corre en su ventana (<code>agy -i</code>) y deja su resumen en un archivo al terminar; en modo <code>log</code> corre con <code>agy -p</code>, que edita archivos pero deniega los comandos, así que los tests los corre Claude con <code>verificar_proyecto</code>. Si un modelo llega a su límite, se reintenta solo con el siguiente de <code>ANTIGRAVITY_CADENA</code>.</p></div>
-  </div>
+  <div class="note"><p><strong>Permisos de Antigravity:</strong> el CLI corre con <code>--dangerously-skip-permissions</code> (solo en carpetas personales y de universidad), así que no pregunta por cada comando; pon <code>ANTIGRAVITY_SIN_PERMISOS=0</code> si prefieres que pregunte. Sus reglas de permisos solo valen para el comando exacto, por eso no hay una lista que cubra «todo lo parecido».</p></div>
   <p>Si cambias <code>opencode.jsonc</code>, cierra el proceso <code>opencode serve</code> para que recargue la configuración.</p>
 </section>
 
 <section aria-labelledby="h-status">
   <h2 id="h-status">Herramientas</h2>
-  <p>El servidor expone 14 herramientas.</p>
+  <p>El servidor expone 16 herramientas.</p>
   <div class="table-scroll">
     <table>
       <thead><tr><th>Herramienta</th><th>Qué hace</th></tr></thead>
       <tbody>
-        <tr><td><code>ejecutar_trabajo_opencode_innti</code></td><td>Delega a OpenCode (<code>opencode run --model litellm-proxy/&lt;modelo&gt;</code>) en una carpeta de <code>D:\workspaces</code>; devuelve archivos tocados, tokens y costo</td></tr>
-        <tr><td><code>ejecutar_personal_antigravity</code></td><td>Delega a Antigravity (<code>agy -p</code>, plan Pro) fuera de <code>D:\workspaces</code>; edita archivos y devuelve una síntesis</td></tr>
+        <tr><td><code>preparar_vista_opencode</code> · <code>ejecutar_trabajo_opencode_innti</code></td><td>Crea la sesión de OpenCode y el comando de su TUI para la pestaña; luego delega en una carpeta de <code>D:\workspaces</code> (<code>opencode run --model litellm-proxy/&lt;modelo&gt;</code>) y devuelve archivos tocados, tokens y costo</td></tr>
+        <tr><td><code>preparar_tarea_antigravity</code> · <code>esperar_resultado_antigravity</code></td><td>Prepara el CLI de Antigravity (plan Pro) fuera de <code>D:\workspaces</code> para una pestaña y espera su resumen, con archivos tocados y tokens</td></tr>
         <tr><td><code>iniciar_pedido</code> · <code>agregar_items</code> · <code>actualizar_item</code> · <code>cerrar_pedido</code></td><td>Checklist de cada pedido, con estados y rondas de corrección</td></tr>
         <tr><td><code>ver_pedido</code> · <code>listar_pedidos</code></td><td>Retomar o consultar pedidos</td></tr>
         <tr><td><code>verificar_proyecto</code> · <code>configurar_verificacion</code></td><td>Tests y lint del proyecto (detectados o guardados)</td></tr>
@@ -258,7 +254,7 @@ footer { color: var(--muted); font-size: .88rem; border-top: 1px solid var(--lin
 
 <section aria-labelledby="h-gemini">
   <h2 id="h-gemini">Lado personal: Antigravity Pro</h2>
-  <p>La herramienta usa <code>agy</code>, el CLI oficial de Antigravity que la propia app instala en <code>~/.gemini/bin</code>. Usa tu cuenta y tu plan Pro, no la cuota gratuita de la API. La tarea corre sin ventana (<code>agy -p</code>): el agente crea y edita archivos solo y los comandos se deniegan. Al terminar devuelve un resumen que el orquestador entrega a Claude.</p>
+  <p>La herramienta usa <code>agy</code>, el CLI oficial de Antigravity que la propia app instala en <code>~/.gemini/bin</code>. Usa tu cuenta y tu plan Pro, no la cuota gratuita de la API. La tarea corre en una pestaña de Claude con el CLI (<code>agy -i</code>): el agente crea y edita archivos y ejecuta comandos sin pedir permiso. Al terminar deja un resumen que el orquestador entrega a Claude.</p>
   <p>El plan Pro no cobra por token: en el panel y en los costos se muestra el <strong>equivalente por API</strong> (precios del nivel pagado de Google, en US$ por millón de tokens de entrada / salida).</p>
   <div class="table-scroll">
     <table>
@@ -337,7 +333,7 @@ D:\universidad\          estudio                     → Antigravity</pre></div>
 
 1. Enrutamiento (la ruta manda):
    - TRABAJO (TRABAJO_DIR) → `ejecutar_trabajo_opencode_innti`. modelo_innti vacío = modelo por defecto; uno de documentación para README/commits; uno con visión si hay capturas. Evita los más caros salvo que lo pida. Sin secretos en el prompt.
-   - TODO LO DEMÁS (PERSONAL_DIR, UNIVERSIDAD_DIR, OTRAS_CARPETAS_PERSONALES y cualquier carpeta fuera de trabajo) → `ejecutar_personal_antigravity` (CLI oficial). Nunca editas archivos tú, en ninguna carpeta. modelo_antigravity: gemini-3.8-flash-low simple; vacío (flash-medium) normal; gemini-4-argon-medium varios archivos o depuración difícil; gemini-4-argon-high solo si es muy exigente o lo pido.
+   - TODO LO DEMÁS (PERSONAL_DIR, UNIVERSIDAD_DIR, OTRAS_CARPETAS_PERSONALES y cualquier carpeta fuera de trabajo) → `preparar_tarea_antigravity` + `esperar_resultado_antigravity` (CLI oficial). Nunca editas archivos tú, en ninguna carpeta. modelo_antigravity: gemini-3.8-flash-low simple; vacío (flash-medium) normal; gemini-4-argon-medium varios archivos o depuración difícil; gemini-4-argon-high solo si es muy exigente o lo pido.
    - Sin ruta y ambiguo: "¿Trabajo, personal o universidad?". Antes de elegir modelo: `consultar_aprendizajes(ruta)`.
    - En trabajo y en personal el subagente hace casi todo: también explorar y resumir el proyecto, cambios desde ~5 líneas, primera revisión de diffs grandes y borradores de planes; tú decides y verificas (así gastas pocos tokens).
    - Si una skill aplica al encargo, los subagentes no la ven: resume sus pautas en el prompt y revisa contra ellas.

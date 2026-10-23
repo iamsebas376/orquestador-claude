@@ -5,8 +5,6 @@
 
 from __future__ import annotations
 
-import shutil
-import subprocess
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent  # carpeta del repositorio
@@ -35,14 +33,24 @@ def default_agy() -> str:
     return str(Path.home() / ".gemini" / "bin" / exe("agy"))
 
 
-def open_terminal(title: str, argv: list[str], cwd: Path, env: dict | None = None) -> str:
-    """Abre una ventana de terminal (Windows Terminal o consola de Windows) que ejecuta `argv` en `cwd`.
-    Devuelve "" o un mensaje de error."""
-    try:
-        if wt := shutil.which("wt.exe"):
-            subprocess.Popen([wt, "-w", "new", "--title", title, "-d", str(cwd), *argv], env=env)
-        else:
-            subprocess.Popen(argv, cwd=str(cwd), env=env, creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0))
-        return ""
-    except OSError as e:
-        return str(e)
+# ----------------------------------------------------------------------------- comandos para las pestañas de Claude
+
+def _ps(s: str) -> str:
+    return "'" + s.replace("'", "''") + "'"
+
+
+def quote_path(p: str | Path) -> str:
+    return _ps(str(p))
+
+
+def quote_prompt(text: str) -> str:
+    """Texto ASCII entre comillas dobles para PowerShell (el panel de terminal de Claude solo admite ASCII)."""
+    return f'"{text}"'
+
+
+def run_line(program: str | Path, *args: str, cwd: str | Path | None = None) -> str:
+    """Una línea de comando para PowerShell: [entrar a cwd y] ejecutar program con args ya citados."""
+    call = f"& {quote_path(program)}" + "".join(f" {a}" for a in args)
+    if cwd is None:
+        return call
+    return f"Set-Location {quote_path(cwd)}; {call}"
