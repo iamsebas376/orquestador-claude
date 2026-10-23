@@ -78,13 +78,11 @@ def test_exportar_panel_crea_y_borra_el_anterior(tmp_registro, monkeypatch):
 
 def test_todas_las_herramientas_registradas():
     nombres = {t.name for t in run(server.mcp.list_tools())}
-    esperadas = {"listar_modelos_innti", "ejecutar_trabajo_opencode_innti", "ejecutar_personal_antigravity",
+    esperadas = {"ejecutar_trabajo_opencode_innti", "ejecutar_personal_antigravity",
                  "iniciar_pedido", "actualizar_item", "agregar_items", "cerrar_pedido", "ver_pedido",
                  "listar_pedidos", "resumen_costos", "registrar_aprendizaje", "consultar_aprendizajes",
-                 "exportar_panel", "ver_configuracion", "verificar_proyecto", "configurar_verificacion",
-                 "estado_presupuesto"}
-    assert esperadas <= nombres
-    assert not {"preparar_vista_opencode", "preparar_tarea_antigravity", "esperar_resultado_antigravity"} & nombres
+                 "exportar_panel", "verificar_proyecto", "configurar_verificacion"}
+    assert nombres == esperadas
 
 
 # ----------------------------------------------------------------------------- límite de modelos de Antigravity

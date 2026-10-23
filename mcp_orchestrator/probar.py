@@ -1,7 +1,7 @@
 """Ejecuta una herramienta del orquestador sin cliente MCP (mismo código que usa Claude).
 
 Uso: python probar.py <herramienta> '<json con argumentos>'
-Ej.: python probar.py listar_modelos_innti '{}'
+Ej.: python probar.py resumen_costos '{"dias": 1}'
 """
 import asyncio
 import json

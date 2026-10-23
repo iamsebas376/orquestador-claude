@@ -56,10 +56,11 @@ def test_ciclo_de_un_pedido(tmp_registro):
     pid = pedido_id(registro.iniciar_pedido("Prueba", ["A", "B"], "ctx"))
     assert (registro.TAREAS_DIR / f"{pid}.md").exists()
     out = registro.actualizar_item(pid, 1, "hecho", "ok")
-    assert "1. ✅ A" in out
-    assert "progreso: 1/2" in out
+    assert "Ítem 1 → ✅ hecho" in out and "1/2" in out
+    assert "1. ✅ A" in registro.ver_pedido(pid)
     out = registro.cerrar_pedido(pid, "listo")
-    assert "**cerrado**" in out and "listo" in out
+    assert "cerrado" in out and "1/2" in out
+    assert "listo" in registro.ver_pedido(pid)
 
 
 def test_titulo_sin_rutas(tmp_registro):

@@ -69,13 +69,11 @@ Publica `config/panel.html` como artefacto en claude.ai con la capacidad `db` (p
 
 | Herramienta | Para qué |
 |---|---|
-| `ver_configuracion` | Carpetas, modelos y sistema de esta instalación |
-| `listar_modelos_innti` | Modelos del proveedor configurado en OpenCode |
 | `ejecutar_trabajo_opencode_innti` | Tarea de trabajo en OpenCode con un modelo Innti |
 | `ejecutar_personal_antigravity` | Tarea personal en Antigravity (`agy -p`; edita archivos, sin comandos) |
 | `iniciar_pedido`, `actualizar_item`, `agregar_items`, `cerrar_pedido`, `ver_pedido`, `listar_pedidos` | Checklist |
 | `verificar_proyecto`, `configurar_verificacion` | Tests/lint en cada revisión |
-| `estado_presupuesto`, `resumen_costos`, `registrar_aprendizaje`, `consultar_aprendizajes`, `exportar_panel` | Control |
+| `resumen_costos`, `registrar_aprendizaje`, `consultar_aprendizajes`, `exportar_panel` | Control |
 
 ## Desarrollo
 
@@ -85,4 +83,4 @@ cd mcp_orchestrator
 .venv\Scripts\python.exe -m pytest tests
 ```
 
-`plataforma.py` concentra lo que depende del sistema operativo (rutas y nombres de binarios por defecto). `probar.py` ejecuta cualquier herramienta sin cliente MCP: `python probar.py ver_configuracion`.
+`plataforma.py` concentra lo que depende del sistema operativo (rutas y nombres de binarios por defecto). `probar.py` ejecuta cualquier herramienta sin cliente MCP: `python probar.py resumen_costos '{"dias": 1}'`.

@@ -16,9 +16,7 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 import time
-import unicodedata
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -51,7 +49,6 @@ OTRAS_CARPETAS = [Path(c.strip()).expanduser() for c in
 LOGS_DIR = Path(_env("LOGS_DIR") or plataforma.REPO_ROOT / "logs").expanduser()
 
 OPENCODE_CLI_PATH = _env("OPENCODE_CLI_PATH", "opencode")
-OPENCODE_CONFIG_PATH = Path(_env("OPENCODE_CONFIG_PATH") or plataforma.default_opencode_config()).expanduser()
 OPENCODE_TIMEOUT = int(_env("OPENCODE_TIMEOUT_SECONDS", "1800"))
 # Segundos sin una sola línea de salida tras los que se corta la tarea (modelo colgado o sin red).
 OPENCODE_IDLE = int(_env("OPENCODE_IDLE_SECONDS", "600"))
@@ -59,14 +56,9 @@ OPENCODE_IDLE = int(_env("OPENCODE_IDLE_SECONDS", "600"))
 OPENCODE_SERVER_URL = _env("OPENCODE_SERVER_URL", "http://127.0.0.1:4096").rstrip("/")
 INNTI_PROVIDER = _env("INNTI_PROVIDER", "litellm-proxy")
 INNTI_DEFAULT_MODEL = _env("INNTI_DEFAULT_MODEL", "innti-dsp")
-INNTI_BASE_URL = _env("INNTI_BASE_URL").rstrip("/")
-INNTI_API_KEY = _env("INNTI_API_KEY")
 
 ANTIGRAVITY_CLI_PATH = _env("ANTIGRAVITY_CLI_PATH") or plataforma.default_agy()
 ANTIGRAVITY_AGY_MODEL = _env("ANTIGRAVITY_AGY_MODEL", "gemini-3.8-flash-medium")
-ANTIGRAVITY_AGY_FALLBACK = [
-    m.strip() for m in _env("ANTIGRAVITY_AGY_FALLBACK", "gemini-3.8-flash-low").split(",") if m.strip()
-]
 # Orden de respaldo cuando un modelo llega a su límite: se pasa al siguiente de la lista (de más a menos capaz).
 ANTIGRAVITY_CADENA = [
     m.strip() for m in _env(
@@ -82,6 +74,18 @@ SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "dist", "build", "target",
              ".pytest_cache", ".mypy_cache", ".ruff_cache", ".gradle", ".idea", ".vscode"}
 
 mcp = FastMCP("orchestrator")
+
+
+def _podar_logs(dias: int = 30) -> None:
+    """Borra logs de ejecución con más de `dias` días: a nadie le sirven y se acumulan."""
+    limite = time.time() - dias * 86400
+    for sub in ("trabajo", "personal", "verificacion"):
+        for f in (LOGS_DIR / sub).glob("*"):
+            try:
+                if f.is_file() and f.stat().st_mtime < limite:
+                    f.unlink()
+            except OSError:
+                pass
 
 
 # ----------------------------------------------------------------------------- utilidades
@@ -162,12 +166,6 @@ def _count_lines(paths: list[str]) -> int:
         except OSError:
             pass
     return total
-
-
-def _strip_jsonc(text: str) -> str:
-    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
-    text = re.sub(r'(?m)^(\s*)//.*$', r"\1", text)
-    return re.sub(r",(\s*[}\]])", r"\1", text)
 
 
 def _opencode_cmd() -> str | None:
@@ -266,50 +264,6 @@ async def _run(cmd: list[str], cwd: Path, timeout: int, idle: int = 0) -> tuple[
 
 # ----------------------------------------------------------------------------- herramientas
 
-@mcp.tool()
-async def listar_modelos_innti() -> str:
-    """Lista los modelos Innti configurados en OpenCode (proveedor INNTI_PROVIDER).
-    Úsala para elegir el modelo según la complejidad antes de delegar trabajo."""
-    modelos: list[str] = []
-    fuente = ""
-
-    # 1) Configuración de OpenCode (rápido y sin red)
-    if OPENCODE_CONFIG_PATH.is_file():
-        try:
-            cfg = json.loads(_strip_jsonc(OPENCODE_CONFIG_PATH.read_text(encoding="utf-8")))
-            prov = cfg.get("provider", {}).get(INNTI_PROVIDER, {})
-            for name, spec in (prov.get("models") or {}).items():
-                variants = list((spec or {}).get("variants", {}).keys())
-                modelos.append(name + (f" (variantes: {', '.join(variants)})" if variants else ""))
-            fuente = str(OPENCODE_CONFIG_PATH)
-        except Exception as e:  # noqa: BLE001
-            fuente = f"error leyendo config: {e}"
-
-    # 2) CLI de OpenCode
-    if not modelos and (cli := _opencode_cmd()):
-        code, out = await _run([cli, "models", INNTI_PROVIDER], BASE_DIR, 60)
-        if code == 0:
-            modelos = [l.strip() for l in out.splitlines() if l.strip()]
-            fuente = "opencode models"
-
-    # 3) Endpoint /models de LiteLLM
-    if not modelos and INNTI_BASE_URL and INNTI_API_KEY:
-        try:
-            async with httpx.AsyncClient(timeout=20) as c:
-                r = await c.get(f"{INNTI_BASE_URL}/models", headers={"Authorization": f"Bearer {INNTI_API_KEY}"})
-                r.raise_for_status()
-                modelos = sorted(m["id"] for m in r.json().get("data", []) if "innti" in m["id"].lower())
-                fuente = f"{INNTI_BASE_URL}/models"
-        except Exception as e:  # noqa: BLE001
-            fuente = f"error consultando API: {e}"
-
-    if not modelos:
-        return f"No se encontraron modelos Innti. Fuente: {fuente or 'ninguna disponible'}"
-    lista = "\n".join(f"- {INNTI_PROVIDER}/{m}" for m in modelos)
-    _live(f"■ listar_modelos_innti → {len(modelos)} modelos ({fuente})")
-    return f"Modelos Innti (por defecto: {INNTI_DEFAULT_MODEL}). Fuente: {fuente}\n{lista}"
-
-
 def _git_checkpoint(cwd: Path) -> str:
     """Commit actual y cambios previos sin commit, para poder deshacer lo que haga el subagente."""
     try:
@@ -368,22 +322,12 @@ async def ejecutar_trabajo_opencode_innti(
     item: int = 0,
     forzar_presupuesto: bool = False,
 ) -> str:
-    """CONTEXTO TRABAJO (Innti/corporativo). Delega la tarea a OpenCode con un modelo Innti.
-    OpenCode edita los archivos directamente; aquí solo vuelve un resumen de estado, tokens y costo.
-
-    forzar_presupuesto: solo si el usuario autorizó pasar el límite de presupuesto.
-
-    sesion_opencode: session_id de una delegación anterior: reutilizarla en una RONDA DE CORRECCIÓN
-        conserva el contexto del agente y cuesta menos. Vacío = sesión nueva. Sin ventanas ni terminales.
-    pedido_id, item: vinculan la delegación al checklist (el ítem pasa a 'revisando' y suma el costo).
-    prompt_tarea: instrucción completa y autocontenida para OpenCode.
-    modelo_innti: vacío = INNTI_DEFAULT_MODEL (innti-dsp: lógica, revisión, seguridad).
-        'innti-dsf-last' explorar/cambios mecánicos (barato), 'innti-dev' documentación/commits,
-        'innti-gpt' planificar o con imágenes, 'innti-nova-flash' capturas sencillas,
-        'innti-terra' arquitectura con respuestas cortas (salida cara).
-    ruta_proyecto_o_archivo: proyecto dentro de TRABAJO_DIR, absoluto (p. ej. <TRABAJO_DIR>/mi-proyecto)
-        o relativo ('ssdd-back\\src\\...'). Rutas fuera de TRABAJO_DIR se rechazan.
-    """
+    """TRABAJO (dentro de TRABAJO_DIR): delega la tarea a OpenCode con un modelo Innti, en segundo plano, y devuelve
+    un resumen con archivos tocados, tokens y costo.
+    prompt_tarea: instrucción autocontenida. modelo_innti: vacío = innti-dsp; innti-dsf-last explorar/mecánico,
+    innti-dev documentación, innti-gpt planificar/imágenes, innti-terra arquitectura (caro).
+    sesion_opencode: la del resultado anterior, en rondas de corrección. pedido_id, item: ítem del checklist.
+    forzar_presupuesto: solo con autorización del usuario."""
     target = _resolve_under(TRABAJO_DIR, ruta_proyecto_o_archivo)
     _live("")
     _live(f"▶ TRABAJO → OpenCode | ruta: {target}")
@@ -745,25 +689,14 @@ async def ejecutar_personal_antigravity(
     item: int = 0,
     conversacion: str = "",
 ) -> str:
-    """CONTEXTO PERSONAL (todo lo que no es D:\\workspaces). Delega la tarea a Antigravity (`agy -p`, plan Pro)
-    sin abrir ventanas ni terminales: espera a que termine y devuelve la síntesis. Edita archivos; los comandos
-    de terminal se deniegan (verifica tú con verificar_proyecto). Varias delegaciones en el mismo mensaje corren
-    en paralelo (que no compartan archivos). Si el modelo llega a su límite se reintenta solo con el siguiente.
-
-    conversacion: en una ronda de corrección, la conversacion_antigravity del resultado anterior.
-    pedido_id, item: vinculan la delegación al checklist (el ítem pasa a 'revisando').
-
-    modelo_antigravity: elige según la tarea (vacío = ANTIGRAVITY_AGY_MODEL, gemini-3.8-flash-medium):
-        'gemini-3.8-flash-low'    → simple: resúmenes, listas, reformatear, preguntas rápidas.
-        'gemini-3.8-flash-medium' → normal: código personal, planes, explicaciones.
-        'gemini-4-argon-medium'   → complejo: proyectos con varios archivos, diseño, depuración difícil.
-        'gemini-4-argon-high'     → profundo: razonamiento largo o análisis exigente (más lento).
-    instruccion: la tarea a realizar (autocontenida).
-    contexto_adicional: datos, restricciones o contexto de apoyo.
-    ruta_salida_opcional: archivo o carpeta dentro de PERSONAL_DIR, UNIVERSIDAD_DIR u OTRAS_CARPETAS. Relativa:
-        'universidad/curso/...' -> UNIVERSIDAD_DIR/curso/...; cualquier otra -> PERSONAL_DIR/...
-        Vacía -> PERSONAL_DIR/_antigravity.
-    """
+    """PERSONAL (todo lo que no es TRABAJO_DIR): delega la tarea a Antigravity (`agy -p`) en segundo plano y devuelve
+    la síntesis. Edita archivos; los comandos se deniegan (verifica con verificar_proyecto). Si el modelo llega a su
+    límite se reintenta solo con el siguiente de la cadena.
+    instruccion: autocontenida. modelo_antigravity: gemini-3.8-flash-low simple; vacío = flash-medium; gemini-4-argon-medium
+    varios archivos/depuración difícil; gemini-4-argon-high solo si es muy exigente.
+    conversacion: la del resultado anterior, en rondas de corrección. pedido_id, item: ítem del checklist.
+    ruta_salida_opcional: carpeta o archivo dentro de PERSONAL_DIR, UNIVERSIDAD_DIR u OTRAS_CARPETAS
+    ('universidad/curso/...' o ruta absoluta); vacía = PERSONAL_DIR/_antigravity."""
     target = _resolve_personal(ruta_salida_opcional or "_antigravity")
     _live("")
     _live(f"▶ PERSONAL → Antigravity | salida: {target}")
@@ -785,22 +718,7 @@ async def ejecutar_personal_antigravity(
     return _cierre_personal(res, pedido_id, item, final, folder) + aviso_item
 
 
-
-# ----------------------------------------------------------------------------- configuración
-
-@mcp.tool()
-def ver_configuracion() -> str:
-    """Carpetas de enrutamiento, modelos por defecto y sistema operativo de esta instalación.
-    Úsala al empezar una sesión para saber qué ruta es trabajo y cuál personal en esta máquina."""
-    return (f"Sistema: Windows (comandos de terminal en PowerShell)\n"
-            f"TRABAJO (OpenCode): {TRABAJO_DIR} · modelo por defecto {INNTI_PROVIDER}/{INNTI_DEFAULT_MODEL}\n"
-            f"PERSONAL (Antigravity): {PERSONAL_DIR} · UNIVERSIDAD: {UNIVERSIDAD_DIR} · "
-            f"modelo {ANTIGRAVITY_AGY_MODEL}\n"
-            f"Checklists: {registro.TAREAS_DIR} · logs: {LOGS_DIR} · panel: {'configurado' if PANEL_URL else 'sin PANEL_URL'}\n"
-            f"Rondas de corrección máximas: {registro.MAX_RONDAS}")
-
-
-# ----------------------------------------------------------------------------- verificación y presupuesto
+# ----------------------------------------------------------------------------- verificación
 
 @mcp.tool()
 async def verificar_proyecto(ruta: str, comandos: list[str] | None = None) -> str:
@@ -822,12 +740,6 @@ def configurar_verificacion(proyecto: str, comandos: list[str]) -> str:
     """Guarda cómo se verifica un proyecto (nombre de la carpeta de primer nivel o ruta absoluta), p. ej.
     configurar_verificacion('ssdd-back', ['mvn -q -B test']). Lista vacía = quitar la configuración."""
     return control.guardar_verificacion(proyecto, comandos)
-
-
-@mcp.tool()
-def estado_presupuesto() -> str:
-    """Gasto de Innti de hoy y del mes frente a PRESUPUESTO_DIA_USD / PRESUPUESTO_MES_USD."""
-    return control.estado_presupuesto()[1]
 
 
 # ----------------------------------------------------------------------------- checklist, costos y aprendizajes
@@ -906,6 +818,8 @@ def exportar_panel() -> str:
     state_file = sync_dir / "ultimo.txt"
     prev = state_file.read_text(encoding="utf-8").strip() if state_file.exists() else ""
     state_file.write_text(doc_id, encoding="utf-8")
+    if prev and prev != doc_id:
+        (sync_dir / f"{prev}.json").unlink(missing_ok=True)
     writes = [{"op": "set", "collection": "estado", "doc_id": doc_id, "file_path": str(path)}]
     if prev and prev != doc_id:
         writes.append({"op": "delete", "collection": "estado", "doc_id": prev, "if_version": 1})
@@ -915,4 +829,5 @@ def exportar_panel() -> str:
 
 
 if __name__ == "__main__":
+    _podar_logs()
     mcp.run()

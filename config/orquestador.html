@@ -181,7 +181,6 @@ footer { color: var(--muted); font-size: .88rem; border-top: 1px solid var(--lin
     <table>
       <thead><tr><th>Herramienta</th><th>Qué hace</th><th>Prueba</th><th>Estado</th></tr></thead>
       <tbody>
-        <tr><td><code>listar_modelos_innti</code></td><td>Lee los modelos del proveedor <code>litellm-proxy</code> en la config de OpenCode</td><td>Encontró los 7 modelos configurados</td><td><span class="pill ok">Funciona</span></td></tr>
         <tr><td><code>ejecutar_trabajo_opencode_innti</code></td><td>Ejecuta <code>opencode run --model litellm-proxy/&lt;modelo&gt;</code> en la carpeta del proyecto</td><td>Creó un archivo de 7 líneas con <code>innti-dev</code>; por defecto ahora usa <code>innti-dsp</code></td><td><span class="pill ok">Funciona</span></td></tr>
         <tr><td><code>ejecutar_personal_antigravity</code></td><td>Ejecuta la tarea en el CLI oficial de Antigravity (<code>agy</code>) con tu plan Pro</td><td>Creó <code>clima.py</code> y su README con <code>gemini-3.8-flash-medium</code></td><td><span class="pill ok">Funciona</span></td></tr>
       </tbody>
@@ -311,7 +310,7 @@ D:\universidad\          estudio                     → Antigravity</pre></div>
   <div class="code">
     <span class="label">Probar una herramienta sin Claude (mismo código del servidor)</span>
     <button type="button" data-copy="c4">Copiar</button>
-<pre id="c4">D:\claude\mcp_orchestrator\.venv\Scripts\python.exe D:\claude\mcp_orchestrator\probar.py listar_modelos_innti</pre>
+<pre id="c4">D:\claude\mcp_orchestrator\.venv\Scripts\python.exe D:\claude\mcp_orchestrator\probar.py resumen_costos "{}"</pre>
   </div>
   <div class="grid2">
     <div class="card"><h3>Prueba del 16 de octubre</h3><p>Trabajo: <code>innti-dsp</code> creó un módulo de dígito de verificación de NIT con 7 tests en verde. Personal: Antigravity (CLI oficial, plan Pro) creó un proyecto de lista de tareas con 3 tests en verde y un script con README desde su propia ventana. OpenCode ya no lee <code>~/.claude/CLAUDE.md</code> y tiene prohibido instalar paquetes globales.</p></div>

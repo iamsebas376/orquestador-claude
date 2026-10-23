@@ -12,6 +12,15 @@ import registro as R
 from registro import ESTADOS, _now, _slug, _usd
 
 
+def _progreso(p: dict) -> str:
+    hechos = sum(1 for i in p["items"] if i["estado"] in ("hecho", "omitido"))
+    return f"{hechos}/{len(p['items'])}"
+
+
+def _lista(p: dict, desde: int = 1) -> str:
+    return "\n".join(f"{n}. {i['texto']}" for n, i in enumerate(p["items"], 1) if n >= desde)
+
+
 def _path(pid: str) -> Path:
     return R.TAREAS_DIR / f"{pid}.json"
 
@@ -76,16 +85,17 @@ def iniciar_pedido(titulo: str, items: list[str], contexto: str = "", ruta: str 
          "actualizado": _now(), "resumen": "",
          "items": [{"texto": t, "estado": "pendiente", "rondas": 0, "costo_usd": 0.0, "notas": []} for t in items]}
     _save(p)
-    return f"pedido_id: {pid}\nChecklist: {R.TAREAS_DIR / (pid + '.md')}\n\n{_render(p)}"
+    return f"pedido_id: {pid}\nChecklist: {R.TAREAS_DIR / (pid + '.md')}\n{_lista(p)}"
 
 
 def agregar_items(pedido_id: str, items: list[str]) -> str:
     p = _load(pedido_id)
     if not p:
         return f"Error: no existe el pedido {pedido_id}."
+    primero = len(p["items"]) + 1
     p["items"] += [{"texto": t, "estado": "pendiente", "rondas": 0, "costo_usd": 0.0, "notas": []} for t in items]
     _save(p)
-    return _render(p)
+    return f"Agregados al pedido {pedido_id} ({_progreso(p)}):\n{_lista(p, primero)}"
 
 
 def actualizar_item(pedido_id: str, item: int, estado: str, nota: str = "", agente: str = "", modelo: str = "",
@@ -115,7 +125,7 @@ def actualizar_item(pedido_id: str, item: int, estado: str, nota: str = "", agen
     if nota:
         it.setdefault("notas", []).append(f"{datetime.now():%H:%M} {nota}")
     _save(p)
-    return _render(p) + aviso
+    return f"Ítem {item} → {ESTADOS[estado]} {estado} · pedido {pedido_id} {_progreso(p)}{aviso}"
 
 
 def cerrar_pedido(pedido_id: str, resumen: str, estado: str = "cerrado") -> str:
@@ -124,7 +134,7 @@ def cerrar_pedido(pedido_id: str, resumen: str, estado: str = "cerrado") -> str:
         return f"Error: no existe el pedido {pedido_id}."
     p["estado"], p["resumen"] = estado, resumen
     _save(p)
-    return _render(p)
+    return f"Pedido {pedido_id} {estado} ({_progreso(p)})."
 
 
 def ver_pedido(pedido_id: str = "") -> str:

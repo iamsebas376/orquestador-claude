@@ -7,8 +7,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-IS_WINDOWS = True
-
 REPO_ROOT = Path(__file__).resolve().parent.parent  # carpeta del repositorio (logs, tareas, config)
 
 

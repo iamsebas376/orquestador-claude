@@ -6,10 +6,9 @@ Las rutas de abajo se consultan en tiempo de ejecución como `registro.X`, así 
 
 from __future__ import annotations
 
-import json
 import os
 import re
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent

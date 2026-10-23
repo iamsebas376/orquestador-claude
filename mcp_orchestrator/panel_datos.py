@@ -12,60 +12,126 @@ from pedidos import _load
 from registro import _now
 
 
-def _mensajes_claude(desde: datetime) -> list[dict]:
-    """Respuestas de Claude Code desde `desde` (hora local), leídas de sus transcripts locales
-    (~/.claude/projects/**/*.jsonl, subagentes incluidos). Cada respuesta se repite por bloque: se deja una por id."""
-    por_id: dict[str, dict] = {}
-    for f in R.CLAUDE_PROJECTS_DIR.rglob("*.jsonl"):
+_CACHE: dict[str, dict] = {}  # transcript -> lo ya leído; los .jsonl solo crecen, así que se lee desde donde se quedó
+_PEDIDO_EN_TEXTO = re.compile(r"\d{8}-\d{6}-[a-z0-9-]{3,}")
+
+
+def _procesar(c: dict, f, line: str) -> None:
+    """Una línea de un transcript: respuestas de Claude con su uso, títulos de sesión y pedidos del orquestador."""
+    uso, titulo = '"usage"' in line, '"custom-title"' in line
+    orq = "mcp__orchestrator__" in line or "tool_use_id" in line
+    if not (uso or titulo or orq):
+        return
+    try:
+        e = json.loads(line)
+    except ValueError:
+        return
+    if not isinstance(e, dict):
+        return
+    sid = str(e.get("sessionId") or f.stem)
+    if titulo and e.get("type") == "custom-title" and e.get("customTitle"):
+        c["titulos"][sid] = e["customTitle"]
+    m = e.get("message")
+    if not isinstance(m, dict):
+        return
+    if uso:
         try:
-            if datetime.fromtimestamp(f.stat().st_mtime) < desde:
-                continue
-            lineas = f.read_text(encoding="utf-8", errors="replace").splitlines()
-        except OSError:
-            continue
-        for line in lineas:
-            if '"usage"' not in line:
-                continue
-            try:
-                e = json.loads(line)
-                m = e["message"]
-                u, modelo = m["usage"], m.get("model", "")
-                ts = datetime.fromisoformat(e["timestamp"].replace("Z", "+00:00")).astimezone().replace(tzinfo=None)
-            except (ValueError, KeyError, TypeError, AttributeError):
-                continue
-            if ts < desde or not modelo or modelo.startswith("<"):
-                continue
+            u, modelo = m["usage"], m.get("model", "")
+            ts = datetime.fromisoformat(e["timestamp"].replace("Z", "+00:00")).astimezone().replace(tzinfo=None)
+        except (ValueError, KeyError, TypeError, AttributeError):
+            u = None
+        if u is not None and modelo and not modelo.startswith("<"):
             cc = u.get("cache_creation") or {}
             escritura_1h = cc.get("ephemeral_1h_input_tokens", 0)
             escritura = u.get("cache_creation_input_tokens", 0)
-            clave = m.get("id") or f"{f}:{len(por_id)}"
-            por_id[clave] = {
-                "ts": ts, "modelo": modelo, "sesion": str(e.get("sessionId") or f.stem), "cwd": e.get("cwd", ""),
+            clave = m.get("id") or f"{f}:{len(c['msgs'])}"
+            c["msgs"][clave] = {
+                "ts": ts, "modelo": modelo, "sesion": sid, "cwd": e.get("cwd", ""),
                 "tokens": {"input": u.get("input_tokens", 0), "cache_read": u.get("cache_read_input_tokens", 0),
                            "cache_write_5m": max(0, escritura - escritura_1h), "cache_write_1h": escritura_1h,
                            "output": u.get("output_tokens", 0)},
             }
-    return sorted(por_id.values(), key=lambda r: r["ts"])
+    contenido = m.get("content")
+    if not orq or not isinstance(contenido, list):
+        return
+    for b in contenido:
+        if not isinstance(b, dict):
+            continue
+        if b.get("type") == "tool_use" and str(b.get("name", "")).startswith("mcp__orchestrator__"):
+            pid = (b.get("input") or {}).get("pedido_id")
+            if pid:
+                c["pedidos"].setdefault(sid, set()).add(pid)
+            if b["name"].endswith("iniciar_pedido"):
+                c["iniciados"].add(b.get("id"))
+        elif b.get("type") == "tool_result" and b.get("tool_use_id") in c["iniciados"]:
+            nuevos = _PEDIDO_EN_TEXTO.findall(json.dumps(b.get("content"), ensure_ascii=False))
+            c["pedidos"].setdefault(sid, set()).update(nuevos)
+            for pid in nuevos:
+                c["creador"].setdefault(pid, sid)
+
+
+def _leer(f) -> dict | None:
+    """Estado de un transcript, leyendo solo lo que se añadió desde la última vez."""
+    try:
+        st = f.stat()
+        c = _CACHE.get(str(f))
+        if c and c["size"] == st.st_size and c["mtime"] == st.st_mtime_ns:
+            return c
+        if not c or st.st_size < c["size"]:  # nuevo o reescrito
+            c = _CACHE[str(f)] = {"pos": 0, "size": 0, "mtime": 0, "msgs": {}, "titulos": {}, "pedidos": {},
+                                  "creador": {}, "iniciados": set()}
+        with open(f, "rb") as fh:
+            fh.seek(c["pos"])
+            datos = fh.read()
+    except OSError:
+        return None
+    fin = datos.rfind(b"\n") + 1  # una línea a medio escribir se lee en la próxima vuelta
+    resto = datos[fin:]
+    if resto.strip():
+        try:
+            json.loads(resto)
+            fin = len(datos)  # última línea completa aunque no termine en salto de línea
+        except ValueError:
+            pass
+    for line in datos[:fin].decode("utf-8", errors="replace").splitlines():
+        _procesar(c, f, line)
+    c["pos"] += fin
+    c["size"], c["mtime"] = st.st_size, st.st_mtime_ns
+    return c
+
+
+def _escanear(desde: datetime) -> dict:
+    """Transcripts de Claude Code (~/.claude/projects/**/*.jsonl, subagentes incluidos) modificados desde `desde`."""
+    por_id: dict = {}
+    titulos: dict = {}
+    pedidos: dict = {}
+    creador: dict = {}
+    for f in R.CLAUDE_PROJECTS_DIR.rglob("*.jsonl"):
+        try:
+            if datetime.fromtimestamp(f.stat().st_mtime) < desde:
+                continue
+        except OSError:
+            continue
+        c = _leer(f)
+        if not c:
+            continue
+        por_id.update(c["msgs"])
+        titulos.update(c["titulos"])
+        for sid, s in c["pedidos"].items():
+            pedidos.setdefault(sid, set()).update(s)
+        for pid, sid in c["creador"].items():
+            creador.setdefault(pid, sid)
+    return {"msgs": por_id, "titulos": titulos, "pedidos": pedidos, "creador": creador}
+
+
+def _mensajes_claude(desde: datetime) -> list[dict]:
+    """Respuestas de Claude Code desde `desde` (hora local); cada respuesta se repite por bloque: una por id."""
+    return sorted((m for m in _escanear(desde)["msgs"].values() if m["ts"] >= desde), key=lambda r: r["ts"])
 
 
 def _titulos_claude() -> dict[str, str]:
     """Título de cada sesión de Claude Code (el último que le puso la app), por sessionId."""
-    titulos: dict[str, str] = {}
-    for f in R.CLAUDE_PROJECTS_DIR.rglob("*.jsonl"):
-        try:
-            lineas = f.read_text(encoding="utf-8", errors="replace").splitlines()
-        except OSError:
-            continue
-        for line in lineas:
-            if '"custom-title"' not in line:
-                continue
-            try:
-                e = json.loads(line)
-            except ValueError:
-                continue
-            if e.get("type") == "custom-title" and e.get("customTitle"):
-                titulos[str(e.get("sessionId") or f.stem)] = e["customTitle"]
-    return titulos
+    return _escanear(datetime.min)["titulos"]
 
 
 CREADOR_PEDIDO: dict[str, str] = {}  # pedido_id -> sesión de Claude que lo creó (lo llena _pedidos_por_sesion)
@@ -74,40 +140,10 @@ CREADOR_PEDIDO: dict[str, str] = {}  # pedido_id -> sesión de Claude que lo cre
 def _pedidos_por_sesion() -> dict[str, set]:
     """Pedidos que usó cada sesión de Claude Code: los pedido_id que pasó a las herramientas del orquestador y los
     que creó con iniciar_pedido. Así su trabajo se cuenta en sus pedidos y no en el de otra sesión."""
-    por: dict[str, set] = {}
-    for f in R.CLAUDE_PROJECTS_DIR.rglob("*.jsonl"):
-        iniciados: set = set()
-        try:
-            lineas = f.read_text(encoding="utf-8", errors="replace").splitlines()
-        except OSError:
-            continue
-        for line in lineas:
-            if "mcp__orchestrator__" not in line and "tool_use_id" not in line:
-                continue
-            try:
-                e = json.loads(line)
-                contenido = (e.get("message") or {}).get("content")
-            except (ValueError, AttributeError):
-                continue
-            if not isinstance(contenido, list):
-                continue
-            sid = str(e.get("sessionId") or f.stem)
-            for b in contenido:
-                if not isinstance(b, dict):
-                    continue
-                if b.get("type") == "tool_use" and str(b.get("name", "")).startswith("mcp__orchestrator__"):
-                    pid = (b.get("input") or {}).get("pedido_id")
-                    if pid:
-                        por.setdefault(sid, set()).add(pid)
-                    if b["name"].endswith("iniciar_pedido"):
-                        iniciados.add(b.get("id"))
-                elif b.get("type") == "tool_result" and b.get("tool_use_id") in iniciados:
-                    texto = json.dumps(b.get("content"), ensure_ascii=False)
-                    nuevos = re.findall(r"\d{8}-\d{6}-[a-z0-9-]{3,}", texto)
-                    por.setdefault(sid, set()).update(nuevos)
-                    for pid in nuevos:
-                        CREADOR_PEDIDO.setdefault(pid, sid)
-    return por
+    r = _escanear(datetime.min)
+    CREADOR_PEDIDO.clear()
+    CREADOR_PEDIDO.update(r["creador"])
+    return r["pedidos"]
 
 
 def consumo_claude(dias: int = R.PANEL_DIAS) -> list[dict]:

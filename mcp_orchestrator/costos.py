@@ -10,9 +10,16 @@ import registro as R
 from registro import _now, _usd
 
 
+_PRECIOS_CACHE: dict = {}  # (ruta, mtime) -> tabla; se vuelve a leer solo si el archivo cambia
+
+
 def _precios() -> dict:
     try:
-        return json.loads(R.PRECIOS_FILE.read_text(encoding="utf-8"))
+        clave = (str(R.PRECIOS_FILE), R.PRECIOS_FILE.stat().st_mtime_ns)
+        if clave not in _PRECIOS_CACHE:
+            _PRECIOS_CACHE.clear()
+            _PRECIOS_CACHE[clave] = json.loads(R.PRECIOS_FILE.read_text(encoding="utf-8"))
+        return _PRECIOS_CACHE[clave]
     except (OSError, ValueError):
         return {}
 
