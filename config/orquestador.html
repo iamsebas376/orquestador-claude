@@ -195,6 +195,21 @@ footer { color: var(--muted); font-size: .88rem; border-top: 1px solid var(--lin
   </div>
 </section>
 
+<section aria-labelledby="h-compara">
+  <h2 id="h-compara">Cuánto cuesta cada agente</h2>
+  <p>Resumen del gasto registrado hasta el 23 de octubre de 2026. Solo Innti es dinero real; Antigravity y Claude se pagan con tus planes y se muestran como equivalente por API.</p>
+  <div class="table-scroll">
+    <table>
+      <thead><tr><th>Agente</th><th>Se usa para</th><th>Cómo se paga</th><th>Gasto registrado</th></tr></thead>
+      <tbody>
+        <tr><td>OpenCode con Innti</td><td>Todo el trabajo de <code>D:\workspaces</code></td><td>Real, por token</td><td class="num">US$ 19,35 en 96 tareas</td></tr>
+        <tr><td>Antigravity (<code>agy</code>)</td><td>Todo lo que no es de trabajo</td><td>Plan Pro, sin cobro por token</td><td class="num">≈ US$ 9,95 en 29 tareas</td></tr>
+        <tr><td>Claude</td><td>Orquestar y revisar</td><td>Suscripción, sin cobro por token</td><td class="num">≈ US$ 80,40 en sesiones con orquestador</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
 <section aria-labelledby="h-panel">
   <h2 id="h-panel">Panel de control</h2>
   <p>Un artefacto (<a href="https://claude.ai/artifact/Req7satjgULss34xqDHckb">Panel del Orquestador</a>) con lo que Claude sincroniza al terminar cada turno con cambios.</p>
@@ -212,18 +227,18 @@ footer { color: var(--muted); font-size: .88rem; border-top: 1px solid var(--lin
   <p>Basado en tu guía de modelos Innti (precios del 9 de octubre de 2026, en US$ por millón de tokens de entrada / salida). La columna OpenCode indica si el modelo ya está en tu <code>opencode.jsonc</code>; si no está, la herramienta no puede usarlo todavía.</p>
   <div class="table-scroll">
     <table>
-      <thead><tr><th>Modelo</th><th>Úsalo para</th><th>Evita</th><th>Entrada / salida</th><th>OpenCode</th></tr></thead>
+      <thead><tr><th>Modelo</th><th>Úsalo para</th><th>Evita</th><th>Entrada / salida</th><th>OpenCode</th><th>Uso real</th></tr></thead>
       <tbody>
-        <tr class="pick"><td><code>innti-dsp</code></td><td>Lógica y casos borde, revisar diffs, auditar seguridad. La opción si dudas.</td><td>Imágenes. Razonamientos muy largos pueden dar error 504 a los 300 s.</td><td class="num">1,12 / 3,05</td><td><span class="pill ok">Sí</span></td></tr>
-        <tr class="pick"><td><code>innti-dsf-last</code></td><td>Explorar el repo y cambios mecánicos. Acertó 14 de 14 pruebas.</td><td>Imágenes</td><td class="num">0,29 / 1,18</td><td><span class="pill warn">No</span></td></tr>
-        <tr><td><code>innti-gpt</code></td><td>Planificar, preguntas generales. Ve imágenes.</td><td>Sustituir a Pro en implementaciones complejas</td><td class="num">0,20 / 1,20</td><td><span class="pill ok">Sí</span></td></tr>
-        <tr><td><code>innti-dev</code></td><td>Documentación, README, changelogs, mensajes de commit. Ve imágenes.</td><td>Código con lógica delicada</td><td class="num">0,30 / 1,20</td><td><span class="pill ok">Sí</span></td></tr>
-        <tr><td><code>innti-dsf</code></td><td>Títulos y resúmenes muy cortos</td><td>Tareas difíciles</td><td class="num">0,15 / 0,49</td><td><span class="pill ok">Sí</span></td></tr>
-        <tr><td><code>innti-terra</code></td><td>Arquitectura, contratos, modelado de dominio. Pide respuestas cortas.</td><td>Generar código (salida muy cara)</td><td class="num">2,00 / 12,00</td><td><span class="pill warn">No</span></td></tr>
-        <tr><td><code>innti-nova-flash</code></td><td>Tareas sencillas sobre capturas</td><td>Tareas largas o críticas</td><td class="num">0,19 / 0,50</td><td><span class="pill warn">No</span></td></tr>
-        <tr><td><code>innti-dev-nova</code></td><td>Analizar un cuello de botella o un SQL complejo, una vez y en primer plano</td><td>Construir. Gastó de 11 a 27 veces más que Pro.</td><td class="num">1,21 / 3,88</td><td><span class="pill ok">Sí</span></td></tr>
-        <tr><td><code>innti-g4</code></td><td>Solo con un motivo concreto</td><td>Usarlo por defecto (casi el doble que Pro)</td><td class="num">2,00 / 6,00</td><td><span class="pill ok">Sí</span></td></tr>
-        <tr><td><code>innti-k3</code></td><td>Nada que otro modelo no cubra más barato</td><td>Todo; es el más caro</td><td class="num">3,00 / 15,00</td><td><span class="pill ok">Sí</span></td></tr>
+        <tr class="pick"><td><code>innti-dsp</code></td><td>Lógica y casos borde, revisar diffs, auditar seguridad. La opción si dudas.</td><td>Imágenes. Razonamientos muy largos pueden dar error 504 a los 300 s.</td><td class="num">1,12 / 3,05</td><td><span class="pill ok">Sí</span></td><td class="num">43 tareas · US$ 18,28</td></tr>
+        <tr class="pick"><td><code>innti-dsf-last</code></td><td>Explorar el repo y cambios mecánicos. Acertó 14 de 14 pruebas.</td><td>Imágenes</td><td class="num">0,29 / 1,18</td><td><span class="pill warn">No</span></td><td class="num">37 tareas · US$ 0,83</td></tr>
+        <tr><td><code>innti-gpt</code></td><td>Planificar, preguntas generales. Ve imágenes.</td><td>Sustituir a Pro en implementaciones complejas</td><td class="num">0,20 / 1,20</td><td><span class="pill ok">Sí</span></td><td class="num">3 tareas · US$ 0,08</td></tr>
+        <tr><td><code>innti-dev</code></td><td>Documentación, README, changelogs, mensajes de commit. Ve imágenes.</td><td>Código con lógica delicada</td><td class="num">0,30 / 1,20</td><td><span class="pill ok">Sí</span></td><td class="num">7 tareas · US$ 0,12</td></tr>
+        <tr><td><code>innti-dsf</code></td><td>Títulos y resúmenes muy cortos</td><td>Tareas difíciles</td><td class="num">0,15 / 0,49</td><td><span class="pill ok">Sí</span></td><td class="num">5 tareas · US$ 0,01</td></tr>
+        <tr><td><code>innti-terra</code></td><td>Arquitectura, contratos, modelado de dominio. Pide respuestas cortas.</td><td>Generar código (salida muy cara)</td><td class="num">2,00 / 12,00</td><td><span class="pill warn">No</span></td><td class="num">—</td></tr>
+        <tr><td><code>innti-nova-flash</code></td><td>Tareas sencillas sobre capturas</td><td>Tareas largas o críticas</td><td class="num">0,19 / 0,50</td><td><span class="pill warn">No</span></td><td class="num">1 tarea · US$ 0,03</td></tr>
+        <tr><td><code>innti-dev-nova</code></td><td>Analizar un cuello de botella o un SQL complejo, una vez y en primer plano</td><td>Construir. Gastó de 11 a 27 veces más que Pro.</td><td class="num">1,21 / 3,88</td><td><span class="pill ok">Sí</span></td><td class="num">—</td></tr>
+        <tr><td><code>innti-g4</code></td><td>Solo con un motivo concreto</td><td>Usarlo por defecto (casi el doble que Pro)</td><td class="num">2,00 / 6,00</td><td><span class="pill ok">Sí</span></td><td class="num">—</td></tr>
+        <tr><td><code>innti-k3</code></td><td>Nada que otro modelo no cubra más barato</td><td>Todo; es el más caro</td><td class="num">3,00 / 15,00</td><td><span class="pill ok">Sí</span></td><td class="num">—</td></tr>
       </tbody>
     </table>
   </div>
@@ -239,17 +254,37 @@ footer { color: var(--muted); font-size: .88rem; border-top: 1px solid var(--lin
 <section aria-labelledby="h-gemini">
   <h2 id="h-gemini">Lado personal: Antigravity Pro</h2>
   <p>La herramienta usa <code>agy</code>, el CLI oficial de Antigravity que la propia app instala en <code>~/.gemini/bin</code>. Usa tu cuenta y tu plan Pro, no la cuota gratuita de la API. La tarea corre sin ventana (<code>agy -p</code>): el agente crea y edita archivos solo y los comandos se deniegan. Al terminar devuelve un resumen que el orquestador entrega a Claude.</p>
+  <p>El plan Pro no cobra por token: en el panel y en los costos se muestra el <strong>equivalente por API</strong> (precios del nivel pagado de Google, en US$ por millón de tokens de entrada / salida).</p>
   <div class="table-scroll">
     <table>
-      <thead><tr><th>Tarea</th><th>Modelo que elige Claude</th><th>Nota</th></tr></thead>
+      <thead><tr><th>Tarea</th><th>Modelo que elige Claude</th><th>Entrada / salida</th><th>Uso real (equivalente)</th><th>Nota</th></tr></thead>
       <tbody>
-        <tr><td>Simple: resúmenes, listas, reformatear</td><td><code>gemini-3.8-flash-low</code></td><td>El más rápido</td></tr>
-        <tr class="pick"><td>Normal: código personal, planes, explicaciones</td><td><code>gemini-3.8-flash-medium</code></td><td>Por defecto (campo vacío). Probado: creó un proyecto de 3 archivos con tests en verde.</td></tr>
-        <tr><td>Complejo: varios archivos, depuración difícil</td><td><code>gemini-4-argon-medium</code></td><td>Más capaz, más lento</td></tr>
-        <tr><td>Muy exigente, o si lo pides</td><td><code>gemini-4-argon-high</code></td><td>Máximo razonamiento</td></tr>
-        <tr><td>Solo si lo pides</td><td>Claude Opus/Sonnet 5.5, GPT-OSS 120B</td><td>También incluidos en tu plan de Antigravity</td></tr>
+        <tr><td>Simple: resúmenes, listas, reformatear</td><td><code>gemini-3.8-flash-low</code></td><td class="num">0,38 / 1,88</td><td class="num">4 tareas · ≈ US$ 0,24</td><td>El más rápido y barato</td></tr>
+        <tr class="pick"><td>Normal: código personal, planes, explicaciones</td><td><code>gemini-3.8-flash-medium</code></td><td class="num">0,38 / 1,88</td><td class="num">8 tareas · ≈ US$ 1,02</td><td>Por defecto (campo vacío)</td></tr>
+        <tr><td>Complejo: varios archivos, depuración difícil, auditorías</td><td><code>gemini-4-argon-medium</code></td><td class="num">1,00 / 5,00</td><td class="num">17 tareas · ≈ US$ 8,69</td><td>Más capaz y más lento; gasta menos tokens que flash-low en lecturas largas</td></tr>
+        <tr><td>Muy exigente, o si lo pides</td><td><code>gemini-4-argon-high</code></td><td class="num">1,00 / 5,00</td><td class="num">—</td><td>Máximo razonamiento; es el primero de la cadena de respaldo</td></tr>
+        <tr><td>Solo si lo pides</td><td>Claude Opus/Sonnet 5.5, GPT-OSS 120B</td><td class="num">—</td><td class="num">—</td><td>También incluidos en tu plan de Antigravity</td></tr>
       </tbody>
     </table>
+  </div>
+  <p>Si un modelo llega a su límite de uso, el servidor reintenta solo con el siguiente de <code>ANTIGRAVITY_CADENA</code> (de más a menos capaz).</p>
+</section>
+
+<section aria-labelledby="h-claude">
+  <h2 id="h-claude">Claude: el cerebro y cuánto cuesta</h2>
+  <p>Claude no produce: reparte el pedido, delega, revisa y decide. Va por tu suscripción, así que el panel lo muestra como <strong>equivalente por API</strong> (precios de claude.com/pricing al 18 de octubre de 2026, en US$ por millón de tokens de entrada / salida). Su gasto es el que más conviene vigilar: lo que se queda en Claude es lo que no se delegó.</p>
+  <div class="table-scroll">
+    <table>
+      <thead><tr><th>Modelo</th><th>Para qué</th><th>Entrada / salida</th><th>Uso real (equivalente)</th><th>Nota</th></tr></thead>
+      <tbody>
+        <tr class="pick"><td><code>claude-opus-5-5</code></td><td>Orquestar pedidos complejos: decidir el enfoque, escribir prompts con la solución, revisar diffs</td><td class="num">4,00 / 20,00</td><td class="num">779 respuestas · ≈ US$ 80,40</td><td>Casi todo es lectura de contexto en caché: 297 M tokens de entrada y 0,4 M de salida</td></tr>
+        <tr><td><code>claude-sonnet-5-5</code></td><td>Sesiones de revisión y tareas de coordinación sencillas</td><td class="num">2,00 / 10,00</td><td class="num">—</td><td>La mitad de precio que Opus</td></tr>
+        <tr><td><code>claude-haiku-5-5</code></td><td>Solo si lo pides: consultas muy cortas</td><td class="num">0,10 / 0,50</td><td class="num">—</td><td>El más barato</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note">
+    <p><strong>Regla práctica:</strong> usa el agente más barato que pueda con la tarea y deja a Claude solo para decidir y revisar. En tus sesiones activas con orquestador, el 84 % del gasto equivalente se quedó en Claude: la mejora más grande está en pasarle menos contexto y delegar más, no en cambiar de modelo. El panel muestra ese porcentaje en una tarjeta.</p>
   </div>
 </section>
 
