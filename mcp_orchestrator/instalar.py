@@ -36,7 +36,7 @@ def preparar_env() -> None:
         env.write_text(texto, encoding="utf-8")
         print("    contraseña del servidor OpenCode generada")
     for carpeta in ("logs", "tareas"):
-        (plataforma.REPO_ROOT / carpeta).mkdir(exist_ok=True)
+        (plataforma.DATOS_DIR / carpeta).mkdir(parents=True, exist_ok=True)
 
 
 def _escribir_json(path: Path, data: dict) -> None:

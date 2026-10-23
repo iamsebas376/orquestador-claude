@@ -7,7 +7,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent  # carpeta del repositorio (logs, tareas, config)
+REPO_ROOT = Path(__file__).resolve().parent.parent  # carpeta del repositorio
+DATOS_DIR = REPO_ROOT / "datos"  # todo lo que genera el orquestador: logs, pedidos, costos, aprendizajes
 
 
 def exe(name: str) -> str:

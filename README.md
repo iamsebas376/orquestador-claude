@@ -11,7 +11,7 @@ Servidor MCP que convierte a Claude en el **cerebro** de un equipo de agentes: c
 
 - **Enrutamiento por carpeta:** cada herramienta rechaza rutas del otro contexto.
 - **Ejecución directa:** la tarea corre en segundo plano (`opencode run` / `agy -p`), sin ventanas ni terminales; Claude solo recibe la síntesis.
-- **Checklist por pedido** (`tareas/`), con estados, rondas de corrección (límite configurable) y notas de revisión.
+- **Checklist por pedido** (`datos/tareas/`), con estados, rondas de corrección (límite configurable) y notas de revisión.
 - **Costos:** tokens reales de OpenCode × tu tabla de precios (`precios.json`); resumen por día, agente y modelo.
 - **Aprendizajes por proyecto:** qué modelo funcionó bien o mal, para elegir mejor la próxima vez.
 - **Verificación por proyecto:** detecta y corre tests/lint (Maven, Gradle, npm, pytest, Go) o los comandos que configures.
@@ -74,6 +74,16 @@ Publica `config/panel.html` como artefacto en claude.ai con la capacidad `db` (p
 | `iniciar_pedido`, `actualizar_item`, `agregar_items`, `cerrar_pedido`, `ver_pedido`, `listar_pedidos` | Checklist |
 | `verificar_proyecto`, `configurar_verificacion` | Tests/lint en cada revisión |
 | `resumen_costos`, `registrar_aprendizaje`, `consultar_aprendizajes`, `exportar_panel` | Control |
+
+## Estructura
+
+```
+mcp_orchestrator/   código del servidor (server.py, pedidos.py, costos.py, panel_datos.py, control.py), tests/ y .env
+config/             reglas de ejemplo para Claude y el panel (panel.html)
+hooks/              hook opcional que impide a Claude editar archivos
+tools/opencode/     OpenCode instalado localmente
+datos/              lo que genera el orquestador: tareas/, logs/, aprendizajes.jsonl, verificacion.json (no va a git)
+```
 
 ## Desarrollo
 

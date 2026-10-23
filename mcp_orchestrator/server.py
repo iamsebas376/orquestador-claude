@@ -46,7 +46,7 @@ UNIVERSIDAD_DIR = Path(_env("UNIVERSIDAD_DIR") or plataforma.default_dir("univer
 # (por defecto la del propio orquestador). Separadas por coma en OTRAS_CARPETAS_PERSONALES.
 OTRAS_CARPETAS = [Path(c.strip()).expanduser() for c in
                   _env("OTRAS_CARPETAS_PERSONALES", str(plataforma.REPO_ROOT)).split(",") if c.strip()]
-LOGS_DIR = Path(_env("LOGS_DIR") or plataforma.REPO_ROOT / "logs").expanduser()
+LOGS_DIR = Path(_env("LOGS_DIR") or plataforma.DATOS_DIR / "logs").expanduser()
 
 OPENCODE_CLI_PATH = _env("OPENCODE_CLI_PATH", "opencode")
 OPENCODE_TIMEOUT = int(_env("OPENCODE_TIMEOUT_SECONDS", "1800"))
@@ -372,21 +372,23 @@ async def ejecutar_trabajo_opencode_innti(
     cmd = [cli, "run", "--model", modelo]
     titulo = f"Claude → {prompt_tarea[:60]}"
     session_id = ""
-    if sesion_opencode and await _ensure_opencode_server(cli):
+    servidor = await _ensure_opencode_server(cli)
+    if servidor and sesion_opencode:
         # Ronda de corrección: misma sesión.
         session_id = sesion_opencode
         cmd += ["--attach", OPENCODE_SERVER_URL, "--dir", str(cwd), "--session", session_id]
-    elif await _ensure_opencode_server(cli) and (session_id := await _create_session(cwd, titulo) or ""):
+    elif servidor and (session_id := await _create_session(cwd, titulo) or ""):
         # Sesión nueva en el servidor: su id permite una ronda de corrección con el mismo contexto.
         cmd += ["--attach", OPENCODE_SERVER_URL, "--dir", str(cwd), "--session", session_id]
     else:
         _live("  servidor OpenCode no disponible: se ejecuta sin sesión persistente")
-    checkpoint = _git_checkpoint(cwd)
-    before = _snapshot(cwd)
+    checkpoint, before = await asyncio.gather(asyncio.to_thread(_git_checkpoint, cwd),
+                                              asyncio.to_thread(_snapshot, cwd))
     inicio_ms = int(time.time() * 1000)
     code, output = await _run([*cmd, prompt], cwd, OPENCODE_TIMEOUT, idle=OPENCODE_IDLE)
-    after = _snapshot(cwd)
+    after = await asyncio.to_thread(_snapshot, cwd)
     changed = sorted(p for p, m in after.items() if before.get(p) != m)
+    lineas = await asyncio.to_thread(_count_lines, changed)
     tokens = await _session_tokens(session_id, cwd, inicio_ms) if session_id else {}
     costo = registro.costo_innti(modelo, tokens)
     registro.registrar_costo("opencode", modelo.split("/")[-1], tokens, costo, pedido_id, item, str(cwd),
@@ -414,7 +416,7 @@ async def ejecutar_trabajo_opencode_innti(
     alerta = f"\n{presupuesto}" if presupuesto.startswith(("⚠", "⛔")) else ""
     return (
         f"{estado}: OpenCode usando el modelo {modelo} de Innti en {target}.\n"
-        f"Archivos modificados: {len(changed)} | Líneas procesadas: {_count_lines(changed)} | Tokens: {tok_txt}\n"
+        f"Archivos modificados: {len(changed)} | Líneas procesadas: {lineas} | Tokens: {tok_txt}\n"
         f"{shown}\n"
         + (f"sesion_opencode: {session_id} (pásala en una ronda de corrección para conservar el contexto)\n"
            if session_id else "")
@@ -617,7 +619,7 @@ async def _agy_una_vez(agy: str, instruccion: str, contexto: str, target: Path, 
     _agy_confiar(folder)
     task_id = f"{_stamp()}-{_slug(instruccion, 24)}-{os.urandom(2).hex()}"
     prompt = _agy_prompt(instruccion, contexto, target, folder)
-    inicio, before = datetime.now(timezone.utc), _snapshot(folder)
+    inicio, before = datetime.now(timezone.utc), await asyncio.to_thread(_snapshot, folder)
     conv = ["--conversation", conversacion] if _conv_valida(conversacion) else []
     cmd = [agy, *conv, "-p", prompt, "--model", model, "--mode", "accept-edits",
            "--print-timeout", f"{ANTIGRAVITY_TIMEOUT}s"]
@@ -634,7 +636,7 @@ async def _agy_una_vez(agy: str, instruccion: str, contexto: str, target: Path, 
     if code != 0 or not output.strip():
         return f"Error (exit {code}): Antigravity no devolvió resultado.\n{_tail(output, 600)}\ntask_id: {task_id}"
 
-    after = _snapshot(folder)
+    after = await asyncio.to_thread(_snapshot, folder)
     changed = sorted(p for p, m in after.items() if before.get(p) != m)
     log_dir = LOGS_DIR / "personal"
     log_dir.mkdir(parents=True, exist_ok=True)

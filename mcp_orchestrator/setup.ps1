@@ -20,7 +20,7 @@ if (-not (Test-Path $Py)) {
 }
 & $Py -m pip install --upgrade pip --quiet
 & $Py -m pip install -r (Join-Path $App 'requirements.txt') --quiet
-& $Py -c "import mcp, httpx, dotenv, rich; print('    dependencias OK')"
+& $Py -c "import mcp, httpx, dotenv; print('    dependencias OK')"
 
 Write-Host '==> OpenCode' -ForegroundColor Cyan
 # Instalacion local sin postinstall: funciona con Node antiguo y sin permisos de administrador

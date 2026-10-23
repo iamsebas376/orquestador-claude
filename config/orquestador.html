@@ -237,10 +237,11 @@ footer { color: var(--muted); font-size: .88rem; border-top: 1px solid var(--lin
 <section aria-labelledby="h-files">
   <h2 id="h-files">Dónde está cada cosa</h2>
   <div class="code"><pre class="tree">D:\claude\
-├─ mcp_orchestrator\     server.py · probar.py · .env · setup.ps1 · .venv\
-├─ config\               PROJECT_INSTRUCTIONS.md · claude_desktop_config.snippet.json · orquestador.html
-├─ tools\opencode\       OpenCode 1.19.3 (binario nativo opencode.exe)
-└─ logs\trabajo\         log completo de cada ejecución de OpenCode
+├─ mcp_orchestrator\     código del servidor: server.py · pedidos.py · costos.py · panel_datos.py · control.py · tests\ · .env · setup.ps1 · .venv\
+├─ config\               reglas de ejemplo (CLAUDE.example.md, PROJECT_INSTRUCTIONS.md) · panel.html · orquestador.html
+├─ hooks\                bloquear_edicion.py (opcional: impide que Claude edite archivos)
+├─ tools\opencode\       OpenCode (binario nativo opencode.exe)
+└─ datos\                lo que genera el orquestador (no va a git): tareas\ · logs\ · aprendizajes.jsonl · verificacion.json
 
 D:\workspaces\           proyectos de trabajo        → OpenCode
 D:\personal\             proyectos propios           → Antigravity   (por defecto: _antigravity\)

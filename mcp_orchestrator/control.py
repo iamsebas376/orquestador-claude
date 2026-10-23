@@ -11,7 +11,7 @@ from pathlib import Path
 import plataforma
 import registro
 
-VERIF_FILE = Path(os.getenv("VERIFICACION_FILE") or plataforma.REPO_ROOT / "verificacion.json")
+VERIF_FILE = Path(os.getenv("VERIFICACION_FILE") or plataforma.DATOS_DIR / "verificacion.json")
 VERIF_TIMEOUT = int(os.getenv("VERIFICACION_TIMEOUT_SECONDS") or "900")
 
 
@@ -30,6 +30,7 @@ def guardar_verificacion(proyecto: str, comandos: list[str]) -> str:
         data[proyecto] = comandos
     else:
         data.pop(proyecto, None)
+    VERIF_FILE.parent.mkdir(parents=True, exist_ok=True)
     VERIF_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     return (f"Verificación de '{proyecto}' guardada: {' && '.join(comandos)}" if comandos
             else f"Verificación de '{proyecto}' eliminada (se volverá a detectar sola).")
@@ -105,6 +106,7 @@ async def verificar(ruta: Path, tope: Path, comandos: list[str] | None, logs_dir
                 code = proc.returncode
             except asyncio.TimeoutError:
                 proc.kill()
+                await proc.wait()
                 out, code = f"Timeout tras {VERIF_TIMEOUT}s".encode(), -1
             texto = out.decode("utf-8", errors="replace")
             fh.write(f"$ {cmd}\n(exit {code}, {(datetime.now() - inicio).seconds}s)\n{texto}\n\n")

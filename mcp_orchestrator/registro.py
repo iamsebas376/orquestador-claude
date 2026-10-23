@@ -11,12 +11,13 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+from plataforma import DATOS_DIR, REPO_ROOT
+
 BASE_DIR = Path(__file__).resolve().parent
-REPO_ROOT = BASE_DIR.parent
-TAREAS_DIR = Path(os.getenv("TAREAS_DIR") or REPO_ROOT / "tareas")
-LOGS_DIR = Path(os.getenv("LOGS_DIR") or REPO_ROOT / "logs")
+TAREAS_DIR = Path(os.getenv("TAREAS_DIR") or DATOS_DIR / "tareas")
+LOGS_DIR = Path(os.getenv("LOGS_DIR") or DATOS_DIR / "logs")
 COSTOS_FILE = LOGS_DIR / "costos.jsonl"
-APRENDIZAJES_FILE = Path(os.getenv("APRENDIZAJES_FILE") or REPO_ROOT / "aprendizajes.jsonl")
+APRENDIZAJES_FILE = Path(os.getenv("APRENDIZAJES_FILE") or DATOS_DIR / "aprendizajes.jsonl")
 MAX_RONDAS = int(os.getenv("MAX_RONDAS_CORRECCION") or "2")
 
 ESTADOS = {
