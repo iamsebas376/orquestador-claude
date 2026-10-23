@@ -206,17 +206,45 @@ async def _ensure_opencode_server(cli: str) -> bool:
 
 
 async def _create_session(cwd: Path, title: str) -> str | None:
+    """Crea la sesión en el servidor de OpenCode. Puede tardar varios segundos con otras tareas en marcha: 2 intentos."""
+    for intento in (1, 2):
+        try:
+            async with httpx.AsyncClient(timeout=30, auth=_oc_auth()) as c:
+                r = await c.post(f"{OPENCODE_SERVER_URL}/session", params={"directory": str(cwd)}, json={"title": title})
+                r.raise_for_status()
+                return r.json()["id"]
+        except (httpx.HTTPError, KeyError, ValueError) as e:
+            _live(f"  ✖ no se pudo crear la sesión en el servidor (intento {intento}): {type(e).__name__} {e}")
+    return None
+
+
+def _agy_evento(line: str) -> str | None:
+    """Una línea de `agy -p --output-format stream-json` como texto corto para el seguimiento en vivo."""
     try:
-        async with httpx.AsyncClient(timeout=10, auth=_oc_auth()) as c:
-            r = await c.post(f"{OPENCODE_SERVER_URL}/session", params={"directory": str(cwd)}, json={"title": title})
-            r.raise_for_status()
-            return r.json()["id"]
-    except (httpx.HTTPError, KeyError, ValueError) as e:
-        _live(f"  ✖ no se pudo crear la sesión en el servidor: {e}")
+        e = json.loads(line)
+    except ValueError:
+        return line
+    if not isinstance(e, dict):
         return None
+    ev = e.get("event")
+    if ev == "step_update":
+        s = e.get("step_update") or {}
+        if s.get("step_type") == "tool" and s.get("state") == "ACTIVE":
+            par = (s.get("tool_info") or {}).get("parameters") or {}
+            arg = next((v for v in par.values() if isinstance(v, str) and v), "")
+            return f"→ {s.get('tool_name')} {arg[-90:]}".rstrip()
+        return None
+    if ev == "result":
+        return f"✔ terminó ({(e.get('result') or {}).get('status', '?')})"
+    if ev == "error":
+        return f"✖ {str(e)[:160]}"
+    return None
 
 
-async def _run(cmd: list[str], cwd: Path, timeout: int, idle: int = 0) -> tuple[int, str]:
+async def _run(cmd: list[str], cwd: Path, timeout: int, idle: int = 0, tag: str = "", mostrar=None) -> tuple[int, str]:
+    """Ejecuta `cmd` mostrando cada línea en el seguimiento en vivo (con `tag` para distinguir tareas en paralelo)
+    y un aviso cada 20 s si el agente sigue trabajando sin imprimir nada. `mostrar` convierte una línea en el texto
+    a mostrar (o None para omitirla)."""
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         cwd=str(cwd),
@@ -229,22 +257,36 @@ async def _run(cmd: list[str], cwd: Path, timeout: int, idle: int = 0) -> tuple[
     lines: list[str] = []
 
     inactivo = False
+    inicio_t = ultimo_aviso = time.monotonic()
+    tick = min(20, idle) if idle else 20
 
     async def pump() -> None:
-        nonlocal inactivo
+        nonlocal inactivo, ultimo_aviso
         assert proc.stdout
+        silencio = 0.0
         while True:
             try:
-                raw = await asyncio.wait_for(proc.stdout.readline(), timeout=idle or None)
+                raw = await asyncio.wait_for(proc.stdout.readline(), timeout=tick)
             except asyncio.TimeoutError:
-                inactivo = True
-                return
+                silencio += tick
+                if idle and silencio >= idle:
+                    inactivo = True
+                    return
+                ahora = time.monotonic()
+                if ahora - ultimo_aviso >= 20:
+                    _live(f"  … {tag}sigue trabajando ({int(ahora - inicio_t)} s)")
+                    ultimo_aviso = ahora
+                continue
+            silencio = 0.0
             if not raw:
                 return
             line = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", raw.decode("utf-8", errors="replace")).rstrip()
             lines.append(line)
             if line:
-                _live(f"  │ {line}")
+                msg = mostrar(line) if mostrar else line
+                if msg:
+                    _live(f"  │ {tag}{msg}")
+                    ultimo_aviso = time.monotonic()
 
     try:
         await asyncio.wait_for(pump(), timeout=timeout)
@@ -382,10 +424,12 @@ async def ejecutar_trabajo_opencode_innti(
         cmd += ["--attach", OPENCODE_SERVER_URL, "--dir", str(cwd), "--session", session_id]
     else:
         _live("  servidor OpenCode no disponible: se ejecuta sin sesión persistente")
+        cmd += ["--dir", str(cwd)]  # sin esto OpenCode trabaja en la carpeta del servidor MCP, no en la del proyecto
     checkpoint, before = await asyncio.gather(asyncio.to_thread(_git_checkpoint, cwd),
                                               asyncio.to_thread(_snapshot, cwd))
     inicio_ms = int(time.time() * 1000)
-    code, output = await _run([*cmd, prompt], cwd, OPENCODE_TIMEOUT, idle=OPENCODE_IDLE)
+    etiqueta = f"[OpenCode{f' #{item}' if item else ''} {modelo.split('/')[-1]}] "
+    code, output = await _run([*cmd, prompt], cwd, OPENCODE_TIMEOUT, idle=OPENCODE_IDLE, tag=etiqueta)
     after = await asyncio.to_thread(_snapshot, cwd)
     changed = sorted(p for p, m in after.items() if before.get(p) != m)
     lineas = await asyncio.to_thread(_count_lines, changed)
@@ -622,9 +666,14 @@ async def _agy_una_vez(agy: str, instruccion: str, contexto: str, target: Path, 
     inicio, before = datetime.now(timezone.utc), await asyncio.to_thread(_snapshot, folder)
     conv = ["--conversation", conversacion] if _conv_valida(conversacion) else []
     cmd = [agy, *conv, "-p", prompt, "--model", model, "--mode", "accept-edits",
-           "--print-timeout", f"{ANTIGRAVITY_TIMEOUT}s"]
+           "--output-format", "stream-json", "--print-timeout", f"{ANTIGRAVITY_TIMEOUT}s"]
     _live(f"  modelo: {model} | agy -p en {folder}")
-    code, output = await _run(cmd, folder, ANTIGRAVITY_TIMEOUT + 30, idle=ANTIGRAVITY_IDLE)
+    code, output = await _run(cmd, folder, ANTIGRAVITY_TIMEOUT + 30, idle=ANTIGRAVITY_IDLE,
+                              tag=f"[Antigravity {model.removeprefix('gemini-')}] ", mostrar=_agy_evento)
+    # En modo stream-json la respuesta final y la conversación vienen en el evento "result".
+    final = next((json.loads(l)["result"] for l in reversed(output.splitlines()) if l.startswith('{"event":"result"')), None)
+    texto = (final or {}).get("response") or ("" if final else output)
+    conv_final = (final or {}).get("conversation_id", "")
     task = {"id": task_id, "folder": folder, "model": model, "inicio": inicio, "descartados": descartados}
     tipo, msg = _agy_fallo(_agy_conversacion(folder), inicio)
     if not tipo and code != 0 and _RE_LIMITE.search(output):
@@ -633,7 +682,9 @@ async def _agy_una_vez(agy: str, instruccion: str, contexto: str, target: Path, 
         tipo, msg = "limite", output.strip()[-300:]
     if tipo:
         return _agy_corte(task, tipo, msg)
-    if code != 0 or not output.strip():
+    if final and final.get("status") != "SUCCESS":
+        return f"Error: Antigravity terminó con estado {final.get('status')}.\n{_tail(texto or output, 600)}\ntask_id: {task_id}"
+    if code != 0 or not texto.strip():
         return f"Error (exit {code}): Antigravity no devolvió resultado.\n{_tail(output, 600)}\ntask_id: {task_id}"
 
     after = await asyncio.to_thread(_snapshot, folder)
@@ -642,12 +693,12 @@ async def _agy_una_vez(agy: str, instruccion: str, contexto: str, target: Path, 
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / f"{task_id}.md"
     log_file.write_text(f"# Antigravity ({model})\n\n- carpeta: {folder}\n\n## Tarea\n\n{instruccion}\n\n"
-                        "## Archivos\n\n" + "\n".join(f"- {p}" for p in changed) + f"\n\n## Resultado\n\n{output}\n",
+                        "## Archivos\n\n" + "\n".join(f"- {p}" for p in changed) + f"\n\n## Resultado\n\n{texto}\n",
                         encoding="utf-8")
-    m = re.search(r"##\s*RESUMEN\s*(.+)$", output, flags=re.S | re.I)
-    resumen = m.group(1).strip() if m else _tail(output, 800)
+    m = re.search(r"##\s*RESUMEN\s*(.+)$", texto, flags=re.S | re.I)
+    resumen = m.group(1).strip() if m else _tail(texto, 800)
     shown = "\n".join(f"  - {p}" for p in changed[:15]) + (f"\n  … y {len(changed) - 15} más" if len(changed) > 15 else "")
-    conv_id = _agy_conversacion(folder)
+    conv_id = conv_final or _agy_conversacion(folder)
     tokens = _agy_tokens(conv_id, inicio) if conv_id else {}
     tok_txt = (f"Tokens: {tokens['input'] + tokens['cache_read']:,} entrada ({tokens['cache_read']:,} de caché) "
                f"/ {tokens['output']:,} salida\n".replace(",", ".") if tokens else "")

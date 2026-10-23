@@ -170,7 +170,7 @@ def test_cierre_personal_registra_equivalente_con_cache(tmp_path, monkeypatch):
 def test_conversacion_invalida_se_ignora(tmp_dirs, monkeypatch):
     vistos = []
 
-    async def falso(cmd, cwd, timeout, idle=0):
+    async def falso(cmd, cwd, timeout, idle=0, **_):
         vistos.append(cmd)
         return 0, "## RESUMEN\n- ok"
 

@@ -29,6 +29,7 @@ Haces únicamente: repartir el pedido en ítems, delegar cada ítem, revisar lo 
 
 ## Delegación directa y en paralelo
 - Sin terminales ni ventanas: `ejecutar_trabajo_opencode_innti(prompt_tarea, modelo_innti, ruta, sesion_opencode, pedido_id, item)` y `ejecutar_personal_antigravity(instruccion, ..., pedido_id, item)` corren el agente en segundo plano, esperan a que termine y devuelven la síntesis.
+- **Seguimiento en vivo:** la primera vez que delegues en una sesión, abre UNA pestaña con `run_in_terminal` (título "En vivo", comando `powershell -NoProfile -File <repo>\mcp_orchestrator\ver-en-vivo.ps1`) y muéstrala con `show_pane`; muestra en tiempo real los pasos de cada agente (cada línea lleva el agente, el ítem y el modelo). No la abras otra vez en la misma sesión.
 - Ítems independientes (sin archivos en común) → varias llamadas en el mismo mensaje, se ejecutan en paralelo. Nunca dos subagentes sobre los mismos archivos.
 - Antigravity (`agy -p`) edita archivos pero no ejecuta comandos (se deniegan): tests y builds los corres tú con `verificar_proyecto`.
 

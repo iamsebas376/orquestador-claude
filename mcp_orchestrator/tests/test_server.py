@@ -135,7 +135,7 @@ def _agy_falso(monkeypatch, respuestas, vistos=None):
     monkeypatch.setattr(server, "_agy_conversacion", lambda folder: "")
     monkeypatch.setattr(server, "_agy_fallo", lambda conv, desde: ("", ""))
 
-    async def falso(cmd, cwd, timeout, idle=0):
+    async def falso(cmd, cwd, timeout, idle=0, **_):
         if vistos is not None:
             vistos.append(cmd)
         return respuestas.pop(0)

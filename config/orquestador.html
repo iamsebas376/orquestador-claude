@@ -167,7 +167,8 @@ footer { color: var(--muted); font-size: .88rem; border-top: 1px solid var(--lin
 
 <section aria-labelledby="h-live">
   <h2 id="h-live">Cómo se ejecuta</h2>
-  <p>Las tareas corren en segundo plano, sin ventanas ni terminales: el orquestador lanza el CLI, espera a que termine y entrega a Claude solo el resumen final. Para seguirlas en vivo, abre <code>datos\logs\en-vivo.log</code>.</p>
+  <p>Las tareas corren en segundo plano, sin abrir un CLI por tarea: el orquestador lanza el agente, espera a que termine y entrega a Claude solo el resumen final.</p>
+  <div class="note"><p><strong>Seguimiento en vivo:</strong> una sola pestaña de terminal, <code>mcp_orchestrator\ver-en-vivo.ps1</code>, muestra en tiempo real lo que hace cada agente: las herramientas que usa, los archivos que toca y un aviso «sigue trabajando» cada 20 segundos si no hay novedades. Cada línea lleva una etiqueta con el agente, el ítem y el modelo (por ejemplo <code>[OpenCode #3 innti-dsf-last]</code>), así que las tareas en paralelo no se mezclan. Con las reglas de ejemplo, Claude abre esa pestaña la primera vez que delega en una sesión.</p></div>
   <div class="grid2">
     <div class="card"><h3>Trabajo: OpenCode</h3><p>El orquestador mantiene un servidor de OpenCode en <code>127.0.0.1:4096</code> (se inicia solo) y ejecuta <code>opencode run</code> pegado a una sesión, que se reutiliza en las rondas de corrección. Si pasa 10 minutos sin ninguna línea de salida, la tarea se corta.</p></div>
     <div class="card"><h3>Personal: Antigravity</h3><p>La tarea corre con <code>agy -p</code>: edita archivos pero los comandos de terminal se deniegan, así que los tests los corre Claude con <code>verificar_proyecto</code>. Si un modelo llega a su límite, se reintenta solo con el siguiente de <code>ANTIGRAVITY_CADENA</code>.</p></div>

@@ -10,7 +10,8 @@ Servidor MCP que convierte a Claude en el **cerebro** de un equipo de agentes: c
 ## Qué hace
 
 - **Enrutamiento por carpeta:** cada herramienta rechaza rutas del otro contexto.
-- **Ejecución directa:** la tarea corre en segundo plano (`opencode run` / `agy -p`), sin ventanas ni terminales; a Claude solo vuelve una síntesis. Varias delegaciones en el mismo mensaje corren en paralelo.
+- **Ejecución directa:** la tarea corre en segundo plano (`opencode run` / `agy -p`), sin abrir un CLI por tarea; a Claude solo vuelve una síntesis. Varias delegaciones en el mismo mensaje corren en paralelo.
+- **Seguimiento en vivo:** `mcp_orchestrator\ver-en-vivo.ps1` muestra en una sola terminal lo que hace cada agente en tiempo real (herramientas que usa, archivos que toca, "sigue trabajando" cada 20 s), con una etiqueta por agente, ítem y modelo. Con las reglas de ejemplo, Claude abre esa pestaña la primera vez que delega en una sesión.
 - **Checklist por pedido** (`datos/tareas/`), con estados, rondas de corrección (límite configurable) y notas de revisión.
 - **Correcciones con memoria:** OpenCode reutiliza la sesión y Antigravity la conversación.
 - **Respaldo de modelos:** si un modelo de Antigravity llega a su límite, se reintenta solo con el siguiente de `ANTIGRAVITY_CADENA`.
