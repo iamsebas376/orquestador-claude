@@ -369,7 +369,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
   }
 
   var selSes = null, ultSes = null, abiertaTarea = {}, ordenSes = { k: "total", asc: false };
-  var pagDetalle = 0;
+  var pagDetalle = 0, pagOtras = 0;
 
   function crearPaginador(actual, total, onCambiar) {
     var p = el("div", "paginador");
@@ -446,6 +446,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     if (!selSes || !filas.some(function (x) { return x.s.id === selSes; })) selSes = filas[0].s.id;
     if (selSes !== ultSes) {
       pagDetalle = 0;
+      pagOtras = 0;
       ultSes = selSes;
     }
 
@@ -475,6 +476,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
         if (selSes !== x.s.id) {
           selSes = x.s.id;
           pagDetalle = 0;
+          pagOtras = 0;
           ultSes = selSes;
         }
         render();
@@ -484,6 +486,69 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     t.appendChild(tb); wrap.appendChild(t); cont.appendChild(wrap);
     var sel = filas.filter(function (x) { return x.s.id === selSes; })[0];
     if (sel) cont.appendChild(renderDetalle(sel));
+  }
+
+  // "Otras tareas": todas las tareas de un solo ítem en una sola fila desplegable, con sus totales y paginador.
+  function filaOtras(tb, x, mono) {
+    var sum = function (k) { return mono.reduce(function (a, f) { return a + f[k]; }, 0); };
+    var innti = sum("innti"), agy = sum("agy"), cl = sum("cl"), total = innti + agy + cl;
+    var tok = mono.reduce(function (a, f) { return a + (f.p.tokens || 0) + ((f.p.claude && f.p.claude.tokens) || 0); }, 0);
+    var clave = "otras:" + x.s.id;
+    var tr = el("tr", abiertaTarea[clave] ? "abierta" : null), td = el("td");
+    var nom = el("div", "nom"); nom.appendChild(el("span", "caret", "›")); nom.appendChild(document.createTextNode(" Otras tareas"));
+    td.appendChild(nom);
+    td.appendChild(el("div", "sub2", mono.length + (mono.length === 1 ? " tarea" : " tareas") + " · " + compacto(tok) + " tokens"));
+    tr.appendChild(td);
+    var enCurso = mono.some(function (f) { return ["abierto", "en_curso", "revisando", "corrigiendo"].indexOf(f.p.estado) >= 0; });
+    var tdE = el("td"); tdE.appendChild(chip(enCurso ? "en_curso" : "terminada")); tr.appendChild(tdE);
+    var tdA = el("td"), modelos = {};
+    mono.forEach(function (f) {
+      (f.p.items || []).forEach(function (i) {
+        Object.keys(i.agentes || {}).forEach(function (k) { (i.agentes[k].modelos || []).forEach(function (m) { modelos[k] = modelos[k] || {}; modelos[k][m] = 1; }); });
+      });
+    });
+    [["innti", "innti", "OpenCode"], ["agy", "agy", "Antigravity"]].forEach(function (a) {
+      if (!modelos[a[0]]) return;
+      var punto = el("span", "ia " + a[1]);
+      tip(punto, a[2], Object.keys(modelos[a[0]]).map(function (m) { return [a[1], m]; }));
+      tdA.appendChild(punto);
+    });
+    tr.appendChild(tdA);
+    tr.appendChild(celda(innti, "innti"));
+    tr.appendChild(celda(agy, "agy", true));
+    tr.appendChild(celda(cl, "cl", true));
+    tr.appendChild(el("td", "n tot", dinero(total)));
+    var tdB = el("td"); tdB.appendChild(barra(innti, agy, cl)); tr.appendChild(tdB);
+    tr.addEventListener("click", function () { if (abiertaTarea[clave]) delete abiertaTarea[clave]; else abiertaTarea[clave] = 1; render(); });
+    tb.appendChild(tr);
+    if (!abiertaTarea[clave]) return;
+    var fi = el("tr", "items-fila"), tdi = el("td"), ul = el("ul", "mini");
+    tdi.colSpan = 8;
+    var lista = mono.slice().sort(function (a, b) { return b.total - a.total; });
+    var TAM = 10, pags = Math.ceil(lista.length / TAM);
+    if (pagOtras >= pags) pagOtras = Math.max(0, pags - 1);
+    (lista.length > TAM ? lista.slice(pagOtras * TAM, (pagOtras + 1) * TAM) : lista).forEach(function (f) {
+      var p = f.p, i = f.reales[0] || { texto: p.titulo || p.id, estado: p.estado };
+      var li = el("li");
+      li.appendChild(chip(i.estado || p.estado));
+      li.appendChild(el("div", null, p.titulo && p.titulo !== i.texto ? p.titulo + " · " + i.texto : (i.texto || p.id)));
+      var c = el("span", "c"), n = 0;
+      [["innti", "innti", "Innti", f.innti], ["agy", "agy", "Antigravity", f.agy], ["cl", "cl", "Claude", f.cl]].forEach(function (a) {
+        if (!a[3]) return;
+        if (n++) c.appendChild(el("span", "sep", " · "));
+        var parte = el("span", a[1]);
+        parte.appendChild(el("span", "ia " + a[1]));
+        parte.appendChild(document.createTextNode((a[1] === "innti" ? "" : "≈ ") + dinero(a[3])));
+        tip(parte, a[2], [[a[1], a[1] === "innti" ? "Gasto real" : "Equivalente API"]]);
+        c.appendChild(parte);
+      });
+      if (!n) c.textContent = "—";
+      li.appendChild(c);
+      ul.appendChild(li);
+    });
+    tdi.appendChild(ul);
+    if (lista.length > TAM) tdi.appendChild(crearPaginador(pagOtras, pags, function (nueva) { pagOtras = nueva; render(); }));
+    fi.appendChild(tdi); tb.appendChild(fi);
   }
 
   // Tareas de la sesión elegida, con las mismas columnas; los ítems se abren con un clic en la tarea.
@@ -513,11 +578,15 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
       hr.appendChild(el("th", c[1], c[0]));
     });
     th.appendChild(hr); t.appendChild(th);
-    var tb = el("tbody"), filas = x.peds.map(function (p) {
+    var tb = el("tbody"), todas = x.peds.map(function (p) {
       var cl = iasOn.cl === false ? 0 : (p.claude && p.claude.costo_equivalente_usd) || 0;
       var innti = iasOn.innti === false ? 0 : p.costo_usd || 0, agy = iasOn.agy === false ? 0 : p.costo_equivalente_usd || 0;
-      return { p: p, innti: innti, agy: agy, cl: cl, total: innti + agy + cl };
-    }).sort(function (a, b) { return b.total - a.total; });
+      return { p: p, innti: innti, agy: agy, cl: cl, total: innti + agy + cl,
+               reales: (p.items || []).filter(function (i) { return !i.virtual; }) };
+    });
+    // Las tareas de un solo ítem no llevan su propio collapse: van todas juntas en "Otras tareas".
+    var filasMono = todas.filter(function (f) { return f.reales.length <= 1; });
+    var filas = todas.filter(function (f) { return f.reales.length > 1; }).sort(function (a, b) { return b.total - a.total; });
     var TAM_PAG = 10, totalPags = Math.ceil(filas.length / TAM_PAG);
     if (pagDetalle >= totalPags) pagDetalle = Math.max(0, totalPags - 1);
     var filasVisibles = filas.length > TAM_PAG ? filas.slice(pagDetalle * TAM_PAG, (pagDetalle + 1) * TAM_PAG) : filas;
@@ -575,6 +644,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
         tdi.appendChild(ul); fi.appendChild(tdi); tb.appendChild(fi);
       }
     });
+    if (filasMono.length) filaOtras(tb, x, filasMono);
     t.appendChild(tb); wrap.appendChild(t); d.appendChild(wrap);
     if (filas.length > TAM_PAG) {
       d.appendChild(crearPaginador(pagDetalle, totalPags, function (nueva) {
@@ -757,10 +827,10 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
   // Las fechas personalizadas no se recuerdan entre visitas; los períodos que ya no existen vuelven a 30 días.
   if (["hoy", "7d", "30d", "todo"].indexOf(preset) < 0) preset = "30d";
   document.querySelectorAll(".presets button").forEach(function (b) {
-    b.addEventListener("click", function () { preset = b.dataset.p; pagDetalle = 0; guardar(); render(); });
+    b.addEventListener("click", function () { preset = b.dataset.p; pagDetalle = 0; pagOtras = 0; guardar(); render(); });
   });
   [fDesde, fHasta].forEach(function (inp) {
-    inp.addEventListener("change", function () { preset = "custom"; pagDetalle = 0; render(); });
+    inp.addEventListener("change", function () { preset = "custom"; pagDetalle = 0; pagOtras = 0; render(); });
   });
   function syncIas() {
     document.querySelectorAll(".ias button").forEach(function (b) { b.setAttribute("aria-pressed", String(iasOn[b.dataset.ia] !== false)); });
