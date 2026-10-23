@@ -10,8 +10,8 @@ Servidor MCP que convierte a Claude en el **cerebro** de un equipo de agentes: c
 ## Qué hace
 
 - **Enrutamiento por carpeta:** cada herramienta rechaza rutas del otro contexto.
-- **Ejecución directa:** la tarea corre en segundo plano (`opencode run` / `agy -p`), sin abrir un CLI por tarea; a Claude solo vuelve una síntesis. Varias delegaciones en el mismo mensaje corren en paralelo.
-- **Seguimiento en vivo:** `mcp_orchestrator\ver-en-vivo.ps1` muestra en una sola terminal lo que hace cada agente en tiempo real (herramientas que usa, archivos que toca, "sigue trabajando" cada 20 s), con una etiqueta por agente, ítem y modelo. Con las reglas de ejemplo, Claude abre esa pestaña la primera vez que delega en una sesión.
+- **Ver el trabajo en vivo (`VER_EN_VIVO`):** con `cli` (por defecto) cada tarea abre una ventana con el CLI del agente: la TUI de OpenCode pegada a su sesión y el CLI de Antigravity (`agy -i`), así ves todo y sabes que está trabajando. Con `log` la tarea corre directo (`opencode run` / `agy -p`) y el seguimiento es una sola pestaña con `mcp_orchestratorer-en-vivo.ps1`, con una etiqueta por agente, ítem y modelo y un aviso cada 20 s.
+- **Sin avisos de permisos en Antigravity:** en la ventana de Antigravity (solo carpetas personales) se aprueba todo sin preguntar (`ANTIGRAVITY_SIN_PERMISOS=1`); ponlo en `0` si prefieres que pregunte. A Claude solo vuelve una síntesis y varias delegaciones en el mismo mensaje corren en paralelo.
 - **Checklist por pedido** (`datos/tareas/`), con estados, rondas de corrección (límite configurable) y notas de revisión.
 - **Correcciones con memoria:** OpenCode reutiliza la sesión y Antigravity la conversación.
 - **Respaldo de modelos:** si un modelo de Antigravity llega a su límite, se reintenta solo con el siguiente de `ANTIGRAVITY_CADENA`.
@@ -55,6 +55,7 @@ Lo que quede vacío usa el valor por defecto. Las variables principales:
 | `TRABAJO_DIR`, `PERSONAL_DIR`, `UNIVERSIDAD_DIR`, `OTRAS_CARPETAS_PERSONALES` | Enrutamiento por carpeta |
 | `OPENCODE_CLI_PATH`, `INNTI_PROVIDER`, `INNTI_DEFAULT_MODEL` | OpenCode y modelo por defecto |
 | `ANTIGRAVITY_AGY_MODEL`, `ANTIGRAVITY_CADENA` | Modelo por defecto de Antigravity y orden de respaldo |
+| `VER_EN_VIVO`, `ANTIGRAVITY_SIN_PERMISOS` | `cli` o `log`; aprobar todo en la ventana de Antigravity |
 | `OPENCODE_IDLE_SECONDS`, `ANTIGRAVITY_IDLE_SECONDS`, `*_TIMEOUT_SECONDS` | Cortes por inactividad y por tiempo total |
 | `PRESUPUESTO_DIA_USD`, `PRESUPUESTO_MES_USD`, `PRESUPUESTO_AVISO_PCT` | Presupuesto de Innti |
 | `MAX_RONDAS_CORRECCION` | Rondas de corrección por ítem antes de consultarte |

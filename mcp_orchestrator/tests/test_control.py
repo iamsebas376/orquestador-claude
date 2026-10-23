@@ -3,6 +3,7 @@ import asyncio
 import json
 import sys
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 
@@ -181,3 +182,74 @@ def test_conversacion_invalida_se_ignora(tmp_dirs, monkeypatch):
     run(server.ejecutar_personal_antigravity("Corrige", "", "p2", "m", conversacion="x; rm -rf /"))
     assert vistos[0][vistos[0].index("--conversation") + 1] == "c78222c8-dcb8-4882-9c5c-97e052c3aba0"
     assert "--conversation" not in vistos[1]
+
+
+# ----------------------------------------------------------------------------- modo ventana (VER_EN_VIVO=cli)
+
+def test_antigravity_en_ventana_abre_el_cli_y_espera_el_resumen(tmp_dirs, monkeypatch):
+    abiertas = []
+    dormir = asyncio.sleep
+    monkeypatch.setattr(server, "VER_EN_VIVO", "cli")
+    monkeypatch.setattr(server, "ANTIGRAVITY_SIN_PERMISOS", True)
+    monkeypatch.setattr(server, "_agy_cmd", lambda: "agy")
+    monkeypatch.setattr(server, "_agy_conversacion", lambda folder: "")
+    monkeypatch.setattr(server, "_agy_fallo", lambda conv, desde: ("", ""))
+    monkeypatch.setattr(server.asyncio, "sleep", lambda s: dormir(0))
+
+    def abrir(titulo, argv, cwd):
+        abiertas.append((titulo, argv))
+        resultado = Path(next(a for a in argv if "resultado-" in a).split("archivo ")[1].split(" con una")[0])
+        resultado.write_text("## RESUMEN\n- Creó la nota con ñ y acentos.", encoding="utf-8")
+
+    monkeypatch.setattr(server, "_abrir_ventana", abrir)
+    out = run(server.ejecutar_personal_antigravity("Crea una nota; con punto y coma y \"comillas\"", "", "p", "gemini-3.8-flash-low"))
+    titulo, argv = abiertas[0]
+    assert out.startswith("Éxito") and "Creó la nota" in out and "ventana de Antigravity sigue abierta" in out
+    assert "-i" in argv and "-p" not in argv and "--dangerously-skip-permissions" in argv
+    prompt = argv[argv.index("-i") + 1]
+    assert ";" not in prompt and '"' not in prompt and "ñ" in prompt
+    assert titulo.startswith("Antigravity")
+
+
+def test_antigravity_en_ventana_sin_saltar_permisos_si_se_desactiva(tmp_dirs, monkeypatch):
+    abiertas = []
+    dormir = asyncio.sleep
+    monkeypatch.setattr(server, "VER_EN_VIVO", "cli")
+    monkeypatch.setattr(server, "ANTIGRAVITY_SIN_PERMISOS", False)
+    monkeypatch.setattr(server, "_agy_cmd", lambda: "agy")
+    monkeypatch.setattr(server, "_agy_conversacion", lambda folder: "")
+    monkeypatch.setattr(server, "_agy_fallo", lambda conv, desde: ("", ""))
+    monkeypatch.setattr(server, "ANTIGRAVITY_TIMEOUT", 0)
+    monkeypatch.setattr(server.asyncio, "sleep", lambda s: dormir(0))
+    monkeypatch.setattr(server, "_abrir_ventana", lambda t, argv, cwd: abiertas.append(argv))
+    out = run(server.ejecutar_personal_antigravity("tarea", "", "p", "gemini-3.8-flash-low"))
+    assert "--dangerously-skip-permissions" not in abiertas[0]
+    assert out.startswith("Sin resultado") and "ventana sigue abierta" in out
+
+
+def test_opencode_en_ventana_adjunta_la_tui_a_la_sesion(tmp_dirs, monkeypatch):
+    abiertas = []
+
+    async def servidor(cli):
+        return True
+
+    async def sesion(cwd, titulo):
+        return "ses_prueba"
+
+    async def ejecutar(cmd, cwd, timeout, idle=0, **_):
+        return 0, "ok"
+
+    async def tokens(*a, **k):
+        return {}
+
+    monkeypatch.setattr(server, "VER_EN_VIVO", "cli")
+    monkeypatch.setattr(server, "_opencode_cmd", lambda: "opencode")
+    monkeypatch.setattr(server, "_ensure_opencode_server", servidor)
+    monkeypatch.setattr(server, "_create_session", sesion)
+    monkeypatch.setattr(server, "_run", ejecutar)
+    monkeypatch.setattr(server, "_session_tokens", tokens)
+    monkeypatch.setattr(server, "_abrir_ventana", lambda t, argv, cwd: abiertas.append((t, argv)))
+    out = run(server.ejecutar_trabajo_opencode_innti("tarea", "innti-dsf-last", str(tmp_dirs["workspaces"] / "p")))
+    assert out.startswith("Éxito") and "sesion_opencode: ses_prueba" in out
+    titulo, argv = abiertas[0]
+    assert argv[:2] == ["opencode", "attach"] and "--session" in argv and argv[argv.index("--session") + 1] == "ses_prueba"

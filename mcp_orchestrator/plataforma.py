@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent  # carpeta del repositorio
@@ -31,3 +33,16 @@ def default_opencode_config() -> Path:
 
 def default_agy() -> str:
     return str(Path.home() / ".gemini" / "bin" / exe("agy"))
+
+
+def open_terminal(title: str, argv: list[str], cwd: Path, env: dict | None = None) -> str:
+    """Abre una ventana de terminal (Windows Terminal o consola de Windows) que ejecuta `argv` en `cwd`.
+    Devuelve "" o un mensaje de error."""
+    try:
+        if wt := shutil.which("wt.exe"):
+            subprocess.Popen([wt, "-w", "new", "--title", title, "-d", str(cwd), *argv], env=env)
+        else:
+            subprocess.Popen(argv, cwd=str(cwd), env=env, creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0))
+        return ""
+    except OSError as e:
+        return str(e)

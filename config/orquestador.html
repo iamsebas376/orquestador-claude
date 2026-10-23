@@ -167,11 +167,15 @@ footer { color: var(--muted); font-size: .88rem; border-top: 1px solid var(--lin
 
 <section aria-labelledby="h-live">
   <h2 id="h-live">Cómo se ejecuta</h2>
-  <p>Las tareas corren en segundo plano, sin abrir un CLI por tarea: el orquestador lanza el agente, espera a que termine y entrega a Claude solo el resumen final.</p>
-  <div class="note"><p><strong>Seguimiento en vivo:</strong> una sola pestaña de terminal, <code>mcp_orchestrator\ver-en-vivo.ps1</code>, muestra en tiempo real lo que hace cada agente: las herramientas que usa, los archivos que toca y un aviso «sigue trabajando» cada 20 segundos si no hay novedades. Cada línea lleva una etiqueta con el agente, el ítem y el modelo (por ejemplo <code>[OpenCode #3 innti-dsf-last]</code>), así que las tareas en paralelo no se mezclan. Con las reglas de ejemplo, Claude abre esa pestaña la primera vez que delega en una sesión.</p></div>
+  <p>El orquestador lanza el agente, espera a que termine y entrega a Claude solo el resumen final. Cómo lo ves depende de <code>VER_EN_VIVO</code> en el <code>.env</code>:</p>
+  <div class="grid2">
+    <div class="card"><h3><code>cli</code> (por defecto)</h3><p>Cada tarea abre una ventana con el CLI del agente: la TUI de OpenCode pegada a su sesión y el CLI de Antigravity (<code>agy -i</code>). Ves lo que lee, edita y ejecuta, y sabes que está trabajando.</p></div>
+    <div class="card"><h3><code>log</code></h3><p>La tarea corre directo (<code>opencode run</code> / <code>agy -p</code>) y una sola pestaña, <code>mcp_orchestratorer-en-vivo.ps1</code>, muestra los pasos de cada agente con una etiqueta (por ejemplo <code>[OpenCode #3 innti-dsf-last]</code>) y un aviso «sigue trabajando» cada 20 s.</p></div>
+  </div>
+  <div class="note"><p><strong>Permisos de Antigravity:</strong> en la ventana se ejecuta con <code>--dangerously-skip-permissions</code> (solo en carpetas personales y de universidad), así que no pregunta por cada comando; pon <code>ANTIGRAVITY_SIN_PERMISOS=0</code> si prefieres que pregunte. Sus reglas de permisos solo valen para el comando exacto, por eso no hay una lista que cubra «todo lo parecido».</p></div>
   <div class="grid2">
     <div class="card"><h3>Trabajo: OpenCode</h3><p>El orquestador mantiene un servidor de OpenCode en <code>127.0.0.1:4096</code> (se inicia solo) y ejecuta <code>opencode run</code> pegado a una sesión, que se reutiliza en las rondas de corrección. Si pasa 10 minutos sin ninguna línea de salida, la tarea se corta.</p></div>
-    <div class="card"><h3>Personal: Antigravity</h3><p>La tarea corre con <code>agy -p</code>: edita archivos pero los comandos de terminal se deniegan, así que los tests los corre Claude con <code>verificar_proyecto</code>. Si un modelo llega a su límite, se reintenta solo con el siguiente de <code>ANTIGRAVITY_CADENA</code>.</p></div>
+    <div class="card"><h3>Personal: Antigravity</h3><p>En modo <code>cli</code> corre en su ventana (<code>agy -i</code>) y deja su resumen en un archivo al terminar; en modo <code>log</code> corre con <code>agy -p</code>, que edita archivos pero deniega los comandos, así que los tests los corre Claude con <code>verificar_proyecto</code>. Si un modelo llega a su límite, se reintenta solo con el siguiente de <code>ANTIGRAVITY_CADENA</code>.</p></div>
   </div>
   <p>Si cambias <code>opencode.jsonc</code>, cierra el proceso <code>opencode serve</code> para que recargue la configuración.</p>
 </section>

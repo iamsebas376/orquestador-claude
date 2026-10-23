@@ -67,6 +67,11 @@ ANTIGRAVITY_CADENA = [
 ]
 ANTIGRAVITY_TIMEOUT = int(_env("ANTIGRAVITY_TIMEOUT_SECONDS", "900"))
 ANTIGRAVITY_IDLE = int(_env("ANTIGRAVITY_IDLE_SECONDS", "600"))  # agy -p no imprime hasta el final
+# cli = cada tarea abre una ventana con el CLI del agente (se ve todo en vivo); log = corre directo y se sigue en
+# datos/logs/en-vivo.log (ver-en-vivo.ps1).
+VER_EN_VIVO = _env("VER_EN_VIVO", "cli").lower()
+# En la ventana de Antigravity (solo carpetas personales) se aprueba todo sin preguntar: 0 = que pregunte.
+ANTIGRAVITY_SIN_PERMISOS = _env("ANTIGRAVITY_SIN_PERMISOS", "1") in ("1", "true", "si", "sí")
 
 MAX_RETURN_CHARS = int(_env("MAX_RETURN_CHARS", "1500"))
 PANEL_URL = _env("PANEL_URL")
@@ -216,6 +221,12 @@ async def _create_session(cwd: Path, title: str) -> str | None:
         except (httpx.HTTPError, KeyError, ValueError) as e:
             _live(f"  ✖ no se pudo crear la sesión en el servidor (intento {intento}): {type(e).__name__} {e}")
     return None
+
+
+def _abrir_ventana(titulo: str, argv: list[str], cwd: Path) -> None:
+    """Abre una ventana de terminal con el CLI del agente (VER_EN_VIVO=cli)."""
+    if err := plataforma.open_terminal(titulo, argv, cwd, OPENCODE_ENV):
+        _live(f"  ✖ no se pudo abrir la ventana: {err}")
 
 
 def _agy_evento(line: str) -> str | None:
@@ -425,6 +436,10 @@ async def ejecutar_trabajo_opencode_innti(
     else:
         _live("  servidor OpenCode no disponible: se ejecuta sin sesión persistente")
         cmd += ["--dir", str(cwd)]  # sin esto OpenCode trabaja en la carpeta del servidor MCP, no en la del proyecto
+    if VER_EN_VIVO == "cli" and session_id:
+        _abrir_ventana(f"OpenCode · {modelo.split('/')[-1]}", [cli, "attach", OPENCODE_SERVER_URL, "--dir", str(cwd),
+                                                              "--session", session_id], cwd)
+        await asyncio.sleep(2)
     checkpoint, before = await asyncio.gather(asyncio.to_thread(_git_checkpoint, cwd),
                                               asyncio.to_thread(_snapshot, cwd))
     inicio_ms = int(time.time() * 1000)
@@ -525,7 +540,7 @@ def _agy_cmd() -> str | None:
     return shutil.which(ANTIGRAVITY_CLI_PATH)
 
 
-def _agy_prompt(instruccion: str, contexto: str, target: Path, folder: Path) -> str:
+def _agy_prompt(instruccion: str, contexto: str, target: Path, folder: Path, resultado: Path | None = None) -> str:
     destino = f" Guarda el resultado principal en {target}." if target.suffix else ""
     return (
         f"[Tarea delegada por Claude] {instruccion}"
@@ -533,8 +548,12 @@ def _agy_prompt(instruccion: str, contexto: str, target: Path, folder: Path) -> 
         f" REGLAS: trabaja solo dentro de {folder}. Crea y edita archivos con tus herramientas de archivos; para "
         "leer, listar o buscar usa también tus herramientas de archivos. Los comandos de terminal se deniegan en este "
         "modo: no los uses. No pegues el código completo en el chat. No instales paquetes globales. Escribe en "
-        "español con ortografía correcta (tildes, ñ, ¿ y ¡). Al terminar responde SOLO con una sección "
-        "'## RESUMEN' de máximo 8 viñetas: lo realizado, los archivos creados o modificados y cómo probarlo."
+        "español con ortografía correcta (tildes, ñ, ¿ y ¡). "
+        + (f"Como ÚLTIMO paso obligatorio crea el archivo {resultado} con una sección '## RESUMEN' de máximo 8 viñetas: "
+           "lo realizado, los archivos creados o modificados y cómo probarlo."
+           if resultado else
+           "Al terminar responde SOLO con una sección '## RESUMEN' de máximo 8 viñetas: lo realizado, los archivos "
+           "creados o modificados y cómo probarlo.")
     )
 
 
@@ -656,30 +675,72 @@ def _conv_valida(conv: str) -> str:
     return conv if re.fullmatch(r"[0-9a-fA-F-]{8,64}", conv or "") else ""
 
 
+async def _agy_esperar(resultado: Path, folder: Path, inicio: datetime) -> tuple[str, str, str]:
+    """Espera el archivo de resultado que escribe el agente al terminar (modo ventana). Devuelve (texto, tipo, msg):
+    tipo 'limite'/'red' si agy se atascó, 'timeout' si no terminó a tiempo, '' si todo bien."""
+    limite, ultimo, vuelta = time.monotonic() + ANTIGRAVITY_TIMEOUT, -1, 0
+    while time.monotonic() < limite:
+        await asyncio.sleep(2)
+        if resultado.exists():
+            size = resultado.stat().st_size
+            if size and size == ultimo:  # espera a que termine de escribirse
+                texto = resultado.read_text(encoding="utf-8", errors="replace").strip()
+                resultado.unlink(missing_ok=True)
+                return texto, "", ""
+            ultimo = size
+            continue
+        vuelta += 1
+        if vuelta % 5 == 0:  # cada ~10 s revisa si agy quedó atascado por el límite del modelo o sin red
+            tipo, msg = _agy_fallo(_agy_conversacion(folder), inicio)
+            if tipo:
+                return "", tipo, msg
+        if vuelta % 15 == 0:
+            _live(f"  … esperando a Antigravity (ventana abierta, {vuelta * 2} s)")
+    return "", "timeout", f"Antigravity no escribió {resultado.name} en {ANTIGRAVITY_TIMEOUT}s"
+
+
 async def _agy_una_vez(agy: str, instruccion: str, contexto: str, target: Path, folder: Path, model: str,
                        conversacion: str, descartados: list[str]) -> str:
     """Una ejecución de `agy -p` (sin ventana ni terminal). Devuelve el texto de resultado para _cierre_personal:
     'Éxito: …', 'Límite: …', 'Sin conexión: …' o 'Error: …'."""
     _agy_confiar(folder)
     task_id = f"{_stamp()}-{_slug(instruccion, 24)}-{os.urandom(2).hex()}"
-    prompt = _agy_prompt(instruccion, contexto, target, folder)
     inicio, before = datetime.now(timezone.utc), await asyncio.to_thread(_snapshot, folder)
     conv = ["--conversation", conversacion] if _conv_valida(conversacion) else []
-    cmd = [agy, *conv, "-p", prompt, "--model", model, "--mode", "accept-edits",
-           "--output-format", "stream-json", "--print-timeout", f"{ANTIGRAVITY_TIMEOUT}s"]
-    _live(f"  modelo: {model} | agy -p en {folder}")
-    code, output = await _run(cmd, folder, ANTIGRAVITY_TIMEOUT + 30, idle=ANTIGRAVITY_IDLE,
-                              tag=f"[Antigravity {model.removeprefix('gemini-')}] ", mostrar=_agy_evento)
-    # En modo stream-json la respuesta final y la conversación vienen en el evento "result".
-    final = next((json.loads(l)["result"] for l in reversed(output.splitlines()) if l.startswith('{"event":"result"')), None)
-    texto = (final or {}).get("response") or ("" if final else output)
-    conv_final = (final or {}).get("conversation_id", "")
     task = {"id": task_id, "folder": folder, "model": model, "inicio": inicio, "descartados": descartados}
-    tipo, msg = _agy_fallo(_agy_conversacion(folder), inicio)
-    if not tipo and code != 0 and _RE_LIMITE.search(output):
-        tipo, msg = "limite", output.strip()[-300:]
-    if not tipo and _RE_LIMITE.search(output) and "RESUMEN" not in output.upper():
-        tipo, msg = "limite", output.strip()[-300:]
+    final, conv_final = None, ""
+    if VER_EN_VIVO == "cli":
+        # Ventana con el CLI de Antigravity (TUI): se ve todo en vivo. Al terminar el agente deja su resumen en un archivo.
+        resultado = folder / f".resultado-{task_id}.md"
+        prompt = _agy_prompt(instruccion, contexto, target, folder, resultado)
+        # Windows Terminal separa comandos con ';' y reinterpreta comillas: se neutralizan en el prompt.
+        prompt = " ".join(prompt.split()).replace(";", ",").replace('"', "'")
+        argv = [agy, *conv, "-i", prompt, "--model", model, "--mode", "accept-edits"]
+        if ANTIGRAVITY_SIN_PERMISOS:
+            argv.append("--dangerously-skip-permissions")
+        _live(f"  modelo: {model} | CLI de agy en ventana, carpeta {folder}")
+        _abrir_ventana(f"Antigravity · {model}", argv, folder)
+        texto, tipo, msg = await _agy_esperar(resultado, folder, inicio)
+        output, code = texto, 0 if texto else -1
+        if tipo == "timeout":
+            return (f"Sin resultado: {msg}. La ventana sigue abierta; revisa si espera una aprobación o si sigue trabajando.\n"
+                    f"task_id: {task_id}")
+    else:
+        prompt = _agy_prompt(instruccion, contexto, target, folder)
+        cmd = [agy, *conv, "-p", prompt, "--model", model, "--mode", "accept-edits",
+               "--output-format", "stream-json", "--print-timeout", f"{ANTIGRAVITY_TIMEOUT}s"]
+        _live(f"  modelo: {model} | agy -p en {folder}")
+        code, output = await _run(cmd, folder, ANTIGRAVITY_TIMEOUT + 30, idle=ANTIGRAVITY_IDLE,
+                                  tag=f"[Antigravity {model.removeprefix('gemini-')}] ", mostrar=_agy_evento)
+        # En modo stream-json la respuesta final y la conversación vienen en el evento "result".
+        final = next((json.loads(l)["result"] for l in reversed(output.splitlines()) if l.startswith('{"event":"result"')), None)
+        texto = (final or {}).get("response") or ("" if final else output)
+        conv_final = (final or {}).get("conversation_id", "")
+        tipo, msg = _agy_fallo(_agy_conversacion(folder), inicio)
+        if not tipo and code != 0 and _RE_LIMITE.search(output):
+            tipo, msg = "limite", output.strip()[-300:]
+        if not tipo and _RE_LIMITE.search(output) and "RESUMEN" not in output.upper():
+            tipo, msg = "limite", output.strip()[-300:]
     if tipo:
         return _agy_corte(task, tipo, msg)
     if final and final.get("status") != "SUCCESS":
@@ -707,6 +768,8 @@ async def _agy_una_vez(agy: str, instruccion: str, contexto: str, target: Path, 
             f"Archivos creados/modificados: {len(changed)}\n{shown}\n{tok_txt}Log: {log_file}\n"
             + (f"conversacion_antigravity: {conv_id} (pásala en una ronda de corrección para conservar el contexto)\n"
                if conv_id else "")
+            + ("La ventana de Antigravity sigue abierta por si quieres continuar la conversación ahí.\n"
+               if VER_EN_VIVO == "cli" else "")
             + f"\nSíntesis:\n{_tail(resumen)}")
 
 
