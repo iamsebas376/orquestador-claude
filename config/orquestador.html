@@ -3,7 +3,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
 <style>
-/* Layout: columna de lectura única (~68ch) con tablas que pueden desbordar en su propio scroll; dos colores de contexto (trabajo / personal) codifican el enrutamiento en toda la página */
+/* Layout: columna única a todo el ancho (hasta 1180px) con tablas que pueden desbordar en su propio scroll; dos colores de contexto (trabajo / personal) codifican el enrutamiento en toda la página */
 :root {
   --bg: #f6f7f9;
   --surface: #ffffff;
@@ -42,12 +42,12 @@ body {
   padding-right: max(16px, env(safe-area-inset-right, 0px));
   padding-block: 40px 72px;
 }
-.wrap { max-width: 880px; margin: 0 auto; display: flex; flex-direction: column; gap: 48px; }
+.wrap { max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 48px; }
 h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; line-height: 1.15; margin: 0; }
 h1 { font-size: clamp(2rem, 5vw, 2.8rem); font-weight: 800; letter-spacing: -0.02em; }
 h2 { font-size: 1.45rem; font-weight: 700; }
 h3 { font-size: 1.05rem; font-weight: 700; }
-p { margin: 0; max-width: 68ch; }
+p { margin: 0; }
 section { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .eyebrow { font: 600 .75rem/1 var(--f-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
 .lede { font-size: 1.12rem; color: var(--muted); }
@@ -105,7 +105,7 @@ tr.pick td:first-child { box-shadow: inset 3px 0 0 var(--work); }
 dl { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; font-size: .94rem; }
 dt { font-family: var(--f-mono); font-size: .84rem; color: var(--muted); }
 dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
-ol.steps { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 8px; max-width: 68ch; }
+ol.steps { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 8px; }
 .tree { font: .86rem/1.6 var(--f-mono); }
 footer { color: var(--muted); font-size: .88rem; border-top: 1px solid var(--line); padding-top: 16px; }
 
