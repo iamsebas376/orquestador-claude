@@ -60,17 +60,6 @@ def test_prompt_de_antigravity_pide_ortografia(tmp_dirs, monkeypatch):
     assert "ORTOGRAFIA" in cmd and "tildes" in cmd and "virgulilla" in cmd and cmd.isascii()
 
 
-def test_preparar_tarea_antigravity_mac(tmp_dirs, monkeypatch):
-    monkeypatch.setattr(server.plataforma, "IS_WINDOWS", False)
-    monkeypatch.setattr(server, "_agy_cmd", lambda: "/Users/ana/.gemini/bin/agy")
-    out = run(server.preparar_tarea_antigravity("Crea notas l'agent", "", "proyecto", "gemini-3.8-flash-low"))
-    cmd = out.split("\n")[-1]
-    assert cmd.startswith("cd ") and " && /Users/ana/.gemini/bin/agy -i '" in cmd
-    assert "Set-Location" not in cmd and cmd.isascii()
-    prompt = cmd.split(" -i '")[1].split("' --model")[0]
-    assert "'" not in prompt
-
-
 def test_preparar_vista_opencode_no_expone_contrasena(tmp_dirs, monkeypatch):
     async def ok(_cli):
         return True
@@ -130,7 +119,7 @@ def test_todas_las_herramientas_registradas():
                  "iniciar_pedido", "actualizar_item", "agregar_items", "cerrar_pedido", "ver_pedido",
                  "listar_pedidos", "resumen_costos", "registrar_aprendizaje", "consultar_aprendizajes",
                  "exportar_panel", "ver_configuracion", "verificar_proyecto", "configurar_verificacion",
-                 "integrar_trabajo", "listar_trabajos_aislados", "estado_presupuesto"}
+                 "estado_presupuesto"}
     assert esperadas <= nombres
 
 

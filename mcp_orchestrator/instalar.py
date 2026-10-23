@@ -1,4 +1,4 @@
-"""Pasos de instalación comunes a Windows y macOS (los llaman setup.ps1 y setup.sh, ya con el venv creado).
+"""Pasos de instalación en Windows (los llama setup.ps1, ya con el venv creado).
 
 1. Crea .env desde .env.example si no existe y genera OPENCODE_SERVER_PASSWORD si está vacía.
 2. Registra el servidor MCP en Claude Desktop y en Claude Code (todas las sesiones), con respaldo previo.
@@ -55,11 +55,7 @@ def _leer_json(path: Path) -> dict:
 
 
 def config_claude_desktop() -> Path:
-    if plataforma.IS_WINDOWS:
-        return Path(os.environ["APPDATA"]) / "Claude" / "claude_desktop_config.json"
-    if plataforma.IS_MAC:
-        return Path.home() / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"
-    return Path.home() / ".config" / "Claude" / "claude_desktop_config.json"
+    return Path(os.environ["APPDATA"]) / "Claude" / "claude_desktop_config.json"
 
 
 def registrar() -> None:

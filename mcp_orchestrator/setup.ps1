@@ -50,6 +50,6 @@ if ($SkipRegister) { $installArgs += '--sin-registro' }
 
 Write-Host ''
 Write-Host 'Listo. Pendiente:' -ForegroundColor Green
-Write-Host "  1. Revisa $App\.env (carpetas, modelos, PANEL_URL) y guarda la clave de respaldo con set-key.ps1 si la usas"
+Write-Host "  1. Revisa $App\.env (carpetas, modelos, PANEL_URL)"
 Write-Host "  2. Copia config\CLAUDE.example.md a ~\.claude\CLAUDE.md (Code) y config\PROJECT_INSTRUCTIONS.md a tu Proyecto (Chat)"
 Write-Host '  3. Reinicia Claude Desktop'

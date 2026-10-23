@@ -172,39 +172,6 @@ def test_sesiones_por_dia(tmp_registro):
     assert dsp["tareas"] == 3 and len(dsp["sesiones"]) == 2
 
 
-def test_desglose_de_claude_por_sesion(tmp_registro, tmp_path, monkeypatch):
-    precios = tmp_path / "precios.json"
-    precios.write_text(json.dumps({"claude-x": [5.0, 0.5, 25.0]}), encoding="utf-8")
-    monkeypatch.setattr(registro, "PRECIOS_FILE", precios)
-    proy = tmp_path / "cp" / "D--x"
-    proy.mkdir(parents=True)
-    monkeypatch.setattr(registro, "CLAUDE_PROJECTS_DIR", proy.parent)
-    ts = datetime.now().astimezone().isoformat()
-    lineas = [{"timestamp": ts, "sessionId": "s1", "cwd": r"D:\x", "message": {
-                  "id": f"m{i}", "model": "claude-x", "usage": {"input_tokens": 0, "cache_read_input_tokens": 1_000_000,
-                                                                "output_tokens": 0}}} for i in range(2)]
-    lineas += [{"type": "custom-title", "customTitle": "Viejo", "sessionId": "s1"},
-               {"type": "custom-title", "customTitle": "Mi sesión", "sessionId": "s1"}]
-    (proy / "s1.jsonl").write_text("\n".join(json.dumps(l) for l in lineas), encoding="utf-8")
-    ses = registro.sesiones_claude()
-    assert ses["info"]["s1"] == {"titulo": "Mi sesión", "carpeta": r"D:\x"}
-    d = ses["por_dia"][0]
-    assert d["respuestas"] == 2 and d["tokens_cache"] == 2_000_000 and d["costo_equivalente_usd"] == 1.0
-
-
-def test_delegaciones_sin_pedido_se_asignan_al_proyecto(tmp_registro):
-    pid = pedido_id(registro.iniciar_pedido("Tenants", ["A"], ruta=r"D:\w\app"))
-    registro.registrar_costo("opencode", "innti-dsp", {"input": 100, "output": 10}, 0.5, ruta=r"D:\w\app")
-    registro.registrar_costo("opencode", "innti-dsp", {"input": 50}, 0.25, ruta=r"D:\w\otro")
-    data = registro.datos_panel()
-    p = next(p for p in data["pedidos"] if p["id"] == pid)
-    virtual = p["items"][-1]
-    assert virtual["virtual"] and virtual["agentes"]["innti"]["costo_usd"] == 0.5
-    assert p["costo_usd"] == 0.5 and p["tokens"] == 110
-    huerfano = next(p for p in data["pedidos"] if p["titulo"] == "Delegaciones sin tarea")
-    assert huerfano["costo_usd"] == 0.25 and huerfano["ruta"] == r"D:\w\otro"
-
-
 def test_ajuste_sin_pedido_se_agrega_como_item(tmp_registro):
     pid = pedido_id(registro.iniciar_pedido("Tenants", ["A"], ruta=r"D:\w\app"))
     registro.cerrar_pedido(pid, "listo")
@@ -223,11 +190,11 @@ def test_desglose_por_agente_en_cada_item(tmp_registro, tmp_path, monkeypatch):
     proy = tmp_path / "cp" / "D--x"
     proy.mkdir(parents=True)
     monkeypatch.setattr(registro, "CLAUDE_PROJECTS_DIR", proy.parent)
-    pid = pedido_id(registro.iniciar_pedido("Con desglose", ["A", "B"], ruta=r"D:\wpp"))
+    pid = pedido_id(registro.iniciar_pedido("Con desglose", ["A", "B"], ruta=r"D:\w pp"))
     registro.actualizar_item(pid, 1, "en_curso")
     registro.registrar_costo("opencode", "innti-dsp", {"input": 100}, 0.5, pid, 1)
     registro.registrar_costo("antigravity", "gemini-x", {"input": 50}, 0.0, pid, 1, equivalente=0.2)
-    ts = datetime.now().astimezone().isoformat()  # Claude trabaja mientras el ítem 1 está en curso
+    ts = datetime.now().astimezone().isoformat()
     uso_pedido = {"sessionId": "s", "message": {"content": [{"type": "tool_use", "id": "t1",
                   "name": "mcp__orchestrator__actualizar_item", "input": {"pedido_id": pid}}]}}
     (proy / "s.jsonl").write_text(json.dumps({"timestamp": ts, "sessionId": "s", "message": {
@@ -236,8 +203,8 @@ def test_desglose_por_agente_en_cada_item(tmp_registro, tmp_path, monkeypatch):
     p = next(p for p in registro.datos_panel()["pedidos"] if p["id"] == pid)
     ag = p["items"][0]["agentes"]
     assert ag["innti"]["costo_usd"] == 0.5 and ag["agy"]["costo_equivalente_usd"] == 0.2
-    assert ag["claude"]["costo_equivalente_usd"] == 5.0
-    assert "claude" not in p["items"][1]["agentes"]
+    assert "claude" not in ag and p["items"][1]["agentes"] == {}
+    assert p["claude"]["costo_equivalente_usd"] == 5.0
 
 
 def test_sesion_sin_pedidos_no_se_carga_a_otro_pedido(tmp_registro, tmp_path, monkeypatch):
@@ -259,110 +226,3 @@ def test_sesion_sin_pedidos_no_se_carga_a_otro_pedido(tmp_registro, tmp_path, mo
     assert ses["claude"]["costo_equivalente_usd"] == 5.0 and ses["claude_fuera"]["costo_equivalente_usd"] == 5.0
     assert ses["pedidos"] == []
     assert pid in next(x for x in data["sesiones"] if x["id"] == "sin-sesion")["pedidos"]
-
-
-def test_dos_transcripts_con_mensaje_comun_dan_una_sola_sesion(tmp_registro, tmp_path, monkeypatch):
-    import time
-    precios = tmp_path / "precios.json"
-    precios.write_text(json.dumps({"claude-x": [5.0, 0.5, 25.0]}), encoding="utf-8")
-    monkeypatch.setattr(registro, "PRECIOS_FILE", precios)
-    proy = tmp_path / "cp" / "D--x"
-    proy.mkdir(parents=True)
-    monkeypatch.setattr(registro, "CLAUDE_PROJECTS_DIR", proy.parent)
-    pid = pedido_id(registro.iniciar_pedido("Pedido compartido", ["A"]))
-    ts = datetime.now().astimezone().isoformat()
-    ts_antes = (datetime.now().astimezone() - timedelta(minutes=10)).isoformat()
-
-    def msg(sid, mid, t=ts):
-        return json.dumps({"timestamp": t, "sessionId": sid, "message": {
-            "id": mid, "model": "claude-x", "usage": {"input_tokens": 1_000_000, "output_tokens": 0}}})
-
-    uso_pedido = json.dumps({"sessionId": "vieja", "message": {"content": [{"type": "tool_use", "id": "t1",
-                             "name": "mcp__orchestrator__actualizar_item", "input": {"pedido_id": pid}}]}})
-    prompt = json.dumps({"type": "user", "timestamp": ts_antes, "sessionId": "vieja",
-                         "message": {"content": "Revisa el módulo"}})
-    # "vieja" tiene m1 + 1 respuesta propia; "nueva" repite m1 y suma 2 respuestas propias (es la principal).
-    (proy / "vieja.jsonl").write_text("\n".join([msg("vieja", "m1"), msg("vieja", "v1", ts_antes), uso_pedido, prompt]),
-                                      encoding="utf-8")
-    time.sleep(0.05)
-    (proy / "nueva.jsonl").write_text("\n".join([msg("nueva", "m1"), msg("nueva", "n1"), msg("nueva", "n2")]),
-                                      encoding="utf-8")
-    sesiones = registro.datos_panel()["sesiones"]
-    assert len(sesiones) == 1
-    ses = sesiones[0]
-    assert ses["id"] == "nueva" and "padre" not in ses and "continuacion" not in ses
-    assert ses["claude"]["costo_equivalente_usd"] == 20.0  # m1 + v1 + n1 + n2, sin duplicar m1
-    assert ses["pedidos"] == [pid]
-    assert [p["texto"] for p in ses["prompts"]] == ["Consulta"]
-
-
-def test_nombre_de_prompts_usa_huella_plan_o_consulta(tmp_registro, tmp_path, monkeypatch):
-    assert not hasattr(registro, "_nombre_local")
-    proy = tmp_path / "cp" / "D--x"
-    proy.mkdir(parents=True)
-    monkeypatch.setattr(registro, "CLAUDE_PROJECTS_DIR", proy.parent)
-    nombres_file = tmp_path / "nombres_tareas.json"
-    nombres_file.write_text(json.dumps({registro._huella("Prompt con huella fija"): "Nombre manual fijo"}),
-                            encoding="utf-8")
-    monkeypatch.setattr(registro, "NOMBRES_FILE", nombres_file)
-
-    base = datetime.now().astimezone() - timedelta(minutes=30)
-    t = lambda m: (base + timedelta(minutes=m)).isoformat()
-
-    def user(txt, m):
-        return {"type": "user", "timestamp": t(m), "sessionId": "s1", "message": {"content": txt}}
-
-    def resp(mid, m):
-        return {"timestamp": t(m), "sessionId": "s1", "message": {
-            "id": mid, "model": "claude-x", "usage": {"input_tokens": 100, "output_tokens": 10}}}
-
-    def call(tool, inp, m):
-        return {"timestamp": t(m), "sessionId": "s1", "message": {"content": [
-            {"type": "tool_use", "id": f"p{m}", "name": tool, "input": inp}]}}
-
-    larga = ("Implementar la validación completa de formularios con mensajes detallados para cada campo. "
-             "Segunda frase ignorada.")
-    lineas = [
-        # 1) Con huella en nombres_tareas.json (gana aunque tenga iniciar_pedido y plan después)
-        user("Prompt con huella fija", 1),
-        call("mcp__orchestrator__iniciar_pedido", {"items": ["Ítem ignorado por huella"]}, 2),
-        call("mcp__ccd_turn__update_plan", {"items": [{"content": "Plan ignorado por huella"}]}, 3),
-        resp("m1", 4),
-        # 2) Prioridad a): iniciar_pedido / agregar_items gana sobre delegación y plan
-        user("Texto literal que nunca debe salir a", 5),
-        call("mcp__ccd_turn__update_plan", {"items": [{"content": "Plan previo superado por pedido"}]}, 6),
-        call("mcp__orchestrator__ejecutar_trabajo_opencode_innti", {"prompt_tarea": "Delegación superada."}, 7),
-        call("mcp__orchestrator__agregar_items", {"items": ["Ítem de agregar_items", "Otro"]}, 8),
-        resp("m2", 9),
-        # 3) Prioridad b): primera frase (máx. 60 caracteres) de instruccion / prompt_tarea gana sobre plan
-        user("Texto literal que nunca debe salir b", 10),
-        call("mcp__ccd_turn__update_plan", {"items": [{"content": "Plan superado por delegación"}]}, 11),
-        call("mcp__orchestrator__preparar_tarea_antigravity", {"instruccion": larga}, 12),
-        resp("m3", 13),
-        # 4) Prioridad plan: update_plan toma el primer ítem de la primera llamada con items
-        user("Texto literal que nunca debe salir 1", 15),
-        call("mcp__ccd_turn__update_plan", {}, 16),
-        call("mcp__ccd_turn__update_plan", {"items": [{"content": "Primer ítem del plan"}, {"content": "Segundo ítem"}]}, 17),
-        call("mcp__ccd_turn__update_plan", {"items": [{"content": "Llamada posterior ignorada"}]}, 18),
-        resp("m4", 19),
-        # 5) Sin huella, con TodoWrite
-        user("Texto literal que nunca debe salir 2", 20),
-        call("TodoWrite", {"items": [{"content": "Tarea desde TodoWrite"}]}, 21),
-        resp("m5", 22),
-        # 6) Sin huella y sin acción: 'Consulta' (nunca el texto literal)
-        user(" ¿Por qué falla el login? ", 25),
-        resp("m6", 26),
-    ]
-    (proy / "s1.jsonl").write_text("\n".join(json.dumps(l) for l in lineas), encoding="utf-8")
-
-    ses = next(x for x in registro.datos_panel()["sesiones"] if x["id"] == "s1")
-    assert [p["texto"] for p in ses["prompts"]] == [
-        "Nombre manual fijo",
-        "Ítem de agregar_items",
-        larga[:60].rstrip(" ,;:") + "…",
-        "Primer ítem del plan",
-        "Tarea desde TodoWrite",
-        "Consulta",
-    ]
-
-

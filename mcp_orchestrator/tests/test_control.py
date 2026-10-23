@@ -1,10 +1,8 @@
-"""Grupo 2: verificación por proyecto, trabajo aislado en worktrees, presupuesto y conversación de Antigravity."""
+"""Grupo 2: verificación por proyecto, presupuesto y conversación de Antigravity."""
 import asyncio
 import json
-import subprocess
 import sys
 from datetime import datetime
-from pathlib import Path
 
 import pytest
 
@@ -17,30 +15,13 @@ def run(coro):
     return asyncio.run(coro)
 
 
-def git(cwd, *args):
-    return subprocess.run(["git", "-C", str(cwd), "-c", "user.email=t@t", "-c", "user.name=t", *args],
-                          check=True, capture_output=True, text=True).stdout
-
-
 @pytest.fixture
 def tmp_control(tmp_path, monkeypatch):
     monkeypatch.setattr(control, "VERIF_FILE", tmp_path / "verificacion.json")
-    monkeypatch.setattr(control, "WORKTREES_FILE", tmp_path / "worktrees.json")
     monkeypatch.setattr(registro, "COSTOS_FILE", tmp_path / "costos.jsonl")
     for v in ("PRESUPUESTO_DIA_USD", "PRESUPUESTO_MES_USD", "PRESUPUESTO_AVISO_PCT"):
         monkeypatch.delenv(v, raising=False)
     return tmp_path
-
-
-@pytest.fixture
-def repo(tmp_path):
-    r = tmp_path / "ws" / "app"
-    r.mkdir(parents=True)
-    subprocess.run(["git", "init", "-q", str(r)], check=True)
-    (r / "a.py").write_text("x = 1\n")
-    git(r, "add", ".")
-    git(r, "commit", "-qm", "inicial")
-    return r
 
 
 # ----------------------------------------------------------------------------- verificación
@@ -95,57 +76,6 @@ def test_verificar_avisa_sin_node_modules(tmp_control, tmp_path):
     (tmp_path / "package.json").write_text("{}")
     out = run(control.verificar(tmp_path, tmp_path, [f'"{sys.executable}" -c "0"'], tmp_path / "logs"))
     assert "node_modules" in out
-
-
-# ----------------------------------------------------------------------------- worktrees
-
-def test_worktree_aplicar_deja_cambios_en_staging(tmp_control, repo):
-    info = control.crear_worktree(repo / "a.py", "t1", repo.parent)
-    wt = info["worktree"]
-    assert info["rama"] == "orq/t1" and info["target"] == (wt / "a.py").resolve()
-    assert control.worktree_info(wt / "a.py")["repo"] == str(repo.resolve())
-    (wt / "a.py").write_text("x = 2\n")
-    (wt / "b.py").write_text("y = 1\n")
-    assert control.confirmar_cambios(wt, "orq: cambio")
-    assert (repo / "a.py").read_text() == "x = 1\n"  # el repo original no se tocó
-    out = control.integrar(str(wt), "aplicar")
-    assert "staging" in out
-    assert (repo / "a.py").read_text() == "x = 2\n" and (repo / "b.py").exists()
-    assert "A  b.py" in git(repo, "status", "--porcelain")  # en staging, sin commit
-    assert not wt.exists() and "orq/t1" not in git(repo, "branch")
-    assert control.listar_worktrees().startswith("No hay")
-
-
-def test_worktree_descartar_no_toca_el_repo(tmp_control, repo):
-    wt = control.crear_worktree(repo, "t2", repo.parent)["worktree"]
-    (wt / "a.py").write_text("roto\n")
-    control.confirmar_cambios(wt, "orq: x")
-    assert "Descartado" in control.integrar(str(wt), "descartar")
-    assert (repo / "a.py").read_text() == "x = 1\n"
-    assert git(repo, "status", "--porcelain") == ""
-
-
-def test_verificacion_configurada_vale_dentro_del_worktree(tmp_control, repo, monkeypatch):
-    monkeypatch.setenv("TRABAJO_DIR", str(repo.parent))
-    control.guardar_verificacion("app", ["python -m unittest -q"])
-    wt = control.crear_worktree(repo, "t4", repo.parent)["worktree"]
-    carpeta, cmds, origen = control.comandos_para(wt, repo.parent)
-    assert cmds == ["python -m unittest -q"] and origen == "configurados" and carpeta == wt
-    control.integrar(str(wt), "descartar")
-
-
-def test_worktree_no_aplica_en_carpeta_sin_git(tmp_control, tmp_path):
-    (tmp_path / "plano").mkdir()
-    assert control.crear_worktree(tmp_path / "plano", "t3", tmp_path) is None
-
-
-def test_aislar_reutiliza_el_worktree_en_correcciones(tmp_control, repo, monkeypatch):
-    monkeypatch.setattr(server, "TRABAJO_DIR", repo.parent)
-    target, wt, aviso = server._aislar(repo, None, "tarea uno")
-    assert wt and Path(wt["worktree"]).exists() and aviso == ""
-    target2, wt2, _ = server._aislar(target, None, "corrección")
-    assert target2 == target and wt2["worktree"] == wt["worktree"]
-    control.integrar(wt["worktree"], "descartar")
 
 
 # ----------------------------------------------------------------------------- presupuesto

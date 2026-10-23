@@ -12,6 +12,3 @@ __pycache__/
 logs/
 tareas/
 aprendizajes.jsonl
-
-# Nombres de tareas (mencionan proyectos de trabajo): solo local
-nombres_tareas.json

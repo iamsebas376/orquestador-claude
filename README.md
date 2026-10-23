@@ -1,6 +1,6 @@
 # Orquestador Claude
 
-Servidor MCP que convierte a Claude en el **cerebro** de un equipo de agentes: clasifica cada pedido, lo delega al subagente que corresponde, **revisa** el resultado, vuelve a delegar correcciones y lleva un checklist con costos. Funciona en **Windows y macOS**.
+Servidor MCP que convierte a Claude en el **cerebro** de un equipo de agentes: clasifica cada pedido, lo delega al subagente que corresponde, **revisa** el resultado, vuelve a delegar correcciones y lleva un checklist con costos. Funciona en **Windows**.
 
 | Contexto | Carpeta (configurable) | Subagente |
 |---|---|---|
@@ -10,18 +10,17 @@ Servidor MCP que convierte a Claude en el **cerebro** de un equipo de agentes: c
 ## Qué hace
 
 - **Enrutamiento por carpeta:** cada herramienta rechaza rutas del otro contexto.
-- **CLI oficiales en vivo:** la tarea corre en la TUI de OpenCode o de Antigravity, en una pestaña del panel de terminal de Claude Code o en una ventana externa (Windows Terminal / Terminal.app).
+- **CLI oficiales en vivo:** la tarea corre en la TUI de OpenCode o de Antigravity, en una pestaña del panel de terminal de Claude Code o en una ventana externa (Windows Terminal).
 - **Checklist por pedido** (`tareas/`), con estados, rondas de corrección (límite configurable) y notas de revisión.
 - **Costos:** tokens reales de OpenCode × tu tabla de precios (`precios.json`); resumen por día, agente y modelo.
 - **Aprendizajes por proyecto:** qué modelo funcionó bien o mal, para elegir mejor la próxima vez.
 - **Verificación por proyecto:** detecta y corre tests/lint (Maven, Gradle, npm, pytest, Go) o los comandos que configures.
-- **Trabajo aislado:** en repos git, OpenCode trabaja en un worktree con rama `orq/…`; al aprobar, los cambios pasan a tu repo en staging, sin commit.
 - **Presupuesto:** límite diario y mensual de gasto en el proveedor, con aviso y freno.
 - **Correcciones con memoria:** OpenCode reutiliza la sesión y Antigravity la conversación.
 
 ### Hook opcional para el panel (Claude Code)
 
-Para que Claude nunca olvide sincronizar el panel al cerrar un pedido, agrega esto a `~/.claude/settings.json` (funciona en Windows y macOS):
+Para que Claude nunca olvide sincronizar el panel al cerrar un pedido, agrega esto a `~/.claude/settings.json`:
 
 ```json
 {
@@ -45,22 +44,14 @@ Para que Claude nunca olvide sincronizar el panel al cerrar un pedido, agrega es
 - Python 3.10+
 - [Claude Desktop](https://claude.ai/download) (pestañas Chat y Code)
 - OpenCode con tu proveedor configurado en `~/.config/opencode/opencode.jsonc`
-- Antigravity instalado y con sesión iniciada (crea `~/.gemini/bin/agy`)
+- Antigravity instalado y con sesión iniciada (crea `~/.gemini/bin/agy.exe`)
 
 ## Instalación
 
-**Windows**
 ```powershell
 git clone https://github.com/iamsebas376/orquestador-claude
 cd orquestador-claude
 powershell -ExecutionPolicy Bypass -File mcp_orchestrator\setup.ps1 -InstallOpenCode
-```
-
-**macOS**
-```bash
-git clone https://github.com/iamsebas376/orquestador-claude
-cd orquestador-claude
-bash mcp_orchestrator/setup.sh --install-opencode
 ```
 
 El instalador crea el entorno virtual, el `.env` (con una contraseña aleatoria para el servidor de OpenCode) y registra el servidor en Claude Desktop y en Claude Code. Después:
@@ -84,15 +75,14 @@ Publica `config/panel.html` como artefacto en claude.ai con la capacidad `db` (p
 | `ejecutar_personal_antigravity` / `preparar_tarea_antigravity` → `esperar_resultado_antigravity` | Tarea personal en Antigravity |
 | `iniciar_pedido`, `actualizar_item`, `agregar_items`, `cerrar_pedido`, `ver_pedido`, `listar_pedidos` | Checklist |
 | `verificar_proyecto`, `configurar_verificacion` | Tests/lint en cada revisión |
-| `integrar_trabajo`, `listar_trabajos_aislados` | Aplicar o descartar trabajo aislado |
 | `estado_presupuesto`, `resumen_costos`, `registrar_aprendizaje`, `consultar_aprendizajes`, `exportar_panel` | Control |
 
 ## Desarrollo
 
-```bash
+```powershell
 cd mcp_orchestrator
-.venv/bin/python -m pip install -r requirements-dev.txt   # Windows: .venv\Scripts\python.exe
-.venv/bin/python -m pytest tests
+.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.venv\Scripts\python.exe -m pytest tests
 ```
 
-`plataforma.py` concentra lo que depende del sistema operativo (rutas, terminales y sintaxis de PowerShell o zsh). `probar.py` ejecuta cualquier herramienta sin cliente MCP: `python probar.py ver_configuracion`.
+`plataforma.py` concentra lo que depende del sistema operativo (rutas, terminales y sintaxis de PowerShell). `probar.py` ejecuta cualquier herramienta sin cliente MCP: `python probar.py ver_configuracion`.

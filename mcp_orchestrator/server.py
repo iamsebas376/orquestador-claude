@@ -2,8 +2,7 @@
 MCP Orchestrator: Claude actúa como cerebro/enrutador y delega la ejecución pesada.
 
   TRABAJO  -> OpenCode CLI usando modelos Innti (proveedor LiteLLM corporativo)
-  PERSONAL -> Antigravity (modo "api": modelo Gemini vía endpoint OpenAI-compatible;
-                           modo "cli": abre la tarea en el agente del IDE Antigravity)
+  PERSONAL -> Antigravity (CLI oficial `agy`)
 
 Las salidas largas se escriben en disco; a Claude solo se le devuelve un resumen corto.
 """
@@ -62,8 +61,6 @@ INNTI_DEFAULT_MODEL = _env("INNTI_DEFAULT_MODEL", "innti-dsp")
 INNTI_BASE_URL = _env("INNTI_BASE_URL").rstrip("/")
 INNTI_API_KEY = _env("INNTI_API_KEY")
 
-# agy = CLI oficial de Antigravity (cuenta del usuario, plan Pro); api = respaldo con la API de Gemini.
-ANTIGRAVITY_MODE = _env("ANTIGRAVITY_MODE", "agy").lower()
 ANTIGRAVITY_CLI_PATH = _env("ANTIGRAVITY_CLI_PATH") or plataforma.default_agy()
 ANTIGRAVITY_AGY_MODEL = _env("ANTIGRAVITY_AGY_MODEL", "gemini-3.8-flash-medium")
 ANTIGRAVITY_AGY_FALLBACK = [
@@ -75,22 +72,9 @@ ANTIGRAVITY_CADENA = [
         "ANTIGRAVITY_CADENA", "gemini-4-argon-high,gemini-4-argon-medium,gemini-3.8-flash-medium,gemini-3.8-flash-low"
     ).split(",") if m.strip()
 ]
-ANTIGRAVITY_SKIP_PERMISSIONS = _env("ANTIGRAVITY_SKIP_PERMISSIONS", "0") in ("1", "true", "si", "sí")
-# tui = la tarea corre en la TUI oficial de agy en su ventana; visor = agy sin ventana + visor propio.
-ANTIGRAVITY_VISTA = _env("ANTIGRAVITY_VISTA", "tui").lower()
-ANTIGRAVITY_API_KEY = _env("ANTIGRAVITY_API_KEY")
-ANTIGRAVITY_BASE_URL = _env(
-    "ANTIGRAVITY_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai"
-).rstrip("/")
-ANTIGRAVITY_MODEL = _env("ANTIGRAVITY_MODEL", "gemini-3.5-flash")
-ANTIGRAVITY_FALLBACK_MODELS = [
-    m.strip() for m in _env("ANTIGRAVITY_FALLBACK_MODELS", "gemini-flash-latest,gemini-3.1-flash-lite").split(",")
-    if m.strip()
-]
 ANTIGRAVITY_TIMEOUT = int(_env("ANTIGRAVITY_TIMEOUT_SECONDS", "600"))
 
 MAX_RETURN_CHARS = int(_env("MAX_RETURN_CHARS", "1500"))
-AISLAR_TRABAJO = _env("AISLAR_TRABAJO", "1") not in ("0", "false", "no")
 PANEL_URL = _env("PANEL_URL")
 SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "dist", "build", "target", ".next", "__pycache__", ".angular",
              ".pytest_cache", ".mypy_cache", ".ruff_cache", ".gradle", ".idea", ".vscode"}
@@ -104,7 +88,7 @@ LIVE_LOG = LOGS_DIR / "en-vivo.log"
 
 
 def _live(msg: str) -> None:
-    """Registro de texto en tiempo real (logs/en-vivo.log): Get-Content -Wait (Windows) o tail -f (macOS)."""
+    """Registro de texto en tiempo real (logs/en-vivo.log): Get-Content -Wait."""
     try:
         LOGS_DIR.mkdir(parents=True, exist_ok=True)
         with open(LIVE_LOG, "a", encoding="utf-8") as fh:
@@ -201,7 +185,7 @@ def _oc_auth() -> tuple[str, str] | None:
 
 
 def _open_console(title: str, cmd: list[str], cwd: Path) -> None:
-    """Abre una ventana de terminal externa (Windows Terminal, Terminal.app o Linux) con el comando dado."""
+    """Abre una ventana de terminal externa (Windows Terminal) con el comando dado."""
     if not SHOW_CONSOLE:
         return
     if err := plataforma.open_terminal(title, cmd, cwd, OPENCODE_ENV):
@@ -364,32 +348,14 @@ def _work_cwd(target: Path) -> Path:
     return target
 
 
-def _aislar(target: Path, aislar: bool | None, texto: str) -> tuple[Path, dict | None, str]:
-    """Si corresponde, mueve la tarea a un worktree aislado. Devuelve (target, info del worktree, aviso)."""
-    info = control.worktree_info(target)
-    if info:  # ya está en un worktree del orquestador (ronda de corrección)
-        return target, info, ""
-    if not (AISLAR_TRABAJO if aislar is None else aislar):
-        return target, None, ""
-    try:
-        nuevo = control.crear_worktree(target, f"{datetime.now():%m%d-%H%M%S}-{_slug(texto, 20)}", TRABAJO_DIR)
-    except (RuntimeError, OSError, subprocess.SubprocessError) as e:
-        return target, None, f"(No se pudo aislar: {e}. Se trabaja directo en el repo.)\n"
-    if not nuevo:  # no es un repo git (o no tiene commits): se trabaja directo
-        return target, None, ""
-    _live(f"  aislado en {nuevo['worktree']} (rama {nuevo['rama']})")
-    return nuevo["target"], control.worktree_info(nuevo["worktree"]), ""
-
-
 @mcp.tool()
-async def preparar_vista_opencode(ruta_proyecto_o_archivo: str = "", titulo: str = "",
-                                  aislar: bool | None = None) -> str:
+async def preparar_vista_opencode(ruta_proyecto_o_archivo: str = "", titulo: str = "") -> str:
     """SOLO EN CLAUDE CODE (terminal interna). Paso 1 de 2 para una tarea de TRABAJO.
 
-    Crea la sesión en el servidor de OpenCode (en un worktree aislado si es repo git y AISLAR_TRABAJO=1) y
-    devuelve session_id, ruta_para_ejecutar y el comando de la TUI oficial. Ejecuta el comando tal cual con
-    run_in_terminal (título 'OpenCode'), y luego llama ejecutar_trabajo_opencode_innti con
-    sesion_opencode=<session_id> y ruta_proyecto_o_archivo=<ruta_para_ejecutar>.
+    Crea la sesión en el servidor de OpenCode y devuelve session_id, ruta_para_ejecutar y el comando
+    de la TUI oficial. Ejecuta el comando tal cual con run_in_terminal (título 'OpenCode'), y luego
+    llama ejecutar_trabajo_opencode_innti con sesion_opencode=<session_id> y
+    ruta_proyecto_o_archivo=<ruta_para_ejecutar>.
     """
     target = _resolve_under(TRABAJO_DIR, ruta_proyecto_o_archivo)
     if not _inside(target, TRABAJO_DIR):
@@ -400,7 +366,6 @@ async def preparar_vista_opencode(ruta_proyecto_o_archivo: str = "", titulo: str
         return f"Error: no se encontró OpenCode ('{OPENCODE_CLI_PATH}'). Revisa OPENCODE_CLI_PATH en .env."
     if not await _ensure_opencode_server(cli):
         return f"Error: el servidor de OpenCode no respondió en {OPENCODE_SERVER_URL}."
-    target, wt, aviso = _aislar(target, aislar, titulo or target.name)
     cwd = _work_cwd(target)
     session_id = await _create_session(cwd, f"Claude → {titulo or cwd.name}"[:80])
     if not session_id:
@@ -408,9 +373,7 @@ async def preparar_vista_opencode(ruta_proyecto_o_archivo: str = "", titulo: str
     # oc_attach.py lee la contraseña del .env: no aparece en el comando ni en el chat.
     cmd = plataforma.run_line(sys.executable, plataforma.quote_path(BASE_DIR / "oc_attach.py"),
                               "--dir", plataforma.quote_path(cwd), "--session", session_id)
-    aislado = (f"Trabajo aislado: rama {wt['rama']} en el worktree {wt['worktree']} (tu repo no se toca).\n"
-               if wt else "")
-    return (f"session_id: {session_id}\nruta_para_ejecutar: {target}\n{aislado}{aviso}"
+    return (f"session_id: {session_id}\nruta_para_ejecutar: {target}\n"
             f"comando (ejecútalo con run_in_terminal, una sola línea, sin cambios; luego muestra la pestaña con show_pane):\n{cmd}")
 
 
@@ -422,14 +385,11 @@ async def ejecutar_trabajo_opencode_innti(
     sesion_opencode: str = "",
     pedido_id: str = "",
     item: int = 0,
-    aislar: bool | None = None,
     forzar_presupuesto: bool = False,
 ) -> str:
     """CONTEXTO TRABAJO (Innti/corporativo). Delega la tarea a OpenCode con un modelo Innti.
     OpenCode edita los archivos directamente; aquí solo vuelve un resumen de estado, tokens y costo.
 
-    aislar: en repos git trabaja en un worktree con rama orq/… (por defecto AISLAR_TRABAJO=1). Para una ronda
-        de corrección pasa como ruta el mismo worktree. Al aprobar: integrar_trabajo(worktree, 'aplicar').
     forzar_presupuesto: solo si el usuario autorizó pasar el límite de presupuesto.
 
     sesion_opencode: session_id de preparar_vista_opencode (TUI en la terminal de Claude) o de una delegación
@@ -472,7 +432,6 @@ async def ejecutar_trabajo_opencode_innti(
     if not (pedido_id and item):  # ajuste sin pedido: queda como ítem nuevo del pedido del proyecto
         pedido_id, item, aviso_item = registro.item_automatico(str(target if not target.suffix else target.parent),
                                                                prompt_tarea)
-    target, wt, aviso_aislar = _aislar(target, aislar, prompt_tarea)
     cwd = _work_cwd(target)
     if pedido_id and item:
         registro.actualizar_item(pedido_id, item, "en_curso", agente="OpenCode", modelo=modelo.split("/")[-1])
@@ -501,7 +460,7 @@ async def ejecutar_trabajo_opencode_innti(
         cmd += ["--attach", OPENCODE_SERVER_URL, "--dir", str(cwd), "--session", session_id]
     else:
         _live("  servidor OpenCode no disponible: se ejecuta sin ventana")
-    checkpoint = "" if wt else _git_checkpoint(cwd)
+    checkpoint = _git_checkpoint(cwd)
     before = _snapshot(cwd)
     inicio_ms = int(time.time() * 1000)
     code, output = await _run([*cmd, prompt], cwd, OPENCODE_TIMEOUT)
@@ -529,15 +488,7 @@ async def ejecutar_trabajo_opencode_innti(
     _live(f"■ {estado} | {len(changed)} archivos | {tok_txt} | resumen devuelto a Claude")
     vinculo = registro.vincular_delegacion(pedido_id, item, "OpenCode", modelo.split("/")[-1], costo, estado)
     vinculo += aviso_item
-    if wt:
-        w = wt["worktree"]
-        sha = control.confirmar_cambios(Path(w), f"orq: {prompt_tarea[:80]}")
-        revisar = (f"Trabajo aislado en la rama {wt['rama']} (worktree {w}); tu repo no se tocó.\n"
-                   f"Esta ronda: git -C \"{w}\" show --stat {sha or 'HEAD'} · todo: git -C \"{w}\" diff {wt['base'][:10]}\n"
-                   f"Verifica con verificar_proyecto(\"{target}\"). Ronda de corrección: misma ruta y sesion_opencode. "
-                   f"Al aprobar: integrar_trabajo(\"{w}\", \"aplicar\") (cambios en staging, sin commit) o \"descartar\".")
-    else:
-        revisar = f"Revisa con: git -C \"{cwd}\" diff" if checkpoint else "Revisa los archivos listados."
+    revisar = f"Revisa con: git -C \"{cwd}\" diff" if checkpoint else "Revisa los archivos listados."
     _, presupuesto = control.estado_presupuesto()
     alerta = f"\n{presupuesto}" if presupuesto.startswith(("⚠", "⛔")) else ""
     return (
@@ -547,7 +498,6 @@ async def ejecutar_trabajo_opencode_innti(
         + (f"sesion_opencode: {session_id} (pásala en una ronda de corrección para conservar el contexto)\n"
            if session_id else "")
         + (f"Punto de retorno: {checkpoint}\n" if checkpoint else "")
-        + aviso_aislar
         + f"{revisar}\nLog completo: {log_file}{vinculo}{alerta}\n\nResumen de OpenCode:\n{_tail(output)}"
     )
 
@@ -592,32 +542,9 @@ async def ejecutar_personal_antigravity(
 
     folder = target.parent if target.suffix else target
     folder.mkdir(parents=True, exist_ok=True)
-
-    # Archivos para el visor en vivo: .meta (modelo, tarea), .events (eventos JSON) y .done (estado final).
-    view_dir = LOGS_DIR / "antigravity"
-    view_dir.mkdir(parents=True, exist_ok=True)
-    base = view_dir / f"{_stamp()}-{_slug(instruccion)}"
-    events_file, done_file = base.with_suffix(".events"), base.with_suffix(".done")
-    events_file.write_text("", encoding="utf-8")
-
-    if ANTIGRAVITY_MODE == "api":
-        principal = (modelo_antigravity or ANTIGRAVITY_MODEL).strip()
-    else:
-        principal = (modelo_antigravity or ANTIGRAVITY_AGY_MODEL).strip()
-        if SHOW_CONSOLE and ANTIGRAVITY_VISTA == "tui":
-            res, final = await _personal_agy_tui(instruccion, contexto_adicional, target, folder, principal,
-                                                 conversacion)
-            return _cierre_personal(res, pedido_id, item, final, folder)
-    base.with_suffix(".meta").write_text(f"{principal}\n{instruccion[:300].replace(chr(10), ' ')}\n", encoding="utf-8")
-    _open_console(f"Antigravity · {principal}",
-                  [sys.executable, str(BASE_DIR / "visor_antigravity.py"), str(events_file)], BASE_DIR)
-
-    if ANTIGRAVITY_MODE == "api":
-        res = await _personal_api(instruccion, contexto_adicional, target, principal, events_file, done_file)
-    else:
-        res = await _personal_agy(instruccion, contexto_adicional, target, folder, principal, events_file, done_file,
-                                  conversacion)
-    return _cierre_personal(res, pedido_id, item, principal, folder)
+    principal = (modelo_antigravity or ANTIGRAVITY_AGY_MODEL).strip()
+    res, final = await _personal_agy_tui(instruccion, contexto_adicional, target, folder, principal, conversacion)
+    return _cierre_personal(res, pedido_id, item, final, folder)
 
 
 def _cierre_personal(res: str, pedido_id: str, item: int, model: str, folder: Path) -> str:
@@ -643,11 +570,6 @@ def _cierre_personal(res: str, pedido_id: str, item: int, model: str, folder: Pa
         return res
     extra = f"\nEquivalente por la API de Gemini: ≈ US$ {equivalente:.4f} (plan Pro: no se cobra)" if equivalente else ""
     return res + extra + registro.vincular_delegacion(pedido_id, item, "Antigravity", model, 0.0, res.split("\n")[0])
-
-
-def _emit(events_file: Path, event: dict) -> None:
-    with open(events_file, "a", encoding="utf-8") as fh:
-        fh.write(json.dumps(event, ensure_ascii=False) + "\n")
 
 
 AGY_SETTINGS = Path.home() / ".gemini" / "antigravity-cli" / "settings.json"
@@ -903,9 +825,8 @@ async def _personal_agy_tui(instruccion: str, contexto: str, target: Path, folde
         task = _agy_prepare(instruccion, contexto, target, folder, model)
         task["descartados"] = descartados
         prompt = " ".join(task["prompt"].split())
-        if plataforma.IS_WINDOWS:
-            # Windows Terminal separa comandos con ';' y reinterpreta comillas: se neutralizan en el prompt.
-            prompt = prompt.replace(";", ",").replace('"', "'")
+        # Windows Terminal separa comandos con ';' y reinterpreta comillas: se neutralizan en el prompt.
+        prompt = prompt.replace(";", ",").replace('"', "'")
         _live(f"  modelo: {model} | TUI oficial de agy en {folder}")
         conv = ["--conversation", conversacion] if _conv_valida(conversacion) else []
         _open_console(f"Antigravity · {model}",
@@ -993,224 +914,27 @@ async def esperar_resultado_antigravity(task_id: str) -> str:
     return out
 
 
-def _step_label(info: dict) -> str:
-    params = (info or {}).get("parameters") or {}
-    for key in ("TargetFile", "AbsolutePath", "CommandLine", "Query", "SearchPath", "Url", "DirectoryPath"):
-        if params.get(key):
-            return str(params[key])
-    return next((str(v) for v in params.values() if isinstance(v, (str, int))), "")
-
-
-async def _personal_agy(instruccion: str, contexto: str, target: Path, folder: Path, principal: str,
-                        events_file: Path, done_file: Path, conversacion: str = "") -> str:
-    agy = _agy_cmd()
-    if not agy:
-        done_file.write_text("✖ No se encontró el CLI de Antigravity (agy)", encoding="utf-8")
-        return f"Error: no se encontró agy en '{ANTIGRAVITY_CLI_PATH}'. Revisa ANTIGRAVITY_CLI_PATH en .env."
-
-    prompt = instruccion
-    if contexto:
-        prompt += f"\n\nContexto adicional:\n{contexto}"
-    if target.suffix:
-        prompt += f"\n\nGuarda el resultado principal en: {target}"
-    prompt += (f"\n\nTrabaja solo dentro de {folder}. Escribe los artefactos (código, documentos) en archivos; no "
-               "los pegues completos en la respuesta. No instales paquetes globales ni cambies la configuración del "
-               "sistema.")
-    if not ANTIGRAVITY_SKIP_PERMISSIONS:
-        prompt += (" No ejecutes comandos de terminal (no tienes permiso para hacerlo): trabaja únicamente creando "
-                   "y editando archivos, y si algo debería probarse, indica en el resumen cómo hacerlo.")
-    prompt += (" Termina tu respuesta con una sección '## RESUMEN' de máximo 8 viñetas con lo realizado, los "
-               "archivos creados y los hallazgos clave.")
-
-    cadena = ANTIGRAVITY_CADENA[ANTIGRAVITY_CADENA.index(principal) + 1:] if principal in ANTIGRAVITY_CADENA else []
-    modelos = list(dict.fromkeys([principal, *cadena, ANTIGRAVITY_AGY_MODEL, *ANTIGRAVITY_AGY_FALLBACK]))
-    before = _snapshot(folder)
-    fallos: list[str] = []
-    for model in modelos:
-        _live(f"  modelo: {model} | agy en {folder}")
-        if model != modelos[0]:
-            _emit(events_file, {"event": "restart", "model": model})
-        cmd = [agy, "-p", prompt, "--model", model,
-               "--output-format", "stream-json", "--print-timeout", f"{ANTIGRAVITY_TIMEOUT}s"]
-        if _conv_valida(conversacion):
-            cmd += ["--conversation", conversacion]
-        # Por defecto solo edita archivos. Con permisos saltados también ejecuta comandos (terminal en sandbox,
-        # pero sus herramientas de archivos pueden escribir fuera de la carpeta: por eso es opcional).
-        cmd += ["--dangerously-skip-permissions", "--sandbox"] if ANTIGRAVITY_SKIP_PERMISSIONS else ["--mode", "accept-edits"]
-        proc = await asyncio.create_subprocess_exec(
-            *cmd, cwd=str(folder), stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
-        )
-        response, result, otros = [], None, []
-        assert proc.stdout
-        try:
-            async def pump() -> None:
-                nonlocal result
-                async for raw in proc.stdout:
-                    line = raw.decode("utf-8", errors="replace").strip()
-                    if not line:
-                        continue
-                    try:
-                        ev = json.loads(line)
-                    except ValueError:
-                        otros.append(line)
-                        _live(f"  │ {line}")
-                        continue
-                    with open(events_file, "a", encoding="utf-8") as fh:
-                        fh.write(line + "\n")
-                    if ev.get("event") == "result":
-                        result = ev.get("result") or {}
-                        continue
-                    st = ev.get("step_update") or {}
-                    if st.get("text_delta"):
-                        response.append(st["text_delta"])
-                    if st.get("step_type") == "tool" and st.get("state") == "ACTIVE":
-                        _live(f"  ⚙ {st.get('tool_name')} {_step_label(st.get('tool_info'))}")
-
-            await asyncio.wait_for(pump(), timeout=ANTIGRAVITY_TIMEOUT + 30)
-            await proc.wait()
-        except asyncio.TimeoutError:
-            proc.kill()
-            fallos.append(f"{model}: timeout")
-            continue
-
-        status = (result or {}).get("status", "")
-        if status == "SUCCESS":
-            break
-        motivo = status or _tail(" ".join(otros), 200) or f"exit {proc.returncode}"
-        fallos.append(f"{model}: {motivo}")
-        _live(f"  ✖ {model}: {motivo}")
-    else:
-        done_file.write_text("✖ Antigravity no completó la tarea: " + "; ".join(fallos), encoding="utf-8")
-        _live("■ Error: Antigravity no completó la tarea")
-        return "Error: Antigravity no completó la tarea. " + "; ".join(fallos)
-
-    content = (result.get("response") or "".join(response)).strip()
-    usage = result.get("usage") or {}
-    after = _snapshot(folder)
-    changed = sorted(p for p, m in after.items() if before.get(p) != m)
-
-    log_dir = LOGS_DIR / "personal"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / f"{_stamp()}-{_slug(instruccion)}.md"
-    log_file.write_text(
-        f"# Antigravity ({model})\n\n- carpeta: {folder}\n- conversación: {result.get('conversation_id')}\n"
-        f"- tokens: {usage}\n\n## Prompt\n\n{prompt}\n\n## Archivos\n\n" + "\n".join(f"- {p}" for p in changed) +
-        f"\n\n## Respuesta\n\n{content}\n", encoding="utf-8")
-
-    m = re.search(r"##\s*RESUMEN\s*(.+)$", content, flags=re.S | re.I)
-    resumen = m.group(1).strip() if m else _tail(content, 800)
-    tokens = f"{usage.get('input_tokens', 0):,} entrada / {usage.get('output_tokens', 0):,} salida".replace(",", ".")
-    denied = [d.get("display_name") or d.get("action") for d in result.get("denied_actions") or []]
-    if not content and not changed:
-        motivo = f"se le negaron: {', '.join(denied)}" if denied else "terminó sin respuesta ni archivos"
-        _live(f"■ Incompleto: {motivo}")
-        done_file.write_text(f"✖ Antigravity se detuvo: {motivo}", encoding="utf-8")
-        return (f"Incompleto: Antigravity ({model}) se detuvo sin crear archivos ({motivo}). "
-                f"Log: {log_file}. Reformula la tarea para que solo cree/edite archivos, o activa "
-                "ANTIGRAVITY_SKIP_PERMISSIONS=1 si necesita ejecutar comandos.")
-    if denied:
-        resumen = f"(Acciones denegadas: {', '.join(denied)})\n{resumen}"
-    aviso = f" (se pidió {principal}; antes fallaron: {', '.join(fallos)})" if fallos else ""
-    shown = "\n".join(f"  - {p}" for p in changed[:15]) + (f"\n  … y {len(changed) - 15} más" if len(changed) > 15 else "")
-    _live(f"■ Éxito con {model} | {len(changed)} archivos | tokens {tokens} | síntesis devuelta a Claude")
-    done_file.write_text(f"✓ {model} · {len(changed)} archivos en {folder} · síntesis enviada a Claude", encoding="utf-8")
-    return (f"Éxito: Antigravity ({model}{aviso}) completó la tarea en {folder}.\n"
-            f"Archivos creados/modificados: {len(changed)} | Tokens: {tokens}\n{shown}\n"
-            + (f"conversacion_antigravity: {result.get('conversation_id')} (pásala en una ronda de corrección)\n"
-               if result.get("conversation_id") else "")
-            + f"Log completo: {log_file}\n\nSíntesis:\n{_tail(resumen)}")
-
-
-async def _personal_api(instruccion: str, contexto: str, target: Path, principal: str,
-                        events_file: Path, done_file: Path) -> str:
-    """Respaldo sin agente: llama a la API de Gemini con ANTIGRAVITY_API_KEY y guarda la respuesta."""
-    if not ANTIGRAVITY_API_KEY:
-        done_file.write_text("✖ Falta ANTIGRAVITY_API_KEY", encoding="utf-8")
-        return "Error: falta ANTIGRAVITY_API_KEY en .env (o usa ANTIGRAVITY_MODE=agy)."
-
-    system = (
-        "Eres el ejecutor de tareas personales. Entrega el resultado completo (código, documento o "
-        "análisis) en Markdown. Termina SIEMPRE con una sección '## RESUMEN' de máximo 8 viñetas "
-        "con lo realizado y los hallazgos clave."
-    )
-    user = instruccion + (f"\n\n### Contexto adicional\n{contexto}" if contexto else "")
-    content, used_model, fallos = None, "", []
-    modelos = list(dict.fromkeys([principal, ANTIGRAVITY_MODEL, *ANTIGRAVITY_FALLBACK_MODELS]))
-    async with httpx.AsyncClient(timeout=ANTIGRAVITY_TIMEOUT) as c:
-        # Dos rondas: la saturación (503) de Google suele ser momentánea.
-        for intento, model in enumerate(modelos * 2):
-            if intento == len(modelos):
-                await asyncio.sleep(10)
-            _live(f"  probando {model}…")
-            try:
-                async with c.stream(
-                    "POST", f"{ANTIGRAVITY_BASE_URL}/chat/completions",
-                    headers={"Authorization": f"Bearer {ANTIGRAVITY_API_KEY}"},
-                    json={"model": model, "stream": True,
-                          "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]},
-                ) as r:
-                    if r.status_code in (404, 429) or r.status_code >= 500:
-                        fallos.append(f"{model}: HTTP {r.status_code}")
-                        continue
-                    if r.status_code >= 400:
-                        body = (await r.aread()).decode("utf-8", errors="replace")
-                        return f"Error HTTP {r.status_code} de Gemini ({model}): {_tail(body, 400)}"
-                    _emit(events_file, {"event": "restart", "model": model})
-                    parts = []
-                    async for raw in r.aiter_lines():
-                        if not raw.startswith("data:") or raw.strip() == "data: [DONE]":
-                            continue
-                        try:
-                            delta = json.loads(raw[5:])["choices"][0]["delta"].get("content") or ""
-                        except (ValueError, KeyError, IndexError):
-                            continue
-                        parts.append(delta)
-                        _emit(events_file, {"event": "step_update", "step_update": {
-                            "step_type": "agent_response", "state": "ACTIVE", "text_delta": delta}})
-            except Exception as e:  # noqa: BLE001
-                fallos.append(f"{model}: {e}")
-                continue
-            content, used_model = "".join(parts), model
-            break
-    if content is None:
-        done_file.write_text("✖ Ningún modelo de Gemini respondió: " + "; ".join(fallos), encoding="utf-8")
-        return "Error: ningún modelo de Gemini respondió. " + "; ".join(fallos)
-
-    out_file = target if target.suffix else target / f"{_stamp()}-{_slug(instruccion)}.md"
-    out_file.parent.mkdir(parents=True, exist_ok=True)
-    out_file.write_text(content, encoding="utf-8")
-    m = re.search(r"##\s*RESUMEN\s*(.+)$", content, flags=re.S | re.I)
-    resumen = m.group(1).strip() if m else _tail(content, 800)
-    aviso = f"; antes fallaron: {', '.join(fallos)}" if fallos else ""
-    done_file.write_text(f"✓ {used_model} · guardado en {out_file} · síntesis enviada a Claude", encoding="utf-8")
-    return (f"Éxito: Gemini API ({used_model}{aviso}) completó la tarea. "
-            f"Resultado completo: {out_file} ({content.count(chr(10)) + 1} líneas)\n\n"
-            f"Síntesis:\n{_tail(resumen)}")
-
-
 # ----------------------------------------------------------------------------- configuración
 
 @mcp.tool()
 def ver_configuracion() -> str:
     """Carpetas de enrutamiento, modelos por defecto y sistema operativo de esta instalación.
     Úsala al empezar una sesión para saber qué ruta es trabajo y cuál personal en esta máquina."""
-    sistema = "Windows" if plataforma.IS_WINDOWS else "macOS" if plataforma.IS_MAC else "Linux"
-    return (f"Sistema: {sistema} (comandos de terminal en {'PowerShell' if plataforma.IS_WINDOWS else 'zsh/bash'})\n"
+    return (f"Sistema: Windows (comandos de terminal en PowerShell)\n"
             f"TRABAJO (OpenCode): {TRABAJO_DIR} · modelo por defecto {INNTI_PROVIDER}/{INNTI_DEFAULT_MODEL}\n"
             f"PERSONAL (Antigravity): {PERSONAL_DIR} · UNIVERSIDAD: {UNIVERSIDAD_DIR} · "
-            f"modo {ANTIGRAVITY_MODE}/{ANTIGRAVITY_VISTA} · modelo {ANTIGRAVITY_AGY_MODEL}\n"
+            f"modelo {ANTIGRAVITY_AGY_MODEL}\n"
             f"Checklists: {registro.TAREAS_DIR} · logs: {LOGS_DIR} · panel: {'configurado' if PANEL_URL else 'sin PANEL_URL'}\n"
             f"Rondas de corrección máximas: {registro.MAX_RONDAS}")
 
 
-# ----------------------------------------------------------------------------- verificación, aislamiento y presupuesto
+# ----------------------------------------------------------------------------- verificación y presupuesto
 
 @mcp.tool()
 async def verificar_proyecto(ruta: str, comandos: list[str] | None = None) -> str:
     """Corre los tests/lint del proyecto que contiene `ruta` y devuelve VERDE/ROJO con el final de cada salida.
     Usa los comandos guardados con configurar_verificacion o los detecta (Maven, Gradle, npm, pytest, Go).
-    Úsala en cada revisión de una delegación de trabajo (también dentro del worktree aislado)."""
+    Úsala en cada revisión de una delegación de trabajo."""
     target = _resolve_under(TRABAJO_DIR, ruta)
     if not _inside(target, TRABAJO_DIR, PERSONAL_DIR, UNIVERSIDAD_DIR, *OTRAS_CARPETAS):
         return f"Rechazado: {target} está fuera de las carpetas configuradas."
@@ -1226,19 +950,6 @@ def configurar_verificacion(proyecto: str, comandos: list[str]) -> str:
     """Guarda cómo se verifica un proyecto (nombre de la carpeta de primer nivel o ruta absoluta), p. ej.
     configurar_verificacion('ssdd-back', ['mvn -q -B test']). Lista vacía = quitar la configuración."""
     return control.guardar_verificacion(proyecto, comandos)
-
-
-@mcp.tool()
-def integrar_trabajo(worktree: str, accion: str = "aplicar") -> str:
-    """Cierra un trabajo aislado. accion: 'aplicar' (squash al repo original: cambios en staging SIN commit),
-    'descartar' (borra worktree y rama, el repo no cambia) o 'conservar'."""
-    return control.integrar(worktree, accion)
-
-
-@mcp.tool()
-def listar_trabajos_aislados() -> str:
-    """Worktrees del orquestador pendientes de aplicar o descartar."""
-    return control.listar_worktrees()
 
 
 @mcp.tool()

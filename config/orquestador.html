@@ -234,13 +234,12 @@ footer { color: var(--muted); font-size: .88rem; border-top: 1px solid var(--lin
       </tbody>
     </table>
   </div>
-  <p>Modos alternativos en el <code>.env</code>: <code>ANTIGRAVITY_VISTA=visor</code> ejecuta <code>agy</code> sin ventana y muestra un visor propio con pasos y tokens. <code>ANTIGRAVITY_MODE=api</code> vuelve a la API de Gemini con la clave de AI Studio (solo texto, cuota gratuita). <code>ANTIGRAVITY_SKIP_PERMISSIONS=1</code> deja que ejecute comandos sin preguntar en el modo sin ventana; es riesgoso porque sus herramientas de archivos pueden escribir fuera de la carpeta.</p>
 </section>
 
 <section aria-labelledby="h-files">
   <h2 id="h-files">Dónde está cada cosa</h2>
   <div class="code"><pre class="tree">D:\claude\
-├─ mcp_orchestrator\     server.py · visor_antigravity.py · probar.py · .env · setup.ps1 · set-key.ps1 · .venv\
+├─ mcp_orchestrator\     server.py · probar.py · .env · setup.ps1 · .venv\
 ├─ config\               PROJECT_INSTRUCTIONS.md · claude_desktop_config.snippet.json · orquestador.html
 ├─ tools\opencode\       OpenCode 1.19.3 (binario nativo opencode.exe)
 └─ logs\trabajo\         log completo de cada ejecución de OpenCode
@@ -256,9 +255,7 @@ D:\universidad\          estudio                     → Antigravity</pre></div>
       <dt>OPENCODE_CLI_PATH</dt><dd>Binario nativo dentro de <code>D:\claude\tools\opencode</code></dd>
       <dt>INNTI_PROVIDER</dt><dd><code>litellm-proxy</code></dd>
       <dt>INNTI_DEFAULT_MODEL</dt><dd><code>innti-dsp</code></dd>
-      <dt>ANTIGRAVITY_MODE · VISTA</dt><dd><code>agy</code> · <code>tui</code> (CLI oficial en su ventana)</dd>
       <dt>ANTIGRAVITY_AGY_MODEL</dt><dd><code>gemini-3.8-flash-medium</code></dd>
-      <dt>ANTIGRAVITY_API_KEY</dt><dd>Solo para el modo <code>api</code> de respaldo; se guarda con <code>set-key.ps1</code></dd>
       <dt>MAX_RETURN_CHARS</dt><dd><code>1500</code>, el tope de texto que vuelve a Claude</dd>
     </dl>
   </div>
@@ -308,11 +305,6 @@ D:\universidad\          estudio                     → Antigravity</pre></div>
 <pre id="c1">powershell -ExecutionPolicy Bypass -File D:\claude\mcp_orchestrator\setup.ps1 -InstallOpenCode</pre>
   </div>
   <div class="code">
-    <span class="label">Cambiar la clave de Gemini del modo api de respaldo (sin mostrarla en pantalla)</span>
-    <button type="button" data-copy="c2">Copiar</button>
-<pre id="c2">powershell -ExecutionPolicy Bypass -File D:\claude\mcp_orchestrator\set-key.ps1</pre>
-  </div>
-  <div class="code">
     <span class="label">Registro de texto de todas las delegaciones (opcional)</span>
     <button type="button" data-copy="c3">Copiar</button>
 <pre id="c3">Get-Content D:\claude\logs\en-vivo.log -Wait -Tail 0 -Encoding UTF8</pre>
@@ -325,7 +317,7 @@ D:\universidad\          estudio                     → Antigravity</pre></div>
   <div class="grid2">
     <div class="card"><h3>Prueba del 16 de octubre</h3><p>Trabajo: <code>innti-dsp</code> creó un módulo de dígito de verificación de NIT con 7 tests en verde. Personal: Antigravity (CLI oficial, plan Pro) creó un proyecto de lista de tareas con 3 tests en verde y un script con README desde su propia ventana. OpenCode ya no lee <code>~/.claude/CLAUDE.md</code> y tiene prohibido instalar paquetes globales.</p></div>
     <div class="card"><h3>Por qué OpenCode está en D:\claude\tools</h3><p>Tu Node es la versión 10 y no puede ejecutar el instalador de <code>opencode-ai</code>. Se instaló sin scripts y se usa el <code>.exe</code> nativo directamente. Quedaron tres archivos sueltos en <code>C:\Program Files\nodejs</code> (<code>opencode</code>, <code>.cmd</code>, <code>.ps1</code>) que se pueden borrar a mano.</p></div>
-    <div class="card"><h3>Revisión y control</h3><p><code>verificar_proyecto</code> corre los tests/lint del proyecto (Maven, Gradle, npm, pytest, Go o comandos guardados con <code>configurar_verificacion</code>). En repos git, OpenCode trabaja en un worktree con rama <code>orq/…</code>; <code>integrar_trabajo</code> deja los cambios en staging sin commit o los descarta. Presupuesto: <code>PRESUPUESTO_DIA_USD</code> y <code>PRESUPUESTO_MES_USD</code> avisan al 80% y frenan al límite. Las correcciones reutilizan la sesión de OpenCode o la conversación de Antigravity.</p></div>
+    <div class="card"><h3>Revisión y control</h3><p><code>verificar_proyecto</code> corre los tests/lint del proyecto (Maven, Gradle, npm, pytest, Go o comandos guardados con <code>configurar_verificacion</code>). Presupuesto: <code>PRESUPUESTO_DIA_USD</code> y <code>PRESUPUESTO_MES_USD</code> avisan al 80% y frenan al límite. Las correcciones reutilizan la sesión de OpenCode o la conversación de Antigravity.</p></div>
     <div class="card"><h3>Seguridad y respaldo</h3><p>El servidor de OpenCode exige contraseña (<code>OPENCODE_SERVER_PASSWORD</code> en el <code>.env</code>, generada al azar); la pestaña se abre con <code>oc_attach.py</code> para no mostrarla. <code>D:\claude</code> es un repositorio git local (sin <code>.env</code>, logs ni checklists); hay un <code>.env.example</code> sin claves. Pruebas: <code>.venv\Scripts\python.exe -m pytest tests</code> (23 en verde).</p></div>
     <div class="card"><h3>Cambios fuera de D:\claude</h3><p>En <code>opencode.jsonc</code> el <code>shell</code> pasó de <code>zsh</code> a <code>pwsh</code>; la copia original está en <code>opencode.jsonc.bak-20261016</code>. El paquete <code>mcp</code> está fijado por debajo de la versión 2 porque la 2.x renombró FastMCP.</p></div>
   </div>

@@ -3,7 +3,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;800&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
 <style>
-/* Layout: tablero de una columna (~960px): fila de indicadores, pedidos como tarjetas con su checklist, tabla de costos al final. El color de estado codifica el avance de cada ítem. */
+/* Layout: tablero de una columna (~960px): fila de indicadores, comparativa de sesiones con sus tareas, tabla de costos al final. El color de estado codifica el avance de cada ítem. */
 :root {
   --bg: #f4f6f9; --surface: #ffffff; --fg: #1a2130; --muted: #5d6779; --line: #dde2ea;
   --accent: #2348a8; --accent-soft: #e5ebf9;
@@ -68,32 +68,6 @@ th[aria-sort] button::after { content: " ↓"; } th[aria-sort="ascending"] butto
 .kpi .l { font: 600 .72rem/1.3 var(--f-mono); letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
 
 .pedidos { display: flex; flex-direction: column; gap: 14px; }
-.pedido { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; min-width: 0; }
-.pedido > summary { list-style: none; cursor: pointer; padding: 14px 18px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px 14px; align-items: center; border-radius: 12px; }
-.pedido > summary::-webkit-details-marker { display: none; }
-.pedido > summary:hover { background: var(--bg); }
-.pedido > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.chev { width: 16px; height: 16px; color: var(--muted); transition: transform .15s ease; }
-.pedido[open] .chev { transform: rotate(90deg); }
-.ps-main { min-width: 0; display: flex; flex-direction: column; gap: 7px; }
-.ps-title { font: 600 1rem/1.25 var(--f-display); overflow-wrap: anywhere; }
-.ps-sub { font-size: .84rem; color: var(--muted); }
-.ps-side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
-.badges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; }
-.money { font: 600 .74rem/1 var(--f-mono); padding: 5px 7px; border-radius: 6px; background: var(--bg); color: var(--fg); white-space: nowrap; font-variant-numeric: tabular-nums; }
-.money.innti { background: var(--innti-soft); color: var(--innti); }
-.money.agy { background: var(--agy-soft); color: var(--agy); }
-.money.cl { background: var(--cl-soft); color: var(--cl); }
-.money.tok { color: var(--muted); }
-.sesion > summary .ps-title { font-size: 1.05rem; }
-.pedidos-sesion { display: flex; flex-direction: column; gap: 8px; }
-.pedido.sub { background: var(--bg); }
-.pedido.sub > summary { padding: 10px 14px; }
-.pedido.sub > summary:hover { background: var(--surface); }
-.pedido.sub .ps-title { font-size: .94rem; }
-.pedido.sub .pedido-body { padding: 10px 14px 12px; }
-.pedido.sub ol.items li { background: var(--surface); }
-.fuera-tareas { border-style: dashed; }
 /* Comparativa de sesiones: tabla limpia, barra de reparto por agente y detalle de tareas debajo. */
 .cmp { width: 100%; border-collapse: collapse; min-width: 560px; font-size: .9rem; }
 .cmp th { font: 600 .7rem var(--f-mono); letter-spacing: .05em; text-transform: uppercase; color: var(--muted); background: none; text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
@@ -103,19 +77,19 @@ th[aria-sort] button::after { content: " ↓"; } th[aria-sort="ascending"] butto
 .cmp tbody tr:hover { background: var(--bg); }
 .cmp tbody tr.sel { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
 .cmp tr:last-child td { border-bottom: 0; }
-.cmp .nom { font-weight: 600; overflow-wrap: anywhere; }
+.cmp .nom { font-weight: 600; font-size: .9rem; overflow-wrap: anywhere; }
 .cmp .sub2 { font: .74rem/1.4 var(--f-mono); color: var(--muted); margin-top: 2px; }
 .cmp td.n { font: .84rem var(--f-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .cmp td.tot { font-weight: 700; color: var(--fg); }
 .cmp .cero { color: var(--line); }
 .cmp td.fechas { font: .78rem var(--f-mono); color: var(--muted); white-space: nowrap; }
-.cmp .nom { font-size: .9rem; }
 .cmp th:last-child, .cmp td:last-child { width: 96px; }
 .barra { display: flex; height: 6px; width: 100%; min-width: 64px; border-radius: 99px; overflow: hidden; background: var(--idle-soft); }
 .barra span { display: block; height: 100%; }
 .barra .b-innti { background: var(--innti); } .barra .b-agy { background: var(--agy); } .barra .b-cl { background: var(--cl); }
 .detalle { margin-top: 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; }
 .detalle h3 { font: 600 1.02rem/1.3 var(--f-display); margin: 0; }
+.meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; color: var(--muted); font-size: .86rem; line-height: 1.4; }
 .detalle .meta { font-size: .82rem; }
 .detalle .meta .innti { color: var(--innti); } .detalle .meta .agy { color: var(--agy); } .detalle .meta .cl { color: var(--cl); }
 .cmp tr.items-fila { cursor: default; }
@@ -124,25 +98,14 @@ th[aria-sort] button::after { content: " ↓"; } th[aria-sort="ascending"] butto
 .mini { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .mini li { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; font-size: .84rem; padding: 6px 10px; border-radius: 8px; background: var(--bg); }
 .mini .c { font: .78rem var(--f-mono); color: var(--muted); white-space: nowrap; }
-.mini .c .innti { color: var(--innti); } .mini .c .agy { color: var(--agy); } .mini .c .cl { color: var(--cl); }
+.mini .c .innti { color: var(--innti); } .mini .c .agy { color: var(--agy); }
 .mini .c .sep { color: var(--line); }
 .caret { display: inline-block; width: 12px; color: var(--muted); transition: transform .15s; }
 tr.abierta .caret { transform: rotate(90deg); }
 .pista { font-size: .8rem; color: var(--muted); }
-.pedido-body { border-top: 1px solid var(--line); padding: 12px 18px 16px; display: flex; flex-direction: column; gap: 12px; }
-.ph { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: baseline; justify-content: space-between; }
-.meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; color: var(--muted); font-size: .86rem; line-height: 1.4; }
-.progress { height: 6px; background: var(--idle-soft); border-radius: 99px; overflow: hidden; }
-.progress > span { display: block; height: 100%; background: var(--ok); border-radius: 99px; }
-ol.items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-ol.items li { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: start; padding: 8px 10px; border-radius: 8px; background: var(--bg); min-width: 0; }
-.it-text { min-width: 0; overflow-wrap: anywhere; }
-.it-sub { font: .76rem/1.4 var(--f-mono); color: var(--muted); }
-.it-sub .sep { color: var(--line); padding: 0 2px; }
-.it-cost { font: .76rem/1.45 var(--f-mono); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
-.it-cost .innti, .kpi .v.innti, td.innti, .it-sub .innti { color: var(--innti); }
-.it-cost .agy, .kpi .v.agy, td.agy, .it-sub .agy { color: var(--agy); }
-.it-cost .cl, .kpi .v.cl, td.cl, .meta .cl, .it-cost .claude { color: var(--cl); }
+.kpi .v.innti, td.innti { color: var(--innti); }
+.kpi .v.agy, td.agy { color: var(--agy); }
+.kpi .v.cl, td.cl, .meta .cl { color: var(--cl); }
 .ia { display: inline-block; width: 8px; height: 8px; border-radius: 99px; margin-right: 6px; vertical-align: 1px; }
 .ia.innti { background: var(--innti); } .ia.agy { background: var(--agy); } .ia.cl { background: var(--cl); }
 .chip { display: inline-flex; align-items: center; gap: 5px; font: 600 .72rem/1 var(--f-mono); padding: 5px 8px; border-radius: 99px; white-space: nowrap; }
@@ -153,10 +116,6 @@ ol.items li { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; al
 .s-hecho, .s-terminada { background: var(--ok-soft); color: var(--ok); }
 .s-descartada, .s-fallido { background: var(--idle-soft); color: var(--idle); }
 .s-omitido { background: var(--idle-soft); color: var(--idle); }
-.p-abierto { background: var(--run-soft); color: var(--run); }
-.p-cerrado { background: var(--ok-soft); color: var(--ok); }
-.p-bloqueado, .p-cancelado { background: var(--idle-soft); color: var(--idle); }
-.rondas { font: 600 .7rem var(--f-mono); color: var(--fix); }
 
 .table-scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
 table { border-collapse: collapse; width: 100%; min-width: 560px; font-size: .9rem; }
@@ -201,11 +160,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
 
 @media (max-width: 760px) {
   .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .pedido > summary { grid-template-columns: auto minmax(0, 1fr); }
-  .ps-side { grid-column: 2; align-items: flex-start; }
-  .badges { justify-content: flex-start; }
 }
-@media (max-width: 480px) { ol.items li { grid-template-columns: auto 1fr; } .it-cost { grid-column: 2; } }
 </style>
 
 <div class="wrap">
@@ -359,7 +314,6 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
 
   // IA visibles (se recuerdan) y orden de la tabla de consumo
   var iasOn = { innti: true, agy: true, cl: true }, orden = { k: "costo", asc: false };
-  var POR_PAGINA = 8, pagina = 0;
   try { var g = JSON.parse(localStorage.getItem("panel-ias") || "null"); if (g) iasOn = g; } catch (e) {}
 
   // Tooltip único del panel, con el mismo estilo que el de la gráfica: título y líneas con su punto de color.
@@ -399,221 +353,6 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     return c;
   }
 
-  var abiertos = {};
-  try { abiertos = JSON.parse(localStorage.getItem("panel-abiertos") || "{}"); } catch (e) {}
-
-  function badges(costoReal, equiv, tokens, claude) {
-    var box = el("div", "badges");
-    if (tokens) box.appendChild(el("span", "money tok", compacto(tokens) + " tokens"));
-    if (costoReal) box.appendChild(el("span", "money innti", usd(costoReal)));
-    if (equiv) box.appendChild(el("span", "money agy", "≈ " + usd(equiv)));
-    if (claude && claude.costo_equivalente_usd) {
-      var c = el("span", "money cl", "≈ " + usd(claude.costo_equivalente_usd));
-      tip(c, "Claude", [["cl", "Orquestar y revisar: ≈ " + usd(claude.costo_equivalente_usd)], [null, compacto(claude.tokens || 0) + " tokens"]]);
-      box.appendChild(c);
-    }
-    return box;
-  }
-
-  function renderPedido(p) {
-    var items = p.items || [];
-    var reales = items.filter(function (i) { return !i.virtual; });  // los seguimientos sin ítem no cuentan en el avance
-    var hechos = reales.filter(function (i) { return i.estado === "hecho" || i.estado === "omitido"; }).length;
-    var card = el("details", "pedido");
-    if (abiertos[p.id]) card.open = true;
-    card.addEventListener("toggle", function () {
-      if (card.open) abiertos[p.id] = 1; else delete abiertos[p.id];
-      try { localStorage.setItem("panel-abiertos", JSON.stringify(abiertos)); } catch (e) {}
-    });
-
-    var sum = el("summary");
-    var ns = "http://www.w3.org/2000/svg", chev = document.createElementNS(ns, "svg");
-    chev.setAttribute("viewBox", "0 0 16 16"); chev.setAttribute("class", "chev"); chev.setAttribute("aria-hidden", "true");
-    var path = document.createElementNS(ns, "path");
-    path.setAttribute("d", "M6 3l5 5-5 5"); path.setAttribute("fill", "none"); path.setAttribute("stroke", "currentColor");
-    path.setAttribute("stroke-width", "1.8"); path.setAttribute("stroke-linecap", "round"); path.setAttribute("stroke-linejoin", "round");
-    chev.appendChild(path);
-    sum.appendChild(chev);
-
-    var main = el("div", "ps-main");
-    main.appendChild(el("span", "ps-title", p.titulo || p.id));
-    main.appendChild(el("span", "ps-sub", hechos + " de " + reales.length + " ítems · actualizado " + fecha(p.actualizado)));
-    var bar = el("div", "progress"), fill = el("span");
-    fill.style.width = (reales.length ? Math.round(100 * hechos / reales.length) : 0) + "%";
-    bar.appendChild(fill);
-    main.appendChild(bar);
-    sum.appendChild(main);
-
-    var side = el("div", "ps-side");
-    side.appendChild(chip(p.estado));
-    side.appendChild(badges(p.costo_usd, p.costo_equivalente_usd, p.tokens, p.claude));
-    sum.appendChild(side);
-    card.appendChild(sum);
-
-    var body = el("div", "pedido-body");
-    var meta = el("div", "meta");
-    if (p.ruta) meta.appendChild(el("span", "mono", p.ruta));
-    if (p.creado) meta.appendChild(el("span", null, "creado " + fecha(p.creado)));
-    var clEqP = (p.claude && p.claude.costo_equivalente_usd) || 0, totP = (p.costo_usd || 0) + (p.costo_equivalente_usd || 0) + clEqP;
-    if (clEqP && totP) {
-      // Cuánto del costo se quedó en Claude (orquestar y revisar) frente a lo delegado: menos es mejor.
-      var pct = Math.round(100 * clEqP / totP), peso = el("span", "cl", pct + "% del costo en Claude, " + (100 - pct) + "% delegado");
-      tip(peso, "Reparto del costo", [["cl", "Claude: ≈ " + usd(clEqP)], [null, "Delegado: ≈ " + usd(totP - clEqP)], [null, "Total: ≈ " + usd(totP)]]);
-      meta.appendChild(peso);
-    }
-    meta.appendChild(el("span", "mono", p.id));
-    body.appendChild(meta);
-
-    var ol = el("ol", "items");
-    items.forEach(function (i) {
-      var li = el("li");
-      li.appendChild(chip(i.estado));
-      var txt = el("div");
-      txt.appendChild(el("div", "it-text", i.texto));
-      // Agentes y modelos que trabajaron en el ítem (de su consumo real; si no hay, lo que quedó anotado en el ítem).
-      var usados = [], agi = i.agentes || {};
-      [["innti", "OpenCode"], ["agy", "Antigravity"], ["claude", "Claude"]].forEach(function (a) {
-        if (agi[a[0]]) usados.push([a[0] === "claude" ? "cl" : a[0], a[1], (agi[a[0]].modelos || []).join(", ")]);
-      });
-      var claseAnotada = iaClase(i.agente);
-      if (i.agente && !usados.some(function (u) { return u[0] === claseAnotada; }))
-        usados.unshift([claseAnotada, i.agente, i.modelo || ""]);  // delegación anotada aunque no registrara consumo
-      // Sin delegación ni agente anotado lo hizo Claude (solo con datos que traen el desglose por agente).
-      if (!usados.length && !i.virtual && i.agentes) usados.push(["cl", "Claude", ""]);
-      if (usados.length || i.rondas) {
-        var s2 = el("div", "it-sub");
-        usados.forEach(function (u, k) {
-          if (k) s2.appendChild(el("span", "sep", " | "));
-          if (u[0]) s2.appendChild(el("span", "ia " + u[0]));
-          s2.appendChild(document.createTextNode(u[1] + (u[2] ? " · " + u[2] : "")));
-        });
-        if (i.rondas) { s2.appendChild(el("span", "sep", usados.length ? " | " : "")); s2.appendChild(el("span", "rondas", "↻ " + i.rondas + (i.rondas === 1 ? " ronda" : " rondas"))); }
-        txt.appendChild(s2);
-      }
-      li.appendChild(txt);
-      // Desglose por agente: Innti (gasto real), Antigravity y Claude (≈ equivalente API), cada uno con su color.
-      var cost = el("span", "it-cost"), ag = i.agentes, hay = false;
-      if (!ag) {  // datos sin desglose (servidor sin actualizar): se reparte con lo que trae el ítem
-        ag = {};
-        var c0 = iaClase(i.agente) === "agy" ? "agy" : "innti";
-        if (i.costo_usd || i.costo_equivalente_usd || i.tokens)
-          ag[c0] = { tokens: i.tokens || 0, costo_usd: i.costo_usd || 0, costo_equivalente_usd: i.costo_equivalente_usd || 0 };
-      }
-      [["innti", "Innti"], ["agy", "Antigravity"], ["claude", "Claude"]].forEach(function (a) {
-        var g = ag[a[0]];
-        if (!g || !(g.tokens || g.costo_usd || g.costo_equivalente_usd)) return;
-        hay = true;
-        var clase = a[0] === "claude" ? "cl" : a[0], linea = el("div", clase);
-        linea.appendChild(el("span", "ia " + clase));
-        linea.appendChild(document.createTextNode(g.costo_usd ? usd(g.costo_usd) : "≈ " + usd(g.costo_equivalente_usd || 0)));
-        tip(linea, a[1], [[clase, compacto(g.tokens || 0) + " tokens"], [null, g.costo_usd ? "Gasto real: " + usd(g.costo_usd) : "Equivalente API: ≈ " + usd(g.costo_equivalente_usd || 0)]]);
-        cost.appendChild(linea);
-      });
-      if (!hay) cost.appendChild(el("div", null, "—"));
-      li.appendChild(cost);
-      ol.appendChild(li);
-    });
-    body.appendChild(ol);
-    card.appendChild(body);
-    return card;
-  }
-
-  function chevron() {
-    var ns = "http://www.w3.org/2000/svg", chev = document.createElementNS(ns, "svg");
-    chev.setAttribute("viewBox", "0 0 16 16"); chev.setAttribute("class", "chev"); chev.setAttribute("aria-hidden", "true");
-    var path = document.createElementNS(ns, "path");
-    path.setAttribute("d", "M6 3l5 5-5 5"); path.setAttribute("fill", "none"); path.setAttribute("stroke", "currentColor");
-    path.setAttribute("stroke-width", "1.8"); path.setAttribute("stroke-linecap", "round"); path.setAttribute("stroke-linejoin", "round");
-    chev.appendChild(path);
-    return chev;
-  }
-
-  // Sesión de Claude: tarjeta principal con sus pedidos dentro (y lo que Claude hizo fuera de ellos).
-  function renderSesion(s, peds, r) {
-    var card = el("details", "pedido sesion"), clave = "ses:" + s.id;
-    if (abiertos[clave]) card.open = true;
-    card.addEventListener("toggle", function () {
-      if (card.open) abiertos[clave] = 1; else delete abiertos[clave];
-      try { localStorage.setItem("panel-abiertos", JSON.stringify(abiertos)); } catch (e) {}
-    });
-    var sum = el("summary");
-    sum.appendChild(chevron());
-    var main = el("div", "ps-main");
-    main.appendChild(el("span", "ps-title", s.titulo));
-    var nAb = peds.filter(function (p) { return p.estado === "abierto"; }).length;
-    var txtPed = peds.length ? peds.length + (peds.length === 1 ? " tarea" : " tareas") + (nAb ? " (" + nAb + (nAb === 1 ? " abierta)" : " abiertas)") : "") : "sin tareas";
-    main.appendChild(el("span", "ps-sub", txtPed + " · última actividad " + fecha(s.fin)));
-    sum.appendChild(main);
-    // Claude del período filtrado (una sesión se puede retomar días después): se suma por día.
-    var desdeD = r.desde ? ymd(r.desde) : "", hastaD = r.hasta ? ymd(r.hasta) : "9999-12-31";
-    var dias = (s.por_dia || []).filter(function (d) { return d.dia >= desdeD && d.dia <= hastaD; });
-    var cl = { tokens: 0, costo_equivalente_usd: 0 }, fuera = { tokens: 0, costo_equivalente_usd: 0, dias: [] };
-    dias.forEach(function (d) {
-      cl.tokens += d.tokens; cl.costo_equivalente_usd += d.costo_equivalente_usd;
-      if (d.fuera_costo_equivalente_usd || d.fuera_tokens) {
-        fuera.tokens += d.fuera_tokens; fuera.costo_equivalente_usd += d.fuera_costo_equivalente_usd; fuera.dias.push(d);
-      }
-    });
-    var innti = 0, agy = 0, tok = cl.tokens;
-    peds.forEach(function (p) { innti += p.costo_usd || 0; agy += p.costo_equivalente_usd || 0; tok += p.tokens || 0; });
-    var side = el("div", "ps-side");
-    side.appendChild(badges(innti, agy, tok, cl));
-    sum.appendChild(side);
-    card.appendChild(sum);
-
-    var body = el("div", "pedido-body");
-    if (s.ruta) { var meta = el("div", "meta"); meta.appendChild(el("span", "mono", s.ruta)); body.appendChild(meta); }
-    var lista = el("div", "pedidos-sesion");
-    peds.forEach(function (p) { var c = renderPedido(p); c.classList.add("sub"); lista.appendChild(c); });
-    body.appendChild(lista);
-    if (fuera.costo_equivalente_usd) lista.appendChild(renderFuera(s, fuera));
-    card.appendChild(body);
-    return card;
-  }
-
-  // Lo que Claude hizo en la sesión sin una tarea (conversación, ajustes sin checklist), con el mismo aspecto
-  // que una tarea: resumen colapsable y el detalle por día dentro.
-  function renderFuera(s, fuera) {
-    var card = el("details", "pedido sub fuera-tareas"), clave = "fuera:" + s.id;
-    if (abiertos[clave]) card.open = true;
-    card.addEventListener("toggle", function () {
-      if (card.open) abiertos[clave] = 1; else delete abiertos[clave];
-      try { localStorage.setItem("panel-abiertos", JSON.stringify(abiertos)); } catch (e) {}
-    });
-    var sum = el("summary");
-    sum.appendChild(chevron());
-    var main = el("div", "ps-main");
-    main.appendChild(el("span", "ps-title", "Fuera de tareas"));
-    main.appendChild(el("span", "ps-sub", "Conversación y ajustes de Claude sin checklist · " + fuera.dias.length + (fuera.dias.length === 1 ? " día" : " días")));
-    sum.appendChild(main);
-    var side = el("div", "ps-side");
-    side.appendChild(badges(0, 0, fuera.tokens, fuera));
-    sum.appendChild(side);
-    card.appendChild(sum);
-    var body = el("div", "pedido-body"), ol = el("ol", "items");
-    fuera.dias.forEach(function (d) {
-      var li = el("li");
-      li.appendChild(el("span", "chip s-hecho", parse(d.dia).toLocaleDateString("es-CO", { day: "2-digit", month: "short" })));
-      var txt = el("div");
-      txt.appendChild(el("div", "it-text", "Trabajo de Claude sin tarea"));
-      var sub = el("div", "it-sub");
-      sub.appendChild(el("span", "ia cl"));
-      sub.appendChild(document.createTextNode("Claude · " + ((s.claude && s.claude.modelos) || []).join(", ")));
-      txt.appendChild(sub);
-      li.appendChild(txt);
-      var cost = el("span", "it-cost"), linea = el("div", "cl");
-      linea.appendChild(el("span", "ia cl"));
-      linea.appendChild(document.createTextNode("≈ " + usd(d.fuera_costo_equivalente_usd)));
-      tip(linea, "Claude", [["cl", compacto(d.fuera_tokens) + " tokens"], [null, "Equivalente API: ≈ " + usd(d.fuera_costo_equivalente_usd)]]);
-      cost.appendChild(linea);
-      li.appendChild(cost);
-      ol.appendChild(li);
-    });
-    body.appendChild(ol);
-    card.appendChild(body);
-    return card;
-  }
-
   // Barra apilada con el reparto del gasto entre agentes (Innti real, Antigravity y Claude equivalentes).
   function barra(innti, agy, cl) {
     var b = el("div", "barra"), tot = innti + agy + cl;
@@ -630,7 +369,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
   }
 
   var selSes = null, ultSes = null, abiertaTarea = {}, ordenSes = { k: "total", asc: false };
-  var pagDetalle = 0, pagOtras = 0;
+  var pagDetalle = 0;
 
   function crearPaginador(actual, total, onCambiar) {
     var p = el("div", "paginador");
@@ -661,20 +400,18 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     var desdeD = r.desde ? ymd(r.desde) : "", hastaD = r.hasta ? ymd(r.hasta) : "9999-12-31";
     return ((state && state.sesiones) || []).map(function (s) {
       var peds = (s.pedidos || []).map(function (id) { return porId[id]; }).filter(function (p) { return p && enRango(p, r); });
-      var cl = 0, clTok = 0, fuera = { tokens: 0, costo_equivalente_usd: 0, dias: [] };
+      var cl = 0, clTok = 0;
       (s.por_dia || []).forEach(function (d) {
         if (d.dia < desdeD || d.dia > hastaD) return;
         cl += d.costo_equivalente_usd; clTok += d.tokens;
-        if (d.fuera_costo_equivalente_usd) { fuera.costo_equivalente_usd += d.fuera_costo_equivalente_usd; fuera.tokens += d.fuera_tokens; fuera.dias.push(d); }
       });
       var innti = 0, agy = 0;
       peds.forEach(function (p) { innti += p.costo_usd || 0; agy += p.costo_equivalente_usd || 0; });
       if (iasOn.innti === false) innti = 0;
       if (iasOn.agy === false) agy = 0;
-      if (iasOn.cl === false) { cl = 0; fuera.costo_equivalente_usd = 0; }
+      if (iasOn.cl === false) cl = 0;
       var fin = parse(s.fin);
-      return { s: s, peds: peds, innti: innti, agy: agy, cl: cl, total: innti + agy + cl, fuera: fuera, tok: clTok,
-               prompts: iasOn.cl === false ? [] : (s.prompts || []).filter(function (t) { return t.dia >= desdeD && t.dia <= hastaD; }),
+      return { s: s, peds: peds, innti: innti, agy: agy, cl: cl, total: innti + agy + cl, tok: clTok,
                visible: (!r.desde || !fin || fin >= r.desde) && (!r.hasta || !parse(s.inicio) || parse(s.inicio) <= r.hasta) };
     }).filter(function (x) { return x.visible && (x.total > 0 || x.peds.length); });
   }
@@ -690,7 +427,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     var cont = document.getElementById("pedidos");
     cont.textContent = "";
     var filas = filasSesiones(r);
-    filas.forEach(function (x) { x.nTareas = x.peds.length + x.prompts.length; });
+    filas.forEach(function (x) { x.nTareas = x.peds.length; });
     if (!filas.length) {
       var e = el("div", "empty");
       e.appendChild(el("strong", null, !state ? "Todavía no hay datos sincronizados." : "No hay sesiones en este período."));
@@ -709,7 +446,6 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     if (!selSes || !filas.some(function (x) { return x.s.id === selSes; })) selSes = filas[0].s.id;
     if (selSes !== ultSes) {
       pagDetalle = 0;
-      pagOtras = 0;
       ultSes = selSes;
     }
 
@@ -739,7 +475,6 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
         if (selSes !== x.s.id) {
           selSes = x.s.id;
           pagDetalle = 0;
-          pagOtras = 0;
           ultSes = selSes;
         }
         render();
@@ -778,14 +513,11 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
       hr.appendChild(el("th", c[1], c[0]));
     });
     th.appendChild(hr); t.appendChild(th);
-    var tb = el("tbody"), todasFilas = x.peds.map(function (p) {
+    var tb = el("tbody"), filas = x.peds.map(function (p) {
       var cl = iasOn.cl === false ? 0 : (p.claude && p.claude.costo_equivalente_usd) || 0;
       var innti = iasOn.innti === false ? 0 : p.costo_usd || 0, agy = iasOn.agy === false ? 0 : p.costo_equivalente_usd || 0;
-      var reales = (p.items || []).filter(function (i) { return !i.virtual; });
-      return { p: p, innti: innti, agy: agy, cl: cl, total: innti + agy + cl, reales: reales };
-    });
-    var filas = todasFilas.filter(function (f) { return f.reales.length >= 2; }).sort(function (a, b) { return b.total - a.total; });
-    var filasMono = todasFilas.filter(function (f) { return f.reales.length === 1; });
+      return { p: p, innti: innti, agy: agy, cl: cl, total: innti + agy + cl };
+    }).sort(function (a, b) { return b.total - a.total; });
     var TAM_PAG = 10, totalPags = Math.ceil(filas.length / TAM_PAG);
     if (pagDetalle >= totalPags) pagDetalle = Math.max(0, totalPags - 1);
     var filasVisibles = filas.length > TAM_PAG ? filas.slice(pagDetalle * TAM_PAG, (pagDetalle + 1) * TAM_PAG) : filas;
@@ -793,16 +525,16 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
       var p = f.p, tr = el("tr", abiertaTarea[p.id] ? "abierta" : null), td = el("td");
       var nom = el("div", "nom"); nom.appendChild(el("span", "caret", "›")); nom.appendChild(document.createTextNode(" " + (p.titulo || p.id)));
       td.appendChild(nom);
-      var items = f.reales;
+      var items = p.items || [];
       var hechos = items.filter(function (i) { return i.estado === "hecho" || i.estado === "omitido"; }).length;
       td.appendChild(el("div", "sub2", hechos + "/" + items.length + " ítems"));
       tr.appendChild(td);
       var tdE = el("td"); tdE.appendChild(chip(p.estado)); tr.appendChild(tdE);
       var tdA = el("td"), modelos = {};
-      (p.items || []).forEach(function (i) {
+      items.forEach(function (i) {
         Object.keys(i.agentes || {}).forEach(function (k) { (i.agentes[k].modelos || []).forEach(function (m) { modelos[k] = modelos[k] || {}; modelos[k][m] = 1; }); });
       });
-      [["innti", "innti", "OpenCode"], ["agy", "agy", "Antigravity"], ["claude", "cl", "Claude"]].forEach(function (a) {
+      [["innti", "innti", "OpenCode"], ["agy", "agy", "Antigravity"]].forEach(function (a) {
         if (!modelos[a[0]]) return;
         var punto = el("span", "ia " + a[1]);
         tip(punto, a[2], Object.keys(modelos[a[0]]).map(function (m) { return [a[1], m]; }));
@@ -819,14 +551,14 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
       if (abiertaTarea[p.id]) {
         var fi = el("tr", "items-fila"), tdi = el("td"), ul = el("ul", "mini");
         tdi.colSpan = 8;
-        (p.items || []).forEach(function (i) {
+        items.forEach(function (i) {
           var li = el("li");
           li.appendChild(chip(i.estado));
           var tx = el("div"); tx.appendChild(document.createTextNode(i.texto));
           li.appendChild(tx);
-          // Costo de cada agente en su color (Innti verde azulado, Antigravity morado, Claude naranja).
+          // Costo del subagente en su color (Innti verde azulado, Antigravity morado).
           var c = el("span", "c"), n = 0;
-          [["innti", "innti", "Innti"], ["agy", "agy", "Antigravity"], ["claude", "cl", "Claude"]].forEach(function (a) {
+          [["innti", "innti", "Innti"], ["agy", "agy", "Antigravity"]].forEach(function (a) {
             var g = (i.agentes || {})[a[0]];
             if (!g || !(g.costo_usd || g.costo_equivalente_usd)) return;
             if (n++) c.appendChild(el("span", "sep", " · "));
@@ -843,128 +575,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
         tdi.appendChild(ul); fi.appendChild(tdi); tb.appendChild(fi);
       }
     });
-    // Prompts del usuario y tareas con un solo ítem real agrupados en "Otras tareas".
-    var prompts = (x.prompts || []).slice();
-    var cantOtras = prompts.length + filasMono.length;
-    if (cantOtras > 0) {
-      var inntiOtras = filasMono.reduce(function (a, f) { return a + f.innti; }, 0);
-      var agyOtras = filasMono.reduce(function (a, f) { return a + f.agy; }, 0);
-      var clOtras = prompts.reduce(function (a, p) { return a + (p.costo_equivalente_usd || 0); }, 0) + filasMono.reduce(function (a, f) { return a + f.cl; }, 0);
-      var totalOtras = inntiOtras + agyOtras + clOtras;
-      var tokOtras = prompts.reduce(function (a, p) { return a + (p.tokens || 0); }, 0) + filasMono.reduce(function (a, f) {
-        var t = (f.p.tokens || 0) + ((f.p.claude && f.p.claude.tokens) || 0);
-        if (!t) (f.p.items || []).forEach(function (i) { ["innti", "agy", "claude"].forEach(function (k) { t += ((i.agentes || {})[k] || {}).tokens || 0; }); });
-        return a + t;
-      }, 0);
-      var kOtras = "otras:" + x.s.id;
-      var trO = el("tr", abiertaTarea[kOtras] ? "abierta" : null), tdO = el("td");
-      var nomO = el("div", "nom"); nomO.appendChild(el("span", "caret", "›")); nomO.appendChild(document.createTextNode(" Otras tareas"));
-      tdO.appendChild(nomO);
-      tdO.appendChild(el("div", "sub2", cantOtras + (cantOtras === 1 ? " tarea" : " tareas") + " · " + compacto(tokOtras) + " tokens"));
-      trO.appendChild(tdO);
-      var abiertaMono = filasMono.some(function (f) {
-        return f.p.estado === "abierto" || f.p.estado === "en_curso" || f.p.estado === "revisando" || f.p.estado === "corrigiendo";
-      });
-      var tdEO = el("td"); tdEO.appendChild(chip(abiertaMono ? "en_curso" : "terminada")); trO.appendChild(tdEO);
-      var tdAO = el("td"), modsO = {};
-      prompts.forEach(function (p) {
-        (p.modelos || []).forEach(function (m) { modsO.claude = modsO.claude || {}; modsO.claude[m] = 1; });
-      });
-      filasMono.forEach(function (f) {
-        (f.p.items || []).forEach(function (i) {
-          Object.keys(i.agentes || {}).forEach(function (k) {
-            (i.agentes[k].modelos || []).forEach(function (m) { modsO[k] = modsO[k] || {}; modsO[k][m] = 1; });
-          });
-        });
-        if (f.p.claude && f.p.claude.modelos) {
-          f.p.claude.modelos.forEach(function (m) { modsO.claude = modsO.claude || {}; modsO.claude[m] = 1; });
-        }
-      });
-      [["innti", "innti", "OpenCode"], ["agy", "agy", "Antigravity"], ["claude", "cl", "Claude"]].forEach(function (a) {
-        var mods = modsO[a[0]] ? Object.keys(modsO[a[0]]) : [];
-        var tieneCosto = a[0] === "innti" ? inntiOtras > 0 : a[0] === "agy" ? agyOtras > 0 : clOtras > 0;
-        if (!mods.length && !tieneCosto) return;
-        if (iasOn[a[1]] === false) return;
-        var punto = el("span", "ia " + a[1]);
-        tip(punto, a[2], mods.length ? mods.map(function (m) { return [a[1], m]; }) : [[a[1], a[2]]]);
-        tdAO.appendChild(punto);
-      });
-      trO.appendChild(tdAO);
-      trO.appendChild(celda(inntiOtras, "innti"));
-      trO.appendChild(celda(agyOtras, "agy", true));
-      trO.appendChild(celda(clOtras, "cl", true));
-      trO.appendChild(el("td", "n tot", dinero(totalOtras)));
-      var tdBO = el("td"); tdBO.appendChild(barra(inntiOtras, agyOtras, clOtras)); trO.appendChild(tdBO);
-      trO.addEventListener("click", function () { if (abiertaTarea[kOtras]) delete abiertaTarea[kOtras]; else abiertaTarea[kOtras] = 1; render(); });
-      tb.appendChild(trO);
-      if (abiertaTarea[kOtras]) {
-        var fiO = el("tr", "items-fila"), tdiO = el("td"), ulO = el("ul", "mini");
-        tdiO.colSpan = 8;
-        var listaOtras = [];
-        filasMono.forEach(function (f) {
-          var item = f.reales[0] || (f.p.items && f.p.items[0]) || { texto: f.p.titulo || f.p.id, estado: f.p.estado };
-          listaOtras.push({ tipo: "mono", f: f, item: item, total: f.total });
-        });
-        prompts.forEach(function (p) {
-          listaOtras.push({ tipo: "prompt", prompt: p, total: p.costo_equivalente_usd || 0 });
-        });
-        listaOtras.sort(function (a, b) { return b.total - a.total; });
-        var TAM_PAG_OTRAS = 10, totalPagsOtras = Math.ceil(listaOtras.length / TAM_PAG_OTRAS);
-        if (pagOtras >= totalPagsOtras) pagOtras = Math.max(0, totalPagsOtras - 1);
-        var visiblesOtras = listaOtras.length > TAM_PAG_OTRAS ? listaOtras.slice(pagOtras * TAM_PAG_OTRAS, (pagOtras + 1) * TAM_PAG_OTRAS) : listaOtras;
-        visiblesOtras.forEach(function (it) {
-          var li = el("li");
-          if (it.tipo === "prompt") {
-            var p = it.prompt;
-            li.appendChild(chip("terminada"));
-            li.appendChild(el("div", null, p.texto));
-            var c = el("span", "c");
-            if (iasOn.cl !== false && p.costo_equivalente_usd) {
-              var parte = el("span", "cl");
-              parte.appendChild(el("span", "ia cl"));
-              parte.appendChild(document.createTextNode("≈ " + dinero(p.costo_equivalente_usd)));
-              tip(parte, "Claude", [["cl", rangoFechas(p.inicio, p.fin) + " · " + compacto(p.tokens || 0) + " tokens"], [null, (p.modelos || []).join(", ") || ""]]);
-              c.appendChild(parte);
-            } else {
-              c.textContent = "—";
-            }
-            li.appendChild(c);
-          } else {
-            var f = it.f, p = f.p, i = it.item;
-            li.appendChild(chip(i.estado || p.estado));
-            li.appendChild(el("div", null, i.texto || p.titulo || p.id));
-            var c = el("span", "c"), n = 0;
-            var ag = Object.assign({}, i.agentes || {});
-            if (!ag.claude && f.cl) ag.claude = { costo_equivalente_usd: f.cl, tokens: (p.claude && p.claude.tokens) || 0, modelos: (p.claude && p.claude.modelos) || [] };
-            if (!ag.innti && f.innti) ag.innti = { costo_usd: f.innti, tokens: p.tokens || 0, modelos: [] };
-            if (!ag.agy && f.agy) ag.agy = { costo_equivalente_usd: f.agy, tokens: p.tokens || 0, modelos: [] };
-            [["innti", "innti", "Innti"], ["agy", "agy", "Antigravity"], ["claude", "cl", "Claude"]].forEach(function (a) {
-              if (iasOn[a[1]] === false) return;
-              var g = ag[a[0]];
-              if (!g || !(g.costo_usd || g.costo_equivalente_usd)) return;
-              if (n++) c.appendChild(el("span", "sep", " · "));
-              var parte = el("span", a[1]);
-              parte.appendChild(el("span", "ia " + a[1]));
-              parte.appendChild(document.createTextNode(g.costo_usd ? dinero(g.costo_usd) : "≈ " + dinero(g.costo_equivalente_usd)));
-              tip(parte, a[2], [[a[1], compacto(g.tokens || 0) + " tokens"], [null, (g.modelos || []).join(", ") || ""]]);
-              c.appendChild(parte);
-            });
-            if (!n) c.textContent = "—";
-            li.appendChild(c);
-          }
-          ulO.appendChild(li);
-        });
-        tdiO.appendChild(ulO);
-        if (listaOtras.length > TAM_PAG_OTRAS) {
-          tdiO.appendChild(crearPaginador(pagOtras, totalPagsOtras, function (nueva) {
-            pagOtras = nueva;
-            render();
-          }));
-        }
-        fiO.appendChild(tdiO); tb.appendChild(fiO);
-      }
-    }
-    if (!tb.children.length) { var tr0 = el("tr"), td0 = el("td", "pista", "Esta sesión no tiene tareas ni gasto en el período."); td0.colSpan = 8; tr0.appendChild(td0); tb.appendChild(tr0); }
+    if (!tb.children.length) { var tr0 = el("tr"), td0 = el("td", "pista", "Esta sesión no tiene tareas en el período."); td0.colSpan = 8; tr0.appendChild(td0); tb.appendChild(tr0); }
     t.appendChild(tb); wrap.appendChild(t); d.appendChild(wrap);
     if (filas.length > TAM_PAG) {
       d.appendChild(crearPaginador(pagDetalle, totalPags, function (nueva) {
@@ -972,7 +583,7 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
         render();
       }));
     }
-    d.appendChild(el("div", "pista", "Clic en una fila para desplegar sus ítems o prompts. Innti es gasto real; ≈ es el equivalente por API."));
+    d.appendChild(el("div", "pista", "Clic en una fila para desplegar sus ítems. Innti es gasto real; ≈ es el equivalente por API."));
     return d;
   }
 
@@ -1069,7 +680,6 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     document.getElementById("k-delegaciones").textContent = state ? deleg.reduce(function (a, c) { return a + (c.tareas || 0); }, 0) : "—";
     document.getElementById("k-costo").textContent = state ? usd(costos.reduce(function (a, c) { return a + (c.costo_usd || 0); }, 0)) : "—";
     var agy = costos.filter(function (c) { return c.agente === "antigravity"; });
-    var agyTok = agy.reduce(function (a, c) { return a + (c.tokens_entrada || 0) + (c.tokens_salida || 0); }, 0);
     var agyEq = agy.reduce(function (a, c) { return a + (c.costo_equivalente_usd || 0); }, 0);
     document.getElementById("k-agy").textContent = state ? "≈ " + usd(agyEq) : "—";
     var clEq = costos.filter(function (c) { return c.agente === "claude"; }).reduce(function (a, c) { return a + (c.costo_equivalente_usd || 0); }, 0);
@@ -1148,10 +758,10 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
   // Las fechas personalizadas no se recuerdan entre visitas; los períodos que ya no existen vuelven a 30 días.
   if (["hoy", "7d", "30d", "todo"].indexOf(preset) < 0) preset = "30d";
   document.querySelectorAll(".presets button").forEach(function (b) {
-    b.addEventListener("click", function () { preset = b.dataset.p; pagina = 0; pagDetalle = 0; pagOtras = 0; guardar(); render(); });
+    b.addEventListener("click", function () { preset = b.dataset.p; pagDetalle = 0; guardar(); render(); });
   });
   [fDesde, fHasta].forEach(function (inp) {
-    inp.addEventListener("change", function () { preset = "custom"; pagina = 0; pagDetalle = 0; pagOtras = 0; render(); });
+    inp.addEventListener("change", function () { preset = "custom"; pagDetalle = 0; render(); });
   });
   function syncIas() {
     document.querySelectorAll(".ias button").forEach(function (b) { b.setAttribute("aria-pressed", String(iasOn[b.dataset.ia] !== false)); });
