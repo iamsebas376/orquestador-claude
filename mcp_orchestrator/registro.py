@@ -40,6 +40,9 @@ def _usd(x: float) -> str:
 
 PRECIOS_FILE = Path(os.getenv("PRECIOS_FILE") or BASE_DIR / "precios.json")  # local; ver precios.example.json  # local; ver precios.example.json
 CLAUDE_PROJECTS_DIR = Path(os.getenv("CLAUDE_PROJECTS_DIR") or Path.home() / ".claude" / "projects")
+# Sesiones de la app de Claude (un local_*.json por sesión): de ahí sale cuáles siguen activas.
+CLAUDE_APP_DIR = Path(os.getenv("CLAUDE_APP_DIR") or Path(os.getenv("LOCALAPPDATA") or Path.home()) / "Claude-Data")
+PANEL_ARCHIVADAS = os.getenv("PANEL_INCLUIR_ARCHIVADAS", "0") in ("1", "true", "si", "sí")
 PANEL_DIAS = int(os.getenv("PANEL_DIAS") or "120")
 PANEL_MAX_PEDIDOS = int(os.getenv("PANEL_MAX_PEDIDOS") or "200")
 

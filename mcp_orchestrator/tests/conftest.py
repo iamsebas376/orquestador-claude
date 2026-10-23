@@ -19,6 +19,7 @@ def sin_efectos_externos(tmp_path, monkeypatch):
     monkeypatch.setattr(registro, "COSTOS_FILE", tmp_path / "logs-aislados" / "costos.jsonl")
     monkeypatch.setattr(registro, "APRENDIZAJES_FILE", tmp_path / "aprendizajes-aislados.jsonl")
     monkeypatch.setattr(registro, "CLAUDE_PROJECTS_DIR", tmp_path / "claude-projects-aislado")
+    monkeypatch.setattr(registro, "CLAUDE_APP_DIR", tmp_path / "claude-app-aislado")  # no lee las sesiones reales
     monkeypatch.setattr(server, "AGY_SETTINGS", tmp_path / "agy-settings-aislado.json")
 
 

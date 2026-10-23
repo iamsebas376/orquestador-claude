@@ -250,3 +250,30 @@ def test_delegacion_sin_pedido_explicito_queda_en_su_sesion(tmp_registro, tmp_pa
     data = registro.datos_panel()
     assert pid in [p["id"] for p in data["pedidos"]]
     assert next(p for p in data["pedidos"] if p["id"] == pid)["sesion"] == "viva"
+
+
+def test_solo_sesiones_activas_de_la_app(tmp_registro, tmp_path, monkeypatch):
+    precios = tmp_path / "precios.json"
+    precios.write_text(json.dumps({"claude-x": [5.0, 0.5, 25.0]}), encoding="utf-8")
+    monkeypatch.setattr(registro, "PRECIOS_FILE", precios)
+    proy = tmp_path / "cp" / "D--x"
+    proy.mkdir(parents=True)
+    monkeypatch.setattr(registro, "CLAUDE_PROJECTS_DIR", proy.parent)
+    app = tmp_path / "app" / "org" / "claude-code-sessions" / "a" / "b"
+    app.mkdir(parents=True)
+    monkeypatch.setattr(registro, "CLAUDE_APP_DIR", tmp_path / "app")
+    meta = {"viva": {"cliSessionId": "viva", "priorCliSessionIds": ["previa"], "isArchived": False, "title": "Mi sesión"},
+            "arch": {"cliSessionId": "arch", "isArchived": True, "title": "Archivada"}}
+    for k, v in meta.items():
+        (app / f"local_{k}.json").write_text(json.dumps(v), encoding="utf-8")
+    ts = datetime.now().astimezone().isoformat()
+    for sid in ("viva", "previa", "arch", "eliminada"):  # "eliminada" no tiene metadatos en la app
+        msg = {"timestamp": ts, "sessionId": sid, "message": {
+            "id": "m-" + sid, "model": "claude-x", "usage": {"input_tokens": 1_000_000, "output_tokens": 0}}}
+        (proy / f"{sid}.jsonl").write_text(json.dumps(msg), encoding="utf-8")
+    data = registro.datos_panel()
+    assert [s["id"] for s in data["sesiones"]] == ["viva"]
+    assert data["sesiones"][0]["titulo"] == "Mi sesión" and data["sesiones"][0]["claude"]["tokens"] == 2_000_000
+    assert sum(c["costo_equivalente_usd"] for c in data["costos_diarios"] if c["agente"] == "claude") == 10.0
+    monkeypatch.setattr(registro, "PANEL_ARCHIVADAS", True)
+    assert sorted(s["id"] for s in registro.datos_panel()["sesiones"]) == ["arch", "viva"]

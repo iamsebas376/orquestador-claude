@@ -127,6 +127,28 @@ def _escanear(desde: datetime) -> dict:
     return {"msgs": por_id, "titulos": titulos, "pedidos": pedidos, "creador": creador}
 
 
+def _sesiones_app() -> tuple[dict | None, dict]:
+    """Sesiones activas según la app de Claude (no archivadas ni eliminadas; con PANEL_INCLUIR_ARCHIVADAS las
+    archivadas también). Devuelve ({id de transcript -> sesión principal}, {sesión principal -> título}); las
+    continuaciones comparten sesión principal. None si no se encuentra la app: entonces se usan los transcripts."""
+    mapa: dict = {}
+    titulos: dict = {}
+    hay = False
+    for f in R.CLAUDE_APP_DIR.glob("*/claude-code-sessions/**/local_*.json"):
+        try:
+            d = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        hay = True
+        canon = d.get("cliSessionId")
+        if not canon or (d.get("isArchived") and not R.PANEL_ARCHIVADAS):
+            continue
+        for sid in (canon, *(d.get("priorCliSessionIds") or ())):
+            mapa[sid] = canon
+        titulos[canon] = d.get("title") or ""
+    return (mapa if hay else None), titulos
+
+
 def _mensajes_claude(desde: datetime) -> list[dict]:
     """Respuestas de Claude Code desde `desde` (hora local); cada respuesta se repite por bloque: una por id."""
     return sorted((m for m in _escanear(desde)["msgs"].values() if m["ts"] >= desde), key=lambda r: r["ts"])
@@ -189,7 +211,18 @@ def datos_panel() -> dict:
     claude_pedido: dict[str, dict] = {}
     ses_agg: dict[str, dict] = {}
     por_sesion = _pedidos_por_sesion()
-    for r in consumo_claude():
+    mapa, titulos_app = _sesiones_app()
+    creador = dict(CREADOR_PEDIDO)
+    consumo_cl = consumo_claude()
+    if mapa is not None:  # solo las sesiones que siguen activas; sus continuaciones se unen en una
+        consumo_cl = [{**r, "sesion": mapa[r["sesion"]]} for r in consumo_cl if r["sesion"] in mapa]
+        fusion: dict = {}
+        for sid, pids in por_sesion.items():
+            if sid in mapa:
+                fusion.setdefault(mapa[sid], set()).update(pids)
+        por_sesion = fusion
+        creador = {pid: mapa[s] for pid, s in creador.items() if s in mapa}
+    for r in consumo_cl:
         k = (r["ts"].date().isoformat(), r["modelo"])
         a = claude_dia.setdefault(k, {"dia": k[0], "agente": "claude", "modelo": k[1], "tareas": 0,
                                       "tokens_entrada": 0, "tokens_cache": 0, "tokens_salida": 0, "costo_usd": 0.0,
@@ -262,11 +295,11 @@ def datos_panel() -> dict:
     for sid in orden_ses:
         for pid in por_sesion.get(sid, ()):
             duenio.setdefault(pid, sid)
-    duenio.update({pid: sid for pid, sid in CREADOR_PEDIDO.items() if sid in ses_agg})
+    duenio.update({pid: sid for pid, sid in creador.items() if sid in ses_agg})
     if ses_agg:  # sin transcripts (otra máquina) no hay con qué comparar: se muestra todo
         filas = [f for f in filas if f["id"] in duenio]
     visibles = {f["id"] for f in filas} if ses_agg else None
-    titulos = _titulos_claude()
+    titulos = {**_titulos_claude(), **{k: v for k, v in titulos_app.items() if v}}
     sesiones = {}
     for f in filas:
         sid = duenio.get(f["id"], "sin-sesion")
