@@ -120,7 +120,7 @@ footer { color: var(--muted); font-size: .88rem; border-top: 1px solid var(--lin
 <div class="wrap">
 
 <header>
-  <span class="eyebrow">MCP · Windows · D:\claude</span>
+  <span class="eyebrow">MCP · Windows</span>
   <h1>Enrutador de Tareas Claude</h1>
   <p class="lede">Claude clasifica cada pedido y lo delega. El trabajo va a OpenCode con modelos Innti y lo personal va al CLI oficial de Antigravity con tu plan Pro. Los resultados largos se guardan en disco y a Claude solo vuelve un resumen corto, para ahorrar tokens.</p>
 </header>
@@ -141,11 +141,12 @@ footer { color: var(--muted); font-size: .88rem; border-top: 1px solid var(--lin
     </div>
     <div class="lane personal">
       <span class="tag">Personal</span>
-      <span class="path">D:\personal · D:\universidad</span>
+      <span class="path">D:\personal · D:\universidad · el resto</span>
       <span class="arrow">→ ejecutar_personal_antigravity</span>
       <ul>
         <li>Proyectos propios, automatizaciones caseras, estudio</li>
-        <li>El resultado completo queda en un <code>.md</code>; a Claude solo vuelve la síntesis</li>
+        <li>A Claude solo vuelve la síntesis; los comandos de terminal se deniegan (los tests los corre Claude)</li>
+        <li>Es el destino de cualquier carpeta que no sea de trabajo, incluida la del propio orquestador</li>
         <li>Rechaza rutas de trabajo</li>
       </ul>
     </div>
@@ -155,18 +156,18 @@ footer { color: var(--muted); font-size: .88rem; border-top: 1px solid var(--lin
 <section aria-labelledby="h-flujo">
   <h2 id="h-flujo">Cómo trabaja el cerebro</h2>
   <ol class="steps">
-    <li><strong>Checklist:</strong> por cada pedido, Claude crea un checklist con un ítem por entregable y por verificación (<code>iniciar_pedido</code>). Queda en <code>D:\claude\tareas</code> y, en Code, también en la lista de tareas bajo sus mensajes.</li>
+    <li><strong>Checklist:</strong> por cada pedido, Claude crea un checklist con un ítem por entregable y por verificación (<code>iniciar_pedido</code>). Queda en <code>datos\tareas</code> y, en Code, también en la lista de tareas bajo sus mensajes.</li>
     <li><strong>Delegar:</strong> cada ítem va al subagente que corresponde, vinculado al checklist. Los ítems independientes corren en paralelo, en segundo plano.</li>
-    <li><strong>Revisar:</strong> Claude revisa el diff, corre los tests y prueba casos borde. Si algo falla, devuelve solo la corrección concreta (en OpenCode, en la misma sesión). Máximo 2 rondas por ítem; después te consulta.</li>
+    <li><strong>Revisar:</strong> Claude revisa el diff, corre los tests y prueba casos borde. Si algo falla, devuelve solo la corrección concreta (OpenCode con la misma sesión, Antigravity con la misma conversación). Máximo 2 rondas por ítem; después te consulta.</li>
     <li><strong>Aprender:</strong> registra qué modelo funcionó bien o mal en cada proyecto y lo consulta antes de elegir la próxima vez.</li>
-    <li><strong>Cerrar:</strong> cierra el pedido con un resumen y sincroniza el <a href="https://claude.ai/artifact/Req7satjgULss34xqDHckb">Panel del Orquestador</a>, que muestra estado, rondas y costos.</li>
+    <li><strong>Cerrar:</strong> cierra el pedido con un resumen y sincroniza el <a href="https://claude.ai/artifact/Req7satjgULss34xqDHckb">Panel del Orquestador</a>, que muestra sesiones, tareas y costos. También lo sincroniza al final de cada turno con cambios.</li>
   </ol>
-  <p>Probado de punta a punta: dos validadores en paralelo con <code>innti-dsf</code>. Claude encontró que el de correo aceptaba direcciones inválidas, lo devolvió una ronda y quedó con 14 tests en verde, por unos US$ 0,01. Costo de Innti: tokens reales de OpenCode × la tabla de precios de tu guía (<code>precios_innti.json</code>, actualízala cuando cambien).</p>
+  <p>Costos: Innti se calcula con los tokens reales de OpenCode × la tabla de precios (<code>mcp_orchestrator\precios.json</code>, copia de <code>precios.example.json</code>; actualízala cuando cambien). Antigravity y Claude no cobran por token en tus planes: se registran como equivalente por API y no cuentan para el presupuesto.</p>
 </section>
 
 <section aria-labelledby="h-live">
   <h2 id="h-live">Cómo se ejecuta</h2>
-  <p>Las tareas corren en segundo plano, sin ventanas ni terminales: el orquestador lanza el CLI, espera a que termine y entrega a Claude solo el resumen final. Para seguirlas en vivo, abre <code>logs\en-vivo.log</code>.</p>
+  <p>Las tareas corren en segundo plano, sin ventanas ni terminales: el orquestador lanza el CLI, espera a que termine y entrega a Claude solo el resumen final. Para seguirlas en vivo, abre <code>datos\logs\en-vivo.log</code>.</p>
   <div class="grid2">
     <div class="card"><h3>Trabajo: OpenCode</h3><p>El orquestador mantiene un servidor de OpenCode en <code>127.0.0.1:4096</code> (se inicia solo) y ejecuta <code>opencode run</code> pegado a una sesión, que se reutiliza en las rondas de corrección. Si pasa 10 minutos sin ninguna línea de salida, la tarea se corta.</p></div>
     <div class="card"><h3>Personal: Antigravity</h3><p>La tarea corre con <code>agy -p</code>: edita archivos pero los comandos de terminal se deniegan, así que los tests los corre Claude con <code>verificar_proyecto</code>. Si un modelo llega a su límite, se reintenta solo con el siguiente de <code>ANTIGRAVITY_CADENA</code>.</p></div>
@@ -175,17 +176,35 @@ footer { color: var(--muted); font-size: .88rem; border-top: 1px solid var(--lin
 </section>
 
 <section aria-labelledby="h-status">
-  <h2 id="h-status">Estado</h2>
-  <p>Las tres herramientas se probaron con llamadas reales el 16 de octubre de 2026.</p>
+  <h2 id="h-status">Herramientas</h2>
+  <p>El servidor expone 14 herramientas.</p>
   <div class="table-scroll">
     <table>
-      <thead><tr><th>Herramienta</th><th>Qué hace</th><th>Prueba</th><th>Estado</th></tr></thead>
+      <thead><tr><th>Herramienta</th><th>Qué hace</th></tr></thead>
       <tbody>
-        <tr><td><code>ejecutar_trabajo_opencode_innti</code></td><td>Ejecuta <code>opencode run --model litellm-proxy/&lt;modelo&gt;</code> en la carpeta del proyecto</td><td>Creó un archivo de 7 líneas con <code>innti-dev</code>; por defecto ahora usa <code>innti-dsp</code></td><td><span class="pill ok">Funciona</span></td></tr>
-        <tr><td><code>ejecutar_personal_antigravity</code></td><td>Ejecuta la tarea en el CLI oficial de Antigravity (<code>agy</code>) con tu plan Pro</td><td>Creó <code>clima.py</code> y su README con <code>gemini-3.8-flash-medium</code></td><td><span class="pill ok">Funciona</span></td></tr>
+        <tr><td><code>ejecutar_trabajo_opencode_innti</code></td><td>Delega a OpenCode (<code>opencode run --model litellm-proxy/&lt;modelo&gt;</code>) en una carpeta de <code>D:\workspaces</code>; devuelve archivos tocados, tokens y costo</td></tr>
+        <tr><td><code>ejecutar_personal_antigravity</code></td><td>Delega a Antigravity (<code>agy -p</code>, plan Pro) fuera de <code>D:\workspaces</code>; edita archivos y devuelve una síntesis</td></tr>
+        <tr><td><code>iniciar_pedido</code> · <code>agregar_items</code> · <code>actualizar_item</code> · <code>cerrar_pedido</code></td><td>Checklist de cada pedido, con estados y rondas de corrección</td></tr>
+        <tr><td><code>ver_pedido</code> · <code>listar_pedidos</code></td><td>Retomar o consultar pedidos</td></tr>
+        <tr><td><code>verificar_proyecto</code> · <code>configurar_verificacion</code></td><td>Tests y lint del proyecto (detectados o guardados)</td></tr>
+        <tr><td><code>resumen_costos</code></td><td>Tokens y costo por agente y modelo</td></tr>
+        <tr><td><code>registrar_aprendizaje</code> · <code>consultar_aprendizajes</code></td><td>Qué modelo funcionó en cada proyecto</td></tr>
+        <tr><td><code>exportar_panel</code></td><td>Prepara la sincronización del panel de control</td></tr>
       </tbody>
     </table>
   </div>
+</section>
+
+<section aria-labelledby="h-panel">
+  <h2 id="h-panel">Panel de control</h2>
+  <p>Un artefacto (<a href="https://claude.ai/artifact/Req7satjgULss34xqDHckb">Panel del Orquestador</a>) con lo que Claude sincroniza al terminar cada turno con cambios.</p>
+  <ul>
+    <li><strong>Sesiones:</strong> solo las sesiones de Claude activas (no archivadas ni eliminadas) donde intervino el orquestador, es decir, con pedidos. Las continuaciones de una sesión se unen en una.</li>
+    <li><strong>Tareas:</strong> al elegir una sesión se ven sus tareas con su gasto por agente; las de un solo ítem van juntas en «Otras tareas».</li>
+    <li><strong>Costos:</strong> Innti es gasto real; Antigravity y Claude (≈) son el equivalente por API. Una tarjeta muestra qué parte del gasto se quedó en Claude frente a lo delegado.</li>
+    <li><strong>Filtros:</strong> período (hoy, 7 días, 30 días, todo o fechas) y IA. El período usa la fecha de la última actividad real de cada pedido.</li>
+    <li><strong>Frescura:</strong> el panel avisa cuando los datos tienen más de 6 horas.</li>
+  </ul>
 </section>
 
 <section aria-labelledby="h-models">
@@ -236,9 +255,9 @@ footer { color: var(--muted); font-size: .88rem; border-top: 1px solid var(--lin
 
 <section aria-labelledby="h-files">
   <h2 id="h-files">Dónde está cada cosa</h2>
-  <div class="code"><pre class="tree">D:\claude\
-├─ mcp_orchestrator\     código del servidor: server.py · pedidos.py · costos.py · panel_datos.py · control.py · tests\ · .env · setup.ps1 · .venv\
-├─ config\               reglas de ejemplo (CLAUDE.example.md, PROJECT_INSTRUCTIONS.md) · panel.html · orquestador.html
+  <div class="code"><pre class="tree">D:\orquestador-claude\
+├─ mcp_orchestrator\     código del servidor: server.py · pedidos.py · costos.py · panel_datos.py · control.py · tests\ · .env · precios.json · setup.ps1 · .venv\
+├─ config\               reglas de ejemplo (CLAUDE.example.md, PROJECT_INSTRUCTIONS.md) · panel.html · orquestador.html (esta guía)
 ├─ hooks\                bloquear_edicion.py (opcional: impide que Claude edite archivos)
 ├─ tools\opencode\       OpenCode (binario nativo opencode.exe)
 └─ datos\                lo que genera el orquestador (no va a git): tareas\ · logs\ · aprendizajes.jsonl · verificacion.json
@@ -251,10 +270,14 @@ D:\universidad\          estudio                     → Antigravity</pre></div>
     <dl>
       <dt>TRABAJO_DIR</dt><dd><code>D:\workspaces</code></dd>
       <dt>PERSONAL_DIR · UNIVERSIDAD_DIR</dt><dd><code>D:\personal</code> · <code>D:\universidad</code></dd>
-      <dt>OPENCODE_CLI_PATH</dt><dd>Binario nativo dentro de <code>D:\claude\tools\opencode</code></dd>
+      <dt>OPENCODE_CLI_PATH</dt><dd>Binario nativo dentro de <code>tools\opencode</code></dd>
       <dt>INNTI_PROVIDER</dt><dd><code>litellm-proxy</code></dd>
       <dt>INNTI_DEFAULT_MODEL</dt><dd><code>innti-dsp</code></dd>
       <dt>ANTIGRAVITY_AGY_MODEL</dt><dd><code>gemini-3.8-flash-medium</code></dd>
+      <dt>ANTIGRAVITY_CADENA</dt><dd>Orden de respaldo cuando un modelo llega a su límite</dd>
+      <dt>OPENCODE_IDLE_SECONDS · ANTIGRAVITY_IDLE_SECONDS</dt><dd><code>600</code>: corta una tarea sin ninguna línea de salida</dd>
+      <dt>PRESUPUESTO_DIA_USD · PRESUPUESTO_MES_USD</dt><dd>Presupuesto de Innti (vacío = sin límite)</dd>
+      <dt>PANEL_URL · PANEL_DIAS · PANEL_INCLUIR_ARCHIVADAS</dt><dd>Panel de control: URL, días que guarda y si muestra sesiones archivadas</dd>
       <dt>MAX_RETURN_CHARS</dt><dd><code>1500</code>, el tope de texto que vuelve a Claude</dd>
     </dl>
   </div>
@@ -265,20 +288,23 @@ D:\universidad\          estudio                     → Antigravity</pre></div>
   <ol class="steps">
     <li>Cierra Claude Desktop por completo (también desde la bandeja del sistema) y ábrelo de nuevo.</li>
     <li>En la pestaña Chat, crea un Proyecto y pega las instrucciones de abajo.</li>
-    <li>Prueba con «lista los modelos de Innti».</li>
+    <li>Prueba pidiéndole una tarea pequeña en <code>D:\personal</code> y una consulta de <code>listar_pedidos</code>.</li>
   </ol>
   <div class="code">
     <span class="label">Instrucciones de proyecto</span>
     <button type="button" data-copy="pi">Copiar</button>
-<pre id="pi">Eres mi CEREBRO ORQUESTADOR. No ejecutas trabajo pesado: clasificas, delegas y resumes.
+<pre id="pi">Eres mi CEREBRO ORQUESTADOR y SOLO delegas y revisas: repartes en ítems, delegas, revisas (resumen, diff puntual, verificar_proyecto), decides y registras. No editas archivos, no exploras, no corres builds ni instalaciones: todo eso se delega. Sigues siendo el cerebro: decides qué y cómo se hace, y tus prompts llevan la solución decidida; si el subagente se aparta, ronda de corrección. La generación pesada la hacen los subagentes (herramientas del servidor `orchestrator`); tú controlas la calidad y llevas el registro.
 
-1. Clasifica cada solicitud antes de actuar (la ruta del proyecto manda):
-   - TRABAJO: todo lo que está en D:\workspaces (Innti, Quipux, código corporativo). Usa `ejecutar_trabajo_opencode_innti` con la ruta del proyecto (p.ej. D:\workspaces\ssdd-back). Modelo: deja `modelo_innti` vacío para usar innti-dsp (código, lógica, revisión, seguridad); usa innti-dev para documentación, README y commits; innti-gpt para planificar o si hay capturas. Nunca innti-k3 ni innti-dev-nova salvo que yo lo pida. No incluyas secretos en el prompt (el proxy guarda el texto).
-   - PERSONAL: lo que está en D:\personal (proyectos propios, automatizaciones caseras, análisis) o en D:\universidad (cursos, tareas, estudio). Usa `ejecutar_personal_antigravity` (CLI oficial de Antigravity, plan Pro) con la ruta de salida dentro de esas carpetas y elige `modelo_antigravity`: gemini-3.8-flash-low para lo simple; vacío (gemini-3.8-flash-medium) para lo normal; gemini-4-argon-medium para proyectos de varios archivos o depuración difícil; gemini-4-argon-high solo para análisis muy exigentes o si lo pido.
-   - Si no hay ruta y es ambiguo, pregúntame en una línea: "¿Trabajo, personal o universidad?".
-2. Nunca generes código largo (>20 líneas) ni documentos extensos tú mismo: redacta un prompt preciso y autocontenido (objetivo, ruta, restricciones, criterio de terminado) y delega.
-3. Responde con el resumen de la herramienta en 3–5 líneas: estado, ruta del resultado y siguiente paso. No pegues el contenido de los archivos generados salvo que te lo pida.
-4. Solo respondes directamente preguntas cortas de conversación o aclaraciones que no requieran generar contenido.</pre>
+1. Enrutamiento (la ruta manda):
+   - TRABAJO (TRABAJO_DIR) → `ejecutar_trabajo_opencode_innti`. modelo_innti vacío = modelo por defecto; uno de documentación para README/commits; uno con visión si hay capturas. Evita los más caros salvo que lo pida. Sin secretos en el prompt.
+   - TODO LO DEMÁS (PERSONAL_DIR, UNIVERSIDAD_DIR, OTRAS_CARPETAS_PERSONALES y cualquier carpeta fuera de trabajo) → `ejecutar_personal_antigravity` (CLI oficial). Nunca editas archivos tú, en ninguna carpeta. modelo_antigravity: gemini-3.8-flash-low simple; vacío (flash-medium) normal; gemini-4-argon-medium varios archivos o depuración difícil; gemini-4-argon-high solo si es muy exigente o lo pido.
+   - Sin ruta y ambiguo: "¿Trabajo, personal o universidad?". Antes de elegir modelo: `consultar_aprendizajes(ruta)`.
+   - En trabajo y en personal el subagente hace casi todo: también explorar y resumir el proyecto, cambios desde ~5 líneas, primera revisión de diffs grandes y borradores de planes; tú decides y verificas (así gastas pocos tokens).
+   - Si una skill aplica al encargo, los subagentes no la ven: resume sus pautas en el prompt y revisa contra ellas.
+2. Por cada pedido: `iniciar_pedido` con un checklist (un ítem por entregable y por verificación). Delega cada ítem pasando pedido_id e item.
+3. Revisa cada resultado con `verificar_proyecto(ruta)` y el criterio de terminado. Bien → `actualizar_item(...,"hecho")`. Mejorable → `actualizar_item(...,"corrigiendo", nota)` y re-delega solo la corrección (OpenCode: misma ruta y sesion_opencode; Antigravity: conversacion). Máximo 2 rondas por ítem; si se alcanza el límite, consúltame. Mejoras nuevas → `agregar_items`. Si aparece "Freno de presupuesto", pregúntame antes de forzar. Si Antigravity responde "Límite:" (el modelo se agotó), el servidor ya relanza con el siguiente modelo; avísame en una línea. Con "siguiente_modelo: ninguno" o "Sin conexión:", consúltame. Un límite no cuenta como ronda de corrección.
+4. Al final de cada turno en el que delegaste o cambiaste algo: `exportar_panel` y ejecuta la llamada ArtifactData que devuelve. Tras revisar: `registrar_aprendizaje`. Al final: `cerrar_pedido`, luego `exportar_panel` y ejecuta la llamada ArtifactData que devuelve.
+5. Nunca generes código largo (&gt;20 líneas) tú mismo, y en la revisión no corrijas tú: las fallas vuelven al subagente como ronda de corrección (solo cambios triviales de ≤3 líneas, anotados). Responde con el checklist final en pocas líneas (estado, rondas, costo, rutas), sin pegar el contenido generado.</pre>
   </div>
   <div class="code">
     <span class="label">%APPDATA%\Claude\claude_desktop_config.json (ya registrado)</span>
@@ -286,14 +312,14 @@ D:\universidad\          estudio                     → Antigravity</pre></div>
 <pre id="cfg">{
   "mcpServers": {
     "orchestrator": {
-      "command": "D:\\claude\\mcp_orchestrator\\.venv\\Scripts\\python.exe",
-      "args": ["D:\\claude\\mcp_orchestrator\\server.py"]
+      "command": "D:\\orquestador-claude\\mcp_orchestrator\\.venv\\Scripts\\python.exe",
+      "args": ["D:\\orquestador-claude\\mcp_orchestrator\\server.py"]
     }
   }
 }</pre>
   </div>
   <h3>Pestaña Code (todas las sesiones)</h3>
-  <p>Claude Code lee otra configuración. El servidor está registrado en <code>~/.claude.json</code> (copia previa en <code>.claude.json.bak-20261016</code>) y la regla de enrutamiento está en <code>~/.claude/CLAUDE.md</code>, que se carga en cada sesión. En Code, Claude delega lo que supere unas 20 líneas de código o un documento extenso, y hace él mismo las lecturas, ediciones puntuales y comandos rápidos.</p>
+  <p>Claude Code lee otra configuración. El instalador registra el servidor en <code>~/.claude.json</code> (con copia previa) y las reglas van en <code>~/.claude/CLAUDE.md</code> (copia de <code>config/CLAUDE.example.md</code>), que se carga en cada sesión. En Code, Claude solo delega y revisa: reparte el pedido en ítems, delega cada uno, revisa con <code>verificar_proyecto</code> y registra; los cambios los hacen los subagentes. El hook opcional <code>hooks/bloquear_edicion.py</code> lo hace cumplir (solo permite cambios triviales de hasta 3 líneas).</p>
 </section>
 
 <section aria-labelledby="h-ops">
@@ -301,28 +327,28 @@ D:\universidad\          estudio                     → Antigravity</pre></div>
   <div class="code">
     <span class="label">Reinstalar todo (carpetas, entorno, OpenCode, registro)</span>
     <button type="button" data-copy="c1">Copiar</button>
-<pre id="c1">powershell -ExecutionPolicy Bypass -File D:\claude\mcp_orchestrator\setup.ps1 -InstallOpenCode</pre>
+<pre id="c1">powershell -ExecutionPolicy Bypass -File D:\orquestador-claude\mcp_orchestrator\setup.ps1 -InstallOpenCode</pre>
   </div>
   <div class="code">
     <span class="label">Registro de texto de todas las delegaciones (opcional)</span>
     <button type="button" data-copy="c3">Copiar</button>
-<pre id="c3">Get-Content D:\claude\logs\en-vivo.log -Wait -Tail 0 -Encoding UTF8</pre>
+<pre id="c3">Get-Content D:\orquestador-claude\datos\logs\en-vivo.log -Wait -Tail 0 -Encoding UTF8</pre>
   </div>
   <div class="code">
     <span class="label">Probar una herramienta sin Claude (mismo código del servidor)</span>
     <button type="button" data-copy="c4">Copiar</button>
-<pre id="c4">D:\claude\mcp_orchestrator\.venv\Scripts\python.exe D:\claude\mcp_orchestrator\probar.py resumen_costos "{}"</pre>
+<pre id="c4">D:\orquestador-claude\mcp_orchestrator\.venv\Scripts\python.exe D:\orquestador-claude\mcp_orchestrator\probar.py resumen_costos "{}"</pre>
   </div>
   <div class="grid2">
-    <div class="card"><h3>Prueba del 16 de octubre</h3><p>Trabajo: <code>innti-dsp</code> creó un módulo de dígito de verificación de NIT con 7 tests en verde. Personal: Antigravity (CLI oficial, plan Pro) creó un proyecto de lista de tareas con 3 tests en verde y un script con README desde su propia ventana. OpenCode ya no lee <code>~/.claude/CLAUDE.md</code> y tiene prohibido instalar paquetes globales.</p></div>
-    <div class="card"><h3>Por qué OpenCode está en D:\claude\tools</h3><p>Tu Node es la versión 10 y no puede ejecutar el instalador de <code>opencode-ai</code>. Se instaló sin scripts y se usa el <code>.exe</code> nativo directamente. Quedaron tres archivos sueltos en <code>C:\Program Files\nodejs</code> (<code>opencode</code>, <code>.cmd</code>, <code>.ps1</code>) que se pueden borrar a mano.</p></div>
+    <div class="card"><h3>Cómo se prueba</h3><p>El proyecto tiene 55 pruebas automáticas (<code>.venv\Scripts\python.exe -m pytest tests</code>). OpenCode no lee <code>~/.claude/CLAUDE.md</code> y tiene prohibido instalar paquetes globales; Antigravity no ejecuta comandos.</p></div>
+    <div class="card"><h3>Por qué OpenCode está en tools\opencode</h3><p>Tu Node es la versión 10 y no puede ejecutar el instalador de <code>opencode-ai</code>. Se instaló sin scripts y se usa el <code>.exe</code> nativo directamente. </p></div>
     <div class="card"><h3>Revisión y control</h3><p><code>verificar_proyecto</code> corre los tests/lint del proyecto (Maven, Gradle, npm, pytest, Go o comandos guardados con <code>configurar_verificacion</code>). Presupuesto: <code>PRESUPUESTO_DIA_USD</code> y <code>PRESUPUESTO_MES_USD</code> avisan al 80% y frenan al límite. Las correcciones reutilizan la sesión de OpenCode o la conversación de Antigravity.</p></div>
-    <div class="card"><h3>Seguridad y respaldo</h3><p>El servidor de OpenCode exige contraseña (<code>OPENCODE_SERVER_PASSWORD</code> en el <code>.env</code>, generada al azar); el orquestador la usa sin mostrarla. <code>D:\claude</code> es un repositorio git local (sin <code>.env</code>, logs ni checklists); hay un <code>.env.example</code> sin claves. Pruebas: <code>.venv\Scripts\python.exe -m pytest tests</code> (23 en verde).</p></div>
-    <div class="card"><h3>Cambios fuera de D:\claude</h3><p>En <code>opencode.jsonc</code> el <code>shell</code> pasó de <code>zsh</code> a <code>pwsh</code>; la copia original está en <code>opencode.jsonc.bak-20261016</code>. El paquete <code>mcp</code> está fijado por debajo de la versión 2 porque la 2.x renombró FastMCP.</p></div>
+    <div class="card"><h3>Seguridad y respaldo</h3><p>El servidor de OpenCode exige contraseña (<code>OPENCODE_SERVER_PASSWORD</code> en el <code>.env</code>, generada al azar); el orquestador la usa sin mostrarla. El repositorio git no incluye el <code>.env</code>, los precios ni la carpeta <code>datos\</code>; hay un <code>.env.example</code> sin claves. Antes de cada tarea de OpenCode se anota el commit actual para poder deshacer lo que cambie el agente.</p></div>
+    <div class="card"><h3>Cambios fuera del proyecto</h3><p>En <code>opencode.jsonc</code> el <code>shell</code> pasó de <code>zsh</code> a <code>pwsh</code>. El paquete <code>mcp</code> está fijado por debajo de la versión 2 porque la 2.x renombró FastMCP. Si mueves el proyecto de carpeta, vuelve a correr el instalador y actualiza <code>OPENCODE_CLI_PATH</code> y la ruta del hook.</p></div>
   </div>
 </section>
 
-<footer>Configurado el 16 de octubre de 2026. Los precios de Innti vienen de tu guía de modelos y cambian con frecuencia; compruébalos antes de decisiones importantes.</footer>
+<footer>Actualizado el 23 de octubre de 2026 según el proyecto actual. Los precios de Innti vienen de tu guía de modelos y cambian con frecuencia; compruébalos antes de decisiones importantes.</footer>
 </div>
 
 <script>
