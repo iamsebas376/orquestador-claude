@@ -10,7 +10,7 @@ Servidor MCP que convierte a Claude en el **cerebro** de un equipo de agentes: c
 ## Qué hace
 
 - **Enrutamiento por carpeta:** cada herramienta rechaza rutas del otro contexto.
-- **CLI oficiales en vivo:** la tarea corre en la TUI de OpenCode o de Antigravity, en una pestaña del panel de terminal de Claude Code o en una ventana externa (Windows Terminal).
+- **Ejecución directa:** la tarea corre en segundo plano (`opencode run` / `agy -p`), sin ventanas ni terminales; Claude solo recibe la síntesis.
 - **Checklist por pedido** (`tareas/`), con estados, rondas de corrección (límite configurable) y notas de revisión.
 - **Costos:** tokens reales de OpenCode × tu tabla de precios (`precios.json`); resumen por día, agente y modelo.
 - **Aprendizajes por proyecto:** qué modelo funcionó bien o mal, para elegir mejor la próxima vez.
@@ -71,8 +71,8 @@ Publica `config/panel.html` como artefacto en claude.ai con la capacidad `db` (p
 |---|---|
 | `ver_configuracion` | Carpetas, modelos y sistema de esta instalación |
 | `listar_modelos_innti` | Modelos del proveedor configurado en OpenCode |
-| `preparar_vista_opencode` → `ejecutar_trabajo_opencode_innti` | Tarea de trabajo (con TUI en la terminal de Claude Code) |
-| `ejecutar_personal_antigravity` / `preparar_tarea_antigravity` → `esperar_resultado_antigravity` | Tarea personal en Antigravity |
+| `ejecutar_trabajo_opencode_innti` | Tarea de trabajo en OpenCode con un modelo Innti |
+| `ejecutar_personal_antigravity` | Tarea personal en Antigravity (`agy -p`; edita archivos, sin comandos) |
 | `iniciar_pedido`, `actualizar_item`, `agregar_items`, `cerrar_pedido`, `ver_pedido`, `listar_pedidos` | Checklist |
 | `verificar_proyecto`, `configurar_verificacion` | Tests/lint en cada revisión |
 | `estado_presupuesto`, `resumen_costos`, `registrar_aprendizaje`, `consultar_aprendizajes`, `exportar_panel` | Control |
@@ -85,4 +85,4 @@ cd mcp_orchestrator
 .venv\Scripts\python.exe -m pytest tests
 ```
 
-`plataforma.py` concentra lo que depende del sistema operativo (rutas, terminales y sintaxis de PowerShell). `probar.py` ejecuta cualquier herramienta sin cliente MCP: `python probar.py ver_configuracion`.
+`plataforma.py` concentra lo que depende del sistema operativo (rutas y nombres de binarios por defecto). `probar.py` ejecuta cualquier herramienta sin cliente MCP: `python probar.py ver_configuracion`.

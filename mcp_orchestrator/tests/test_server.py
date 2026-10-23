@@ -30,7 +30,7 @@ def test_trabajo_rechaza_ruta_personal(tmp_dirs):
 
 
 def test_personal_rechaza_ruta_de_trabajo(tmp_dirs):
-    out = run(server.preparar_tarea_antigravity("x", "", str(tmp_dirs["workspaces"] / "p")))
+    out = run(server.ejecutar_personal_antigravity("x", "", str(tmp_dirs["workspaces"] / "p")))
     assert out.startswith("Rechazado")
 
 
@@ -39,42 +39,6 @@ def test_work_cwd_crea_carpeta_padre_para_archivo(tmp_dirs):
     assert server._work_cwd(target) == target.parent and target.parent.is_dir()
 
 
-# ----------------------------------------------------------------------------- comandos para la terminal
-
-def test_preparar_tarea_antigravity_windows(tmp_dirs, monkeypatch):
-    monkeypatch.setattr(server.plataforma, "IS_WINDOWS", True)
-    monkeypatch.setattr(server, "_agy_cmd", lambda: r"C:\fake\agy.exe")
-    out = run(server.preparar_tarea_antigravity("Crea notas", "", "proyecto", "gemini-3.8-flash-low"))
-    cmd = out.split("\n")[-1]
-    assert cmd.startswith(f"Set-Location '{tmp_dirs['personal'] / 'proyecto'}'; & 'C:\\fake\\agy.exe' -i \"")
-    assert cmd.endswith("--model gemini-3.8-flash-low --mode accept-edits")
-    assert cmd.isascii()
-    task_id = out.split("\n")[0].split(": ")[1]
-    assert task_id in server._AGY_TASKS
-
-
-def test_prompt_de_antigravity_pide_ortografia(tmp_dirs, monkeypatch):
-    monkeypatch.setattr(server, "_agy_cmd", lambda: "agy")
-    out = run(server.preparar_tarea_antigravity("Crea un README", "", "p", "m"))
-    cmd = out.split("\n")[-1]
-    assert "ORTOGRAFIA" in cmd and "tildes" in cmd and "virgulilla" in cmd and cmd.isascii()
-
-
-def test_preparar_vista_opencode_no_expone_contrasena(tmp_dirs, monkeypatch):
-    async def ok(_cli):
-        return True
-
-    async def sesion(_cwd, _t):
-        return "ses_prueba"
-
-    monkeypatch.setattr(server, "_opencode_cmd", lambda: r"C:\fake\opencode.exe")
-    monkeypatch.setattr(server, "_ensure_opencode_server", ok)
-    monkeypatch.setattr(server, "_create_session", sesion)
-    monkeypatch.setenv("OPENCODE_SERVER_PASSWORD", "secreto-123")
-    out = run(server.preparar_vista_opencode("proyecto"))
-    assert "session_id: ses_prueba" in out
-    assert "oc_attach.py" in out and "--session ses_prueba" in out
-    assert "secreto-123" not in out
 
 
 def test_oc_auth_lee_la_contrasena(monkeypatch):
@@ -114,13 +78,13 @@ def test_exportar_panel_crea_y_borra_el_anterior(tmp_registro, monkeypatch):
 
 def test_todas_las_herramientas_registradas():
     nombres = {t.name for t in run(server.mcp.list_tools())}
-    esperadas = {"listar_modelos_innti", "preparar_vista_opencode", "ejecutar_trabajo_opencode_innti",
-                 "ejecutar_personal_antigravity", "preparar_tarea_antigravity", "esperar_resultado_antigravity",
+    esperadas = {"listar_modelos_innti", "ejecutar_trabajo_opencode_innti", "ejecutar_personal_antigravity",
                  "iniciar_pedido", "actualizar_item", "agregar_items", "cerrar_pedido", "ver_pedido",
                  "listar_pedidos", "resumen_costos", "registrar_aprendizaje", "consultar_aprendizajes",
                  "exportar_panel", "ver_configuracion", "verificar_proyecto", "configurar_verificacion",
                  "estado_presupuesto"}
     assert esperadas <= nombres
+    assert not {"preparar_vista_opencode", "preparar_tarea_antigravity", "esperar_resultado_antigravity"} & nombres
 
 
 # ----------------------------------------------------------------------------- límite de modelos de Antigravity
@@ -166,23 +130,49 @@ def test_detecta_limite_y_red_en_el_transcript(tmp_path, monkeypatch):
     assert server._agy_fallo(conv, inicio) == ("", "")  # agy reintentó y siguió
 
 
-def test_espera_corta_al_llegar_al_limite(tmp_dirs, tmp_registro, monkeypatch):
-    from conftest import pedido_id
-    dormir = asyncio.sleep
-    monkeypatch.setattr(server, "ANTIGRAVITY_CADENA", ["a-high", "a-medium"])
+def _agy_falso(monkeypatch, respuestas, vistos=None):
+    """Sustituye server._run: devuelve (código, salida) por llamada y anota los comandos."""
+    respuestas = list(respuestas)
+    monkeypatch.setattr(server, "_agy_cmd", lambda: "agy")
     monkeypatch.setattr(server, "_agy_conversacion", lambda folder: "")
-    monkeypatch.setattr(server, "_agy_fallo", lambda conv, desde: ("limite", "429 RESOURCE_EXHAUSTED"))
-    monkeypatch.setattr(server.asyncio, "sleep", lambda s: dormir(0))
-    folder = tmp_dirs["personal"] / "p"
-    folder.mkdir()
+    monkeypatch.setattr(server, "_agy_fallo", lambda conv, desde: ("", ""))
+
+    async def falso(cmd, cwd, timeout, idle=0):
+        if vistos is not None:
+            vistos.append(cmd)
+        return respuestas.pop(0)
+
+    monkeypatch.setattr(server, "_run", falso)
+
+
+def test_personal_corre_directo_sin_terminal(tmp_dirs, monkeypatch):
+    vistos = []
+    _agy_falso(monkeypatch, [(0, "## RESUMEN\n- Creó notas.md")], vistos)
+    out = run(server.ejecutar_personal_antigravity("Crea notas con acentuación", "", "proyecto", "gemini-3.8-flash-low"))
+    assert out.startswith("Éxito") and "Creó notas.md" in out
+    cmd = vistos[0]
+    assert cmd[0] == "agy" and "-p" in cmd and "-i" not in cmd
+    assert cmd[cmd.index("--model") + 1] == "gemini-3.8-flash-low"
+    assert "accept-edits" in cmd and "Crea notas con acentuación" in cmd[cmd.index("-p") + 1]
+
+
+def test_limite_relanza_con_el_siguiente_modelo(tmp_dirs, tmp_registro, monkeypatch):
+    from conftest import pedido_id
+    vistos = []
+    monkeypatch.setattr(server, "ANTIGRAVITY_CADENA", ["a-high", "a-medium"])
+    _agy_falso(monkeypatch, [(1, "Individual quota reached. Resets in 26h"), (0, "## RESUMEN\n- ok")], vistos)
     pid = pedido_id(registro.iniciar_pedido("Límite", ["A"]))
-    task = server._agy_prepare("tarea", "", folder, folder, "a-high")
-    task.update(pedido_id=pid, item=1)
-    res = run(server.esperar_resultado_antigravity(task["id"]))
-    assert res.startswith("Límite") and "siguiente_modelo: a-medium" in res
-    assert "modelos_descartados: a-high" in res and "preparar_tarea_antigravity" in res
-    assert task["id"] not in server._AGY_TASKS
-    assert "Límite de a-high" in registro.ver_pedido(pid)
+    out = run(server.ejecutar_personal_antigravity("tarea", "", "p", "a-high", pedido_id=pid, item=1))
+    assert out.startswith("Éxito") and "a-high llegó a su límite; se relanzó con a-medium" in out
+    assert [c[c.index("--model") + 1] for c in vistos] == ["a-high", "a-medium"]
+    assert "hecho" not in registro.ver_pedido(pid).lower() or "revisando" in registro.ver_pedido(pid)
+
+
+def test_limite_sin_modelos_de_respaldo_se_informa(tmp_dirs, monkeypatch):
+    monkeypatch.setattr(server, "ANTIGRAVITY_CADENA", ["a-only"])
+    _agy_falso(monkeypatch, [(1, "429 RESOURCE_EXHAUSTED quota")])
+    out = run(server.ejecutar_personal_antigravity("tarea", "", "p", "a-only"))
+    assert out.startswith("Límite") and "siguiente_modelo: ninguno" in out
 
 
 def test_confia_solo_en_carpetas_personales(tmp_dirs, tmp_path, monkeypatch):
@@ -198,38 +188,8 @@ def test_confia_solo_en_carpetas_personales(tmp_dirs, tmp_path, monkeypatch):
     assert data["permissions"]["allow"] == ["command(npm test)"]  # el resto de la configuración se conserva
 
 
-def test_timeout_reporta_tokens_y_actualiza_inicio(tmp_dirs, monkeypatch):
-    """En caso de tiempo de espera agotado (timeout), _agy_wait reporta tokens y conversación, y actualiza task['inicio']."""
-    from datetime import datetime, timezone
-    dormir = asyncio.sleep
-    monkeypatch.setattr(server, "ANTIGRAVITY_TIMEOUT", 0)
-    monkeypatch.setattr(server.asyncio, "sleep", lambda s: dormir(0))
-    monkeypatch.setattr(server, "_agy_fallo", lambda conv, desde: ("", ""))
-    monkeypatch.setattr(server, "_agy_conversacion", lambda folder: "0123abcd-0000-0000-0000-000000000000")
-
-    llamadas_tokens = []
-
-    def fake_tokens(conv, desde):
-        llamadas_tokens.append((conv, desde))
-        return {"input": 1200, "cache_read": 300, "output": 150}
-
-    monkeypatch.setattr(server, "_agy_tokens", fake_tokens)
-
-    folder = tmp_dirs["personal"] / "p"
-    folder.mkdir(exist_ok=True)
-    inicio_fijado = datetime(2026, 10, 21, 10, 0, 0, tzinfo=timezone.utc)
-    task = server._agy_prepare("tarea_timeout", "", folder, folder, "gemini-3.8-flash-medium")
-    task["inicio"] = inicio_fijado
-    task_id = task["id"]
-
-    res = run(server._agy_wait(task, "terminal de Claude"))
-
-    assert res.startswith("Sin resultado:")
-    assert "Tokens: 1.500 entrada (300 de caché) / 150 salida" in res
-    assert "conversacion_antigravity: 0123abcd-0000-0000-0000-000000000000" in res
-    assert f"task_id: {task_id}" in res
-    assert task_id in server._AGY_TASKS
-    # Verifica que task['inicio'] se haya actualizado a un instante posterior para no duplicar el cómputo de tokens.
-    assert task["inicio"] > inicio_fijado
-    assert len(llamadas_tokens) == 1
-    assert llamadas_tokens[0] == ("0123abcd-0000-0000-0000-000000000000", inicio_fijado)
+def test_run_corta_por_inactividad(tmp_path):
+    import sys
+    code, out = run(server._run([sys.executable, "-c", "import time; print('a', flush=True); time.sleep(30)"],
+                                tmp_path, 60, idle=1))
+    assert code == -1 and "Sin salida durante 1s" in out and out.startswith("a")

@@ -53,9 +53,10 @@ LOGS_DIR = Path(_env("LOGS_DIR") or plataforma.REPO_ROOT / "logs").expanduser()
 OPENCODE_CLI_PATH = _env("OPENCODE_CLI_PATH", "opencode")
 OPENCODE_CONFIG_PATH = Path(_env("OPENCODE_CONFIG_PATH") or plataforma.default_opencode_config()).expanduser()
 OPENCODE_TIMEOUT = int(_env("OPENCODE_TIMEOUT_SECONDS", "1800"))
-# Servidor OpenCode persistente: las tareas corren en él y una ventana con su TUI muestra la sesión en vivo.
+# Segundos sin una sola línea de salida tras los que se corta la tarea (modelo colgado o sin red).
+OPENCODE_IDLE = int(_env("OPENCODE_IDLE_SECONDS", "600"))
+# Servidor OpenCode persistente: las tareas corren en él (sin ventanas) y las sesiones permiten rondas de corrección.
 OPENCODE_SERVER_URL = _env("OPENCODE_SERVER_URL", "http://127.0.0.1:4096").rstrip("/")
-SHOW_CONSOLE = _env("MOSTRAR_CONSOLA", "1") not in ("0", "false", "no")
 INNTI_PROVIDER = _env("INNTI_PROVIDER", "litellm-proxy")
 INNTI_DEFAULT_MODEL = _env("INNTI_DEFAULT_MODEL", "innti-dsp")
 INNTI_BASE_URL = _env("INNTI_BASE_URL").rstrip("/")
@@ -72,7 +73,8 @@ ANTIGRAVITY_CADENA = [
         "ANTIGRAVITY_CADENA", "gemini-4-argon-high,gemini-4-argon-medium,gemini-3.8-flash-medium,gemini-3.8-flash-low"
     ).split(",") if m.strip()
 ]
-ANTIGRAVITY_TIMEOUT = int(_env("ANTIGRAVITY_TIMEOUT_SECONDS", "600"))
+ANTIGRAVITY_TIMEOUT = int(_env("ANTIGRAVITY_TIMEOUT_SECONDS", "900"))
+ANTIGRAVITY_IDLE = int(_env("ANTIGRAVITY_IDLE_SECONDS", "600"))  # agy -p no imprime hasta el final
 
 MAX_RETURN_CHARS = int(_env("MAX_RETURN_CHARS", "1500"))
 PANEL_URL = _env("PANEL_URL")
@@ -184,14 +186,6 @@ def _oc_auth() -> tuple[str, str] | None:
     return (os.getenv("OPENCODE_SERVER_USERNAME") or "opencode", pwd) if pwd else None
 
 
-def _open_console(title: str, cmd: list[str], cwd: Path) -> None:
-    """Abre una ventana de terminal externa (Windows Terminal) con el comando dado."""
-    if not SHOW_CONSOLE:
-        return
-    if err := plataforma.open_terminal(title, cmd, cwd, OPENCODE_ENV):
-        _live(f"  ✖ no se pudo abrir la consola: {err}")
-
-
 async def _ensure_opencode_server(cli: str) -> bool:
     """Arranca `opencode serve` en segundo plano si no responde. Devuelve True si queda disponible."""
     async with httpx.AsyncClient(timeout=2, auth=_oc_auth()) as c:
@@ -224,7 +218,7 @@ async def _create_session(cwd: Path, title: str) -> str | None:
         return None
 
 
-async def _run(cmd: list[str], cwd: Path, timeout: int) -> tuple[int, str]:
+async def _run(cmd: list[str], cwd: Path, timeout: int, idle: int = 0) -> tuple[int, str]:
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         cwd=str(cwd),
@@ -236,9 +230,19 @@ async def _run(cmd: list[str], cwd: Path, timeout: int) -> tuple[int, str]:
     )
     lines: list[str] = []
 
+    inactivo = False
+
     async def pump() -> None:
+        nonlocal inactivo
         assert proc.stdout
-        async for raw in proc.stdout:
+        while True:
+            try:
+                raw = await asyncio.wait_for(proc.stdout.readline(), timeout=idle or None)
+            except asyncio.TimeoutError:
+                inactivo = True
+                return
+            if not raw:
+                return
             line = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", raw.decode("utf-8", errors="replace")).rstrip()
             lines.append(line)
             if line:
@@ -246,9 +250,15 @@ async def _run(cmd: list[str], cwd: Path, timeout: int) -> tuple[int, str]:
 
     try:
         await asyncio.wait_for(pump(), timeout=timeout)
+        if inactivo:
+            proc.kill()
+            await proc.wait()
+            _live(f"  ✖ sin salida durante {idle}s: se cortó")
+            return -1, "\n".join(lines) + f"\nSin salida durante {idle}s: se cortó la tarea."
         await proc.wait()
     except asyncio.TimeoutError:
         proc.kill()
+        await proc.wait()
         _live(f"  ✖ timeout tras {timeout}s")
         return -1, f"Timeout tras {timeout}s"
     return proc.returncode or 0, "\n".join(lines)
@@ -349,35 +359,6 @@ def _work_cwd(target: Path) -> Path:
 
 
 @mcp.tool()
-async def preparar_vista_opencode(ruta_proyecto_o_archivo: str = "", titulo: str = "") -> str:
-    """SOLO EN CLAUDE CODE (terminal interna). Paso 1 de 2 para una tarea de TRABAJO.
-
-    Crea la sesión en el servidor de OpenCode y devuelve session_id, ruta_para_ejecutar y el comando
-    de la TUI oficial. Ejecuta el comando tal cual con run_in_terminal (título 'OpenCode'), y luego
-    llama ejecutar_trabajo_opencode_innti con sesion_opencode=<session_id> y
-    ruta_proyecto_o_archivo=<ruta_para_ejecutar>.
-    """
-    target = _resolve_under(TRABAJO_DIR, ruta_proyecto_o_archivo)
-    if not _inside(target, TRABAJO_DIR):
-        return (f"Rechazado: {target} está fuera de {TRABAJO_DIR}. Si es un proyecto personal o de "
-                "universidad usa preparar_tarea_antigravity.")
-    cli = _opencode_cmd()
-    if not cli:
-        return f"Error: no se encontró OpenCode ('{OPENCODE_CLI_PATH}'). Revisa OPENCODE_CLI_PATH en .env."
-    if not await _ensure_opencode_server(cli):
-        return f"Error: el servidor de OpenCode no respondió en {OPENCODE_SERVER_URL}."
-    cwd = _work_cwd(target)
-    session_id = await _create_session(cwd, f"Claude → {titulo or cwd.name}"[:80])
-    if not session_id:
-        return "Error: no se pudo crear la sesión en el servidor de OpenCode."
-    # oc_attach.py lee la contraseña del .env: no aparece en el comando ni en el chat.
-    cmd = plataforma.run_line(sys.executable, plataforma.quote_path(BASE_DIR / "oc_attach.py"),
-                              "--dir", plataforma.quote_path(cwd), "--session", session_id)
-    return (f"session_id: {session_id}\nruta_para_ejecutar: {target}\n"
-            f"comando (ejecútalo con run_in_terminal, una sola línea, sin cambios; luego muestra la pestaña con show_pane):\n{cmd}")
-
-
-@mcp.tool()
 async def ejecutar_trabajo_opencode_innti(
     prompt_tarea: str,
     modelo_innti: str = "",
@@ -392,9 +373,8 @@ async def ejecutar_trabajo_opencode_innti(
 
     forzar_presupuesto: solo si el usuario autorizó pasar el límite de presupuesto.
 
-    sesion_opencode: session_id de preparar_vista_opencode (TUI en la terminal de Claude) o de una delegación
-        anterior: reutilizarla en una RONDA DE CORRECCIÓN conserva el contexto del agente y cuesta menos.
-        Vacío = sesión nueva con ventana de Windows Terminal (pestaña Chat).
+    sesion_opencode: session_id de una delegación anterior: reutilizarla en una RONDA DE CORRECCIÓN
+        conserva el contexto del agente y cuesta menos. Vacío = sesión nueva. Sin ventanas ni terminales.
     pedido_id, item: vinculan la delegación al checklist (el ítem pasa a 'revisando' y suma el costo).
     prompt_tarea: instrucción completa y autocontenida para OpenCode.
     modelo_innti: vacío = INNTI_DEFAULT_MODEL (innti-dsp: lógica, revisión, seguridad).
@@ -449,21 +429,18 @@ async def ejecutar_trabajo_opencode_innti(
     titulo = f"Claude → {prompt_tarea[:60]}"
     session_id = ""
     if sesion_opencode and await _ensure_opencode_server(cli):
-        # TUI ya abierta (terminal de Claude o ventana previa) o ronda de corrección: misma sesión.
+        # Ronda de corrección: misma sesión.
         session_id = sesion_opencode
         cmd += ["--attach", OPENCODE_SERVER_URL, "--dir", str(cwd), "--session", session_id]
     elif await _ensure_opencode_server(cli) and (session_id := await _create_session(cwd, titulo) or ""):
-        # La ventana muestra la TUI real de OpenCode siguiendo esta sesión mientras trabaja.
-        _open_console(f"OpenCode · {modelo.split('/')[-1]}",
-                      [cli, "attach", OPENCODE_SERVER_URL, "--dir", str(cwd), "--session", session_id], cwd)
-        await asyncio.sleep(2)
+        # Sesión nueva en el servidor: su id permite una ronda de corrección con el mismo contexto.
         cmd += ["--attach", OPENCODE_SERVER_URL, "--dir", str(cwd), "--session", session_id]
     else:
-        _live("  servidor OpenCode no disponible: se ejecuta sin ventana")
+        _live("  servidor OpenCode no disponible: se ejecuta sin sesión persistente")
     checkpoint = _git_checkpoint(cwd)
     before = _snapshot(cwd)
     inicio_ms = int(time.time() * 1000)
-    code, output = await _run([*cmd, prompt], cwd, OPENCODE_TIMEOUT)
+    code, output = await _run([*cmd, prompt], cwd, OPENCODE_TIMEOUT, idle=OPENCODE_IDLE)
     after = _snapshot(cwd)
     changed = sorted(p for p, m in after.items() if before.get(p) != m)
     tokens = await _session_tokens(session_id, cwd, inicio_ms) if session_id else {}
@@ -500,51 +477,6 @@ async def ejecutar_trabajo_opencode_innti(
         + (f"Punto de retorno: {checkpoint}\n" if checkpoint else "")
         + f"{revisar}\nLog completo: {log_file}{vinculo}{alerta}\n\nResumen de OpenCode:\n{_tail(output)}"
     )
-
-
-@mcp.tool()
-async def ejecutar_personal_antigravity(
-    instruccion: str,
-    contexto_adicional: str = "",
-    ruta_salida_opcional: str = "",
-    modelo_antigravity: str = "",
-    pedido_id: str = "",
-    item: int = 0,
-    conversacion: str = "",
-) -> str:
-    """CONTEXTO PERSONAL (proyectos propios, aprendizaje, automatizaciones caseras, análisis).
-    Delega al agente de Antigravity (CLI `agy`, cuenta Pro): trabaja en la carpeta, crea/edita archivos
-    y aquí vuelve solo una síntesis. En Claude Code prefiere preparar_tarea_antigravity (terminal interna).
-
-    conversacion: en una ronda de corrección, la conversacion_antigravity del resultado anterior.
-
-    pedido_id, item: vinculan la delegación al checklist (el ítem pasa a 'revisando').
-
-    modelo_antigravity: elige según la tarea (vacío = ANTIGRAVITY_AGY_MODEL, gemini-3.8-flash-medium):
-        'gemini-3.8-flash-low'    → simple: resúmenes, listas, reformatear, preguntas rápidas.
-        'gemini-3.8-flash-medium' → normal: código personal, planes, explicaciones.
-        'gemini-4-argon-medium'   → complejo: proyectos con varios archivos, diseño, depuración difícil.
-        'gemini-4-argon-high'     → profundo: razonamiento largo o análisis exigente (más lento).
-    instruccion: la tarea a realizar.
-    contexto_adicional: datos, restricciones o contexto de apoyo.
-    ruta_salida_opcional: archivo o carpeta dentro de PERSONAL_DIR o UNIVERSIDAD_DIR. Relativa:
-        'universidad/curso/...' -> UNIVERSIDAD_DIR/curso/...; cualquier otra -> PERSONAL_DIR/...
-        Vacía -> PERSONAL_DIR/_antigravity.
-    """
-    target = _resolve_personal(ruta_salida_opcional or "_antigravity")
-    _live("")
-    _live(f"▶ PERSONAL → Antigravity | salida: {target}")
-    _live(f"  instrucción: {instruccion[:300]}")
-    if not _inside(target, PERSONAL_DIR, UNIVERSIDAD_DIR, *OTRAS_CARPETAS):
-        _live(f"  ✖ rechazado: ruta fuera de {PERSONAL_DIR} y {UNIVERSIDAD_DIR}")
-        return (f"Rechazado: {target} está fuera de {PERSONAL_DIR} y {UNIVERSIDAD_DIR}. Si es un "
-                "proyecto de trabajo usa ejecutar_trabajo_opencode_innti.")
-
-    folder = target.parent if target.suffix else target
-    folder.mkdir(parents=True, exist_ok=True)
-    principal = (modelo_antigravity or ANTIGRAVITY_AGY_MODEL).strip()
-    res, final = await _personal_agy_tui(instruccion, contexto_adicional, target, folder, principal, conversacion)
-    return _cierre_personal(res, pedido_id, item, final, folder)
 
 
 def _cierre_personal(res: str, pedido_id: str, item: int, model: str, folder: Path) -> str:
@@ -603,98 +535,21 @@ def _agy_cmd() -> str | None:
     return shutil.which(ANTIGRAVITY_CLI_PATH)
 
 
-_AGY_TASKS: dict[str, dict] = {}  # tareas preparadas para la terminal interna de Claude (por task_id)
-
-
-_ascii = plataforma.safe_prompt  # prompt apto para el panel de terminal de Claude (según el shell)
-
-
-def _agy_prepare(instruccion: str, contexto: str, target: Path, folder: Path, model: str) -> dict:
-    task_id = f"{_stamp()}-{_slug(instruccion, 24)}"
-    result_file = folder / f".resultado-{task_id}.md"
+def _agy_prompt(instruccion: str, contexto: str, target: Path, folder: Path) -> str:
     destino = f" Guarda el resultado principal en {target}." if target.suffix else ""
-    # La instrucción va directa en el prompt (leer un archivo de tareas le exigía aprobar un comando).
-    prompt = (
+    return (
         f"[Tarea delegada por Claude] {instruccion}"
         + (f" Contexto adicional: {contexto}" if contexto else "") + destino +
-        f" REGLAS: trabaja solo dentro de {folder}. Trabaja creando y editando archivos con tus herramientas de "
-        "archivos; para leer, listar o buscar usa también tus herramientas de archivos, nunca comandos de terminal "
-        "(el usuario no siempre está para aprobarlos; solo si es imprescindible, pídelo). "
-        "No pegues el código completo en el chat. No instales paquetes globales. "
-        # El panel de terminal obliga a mandar el prompt sin tildes: se pide explícitamente buena ortografía.
-        "ORTOGRAFIA: estas instrucciones te llegan sin tildes por limitaciones tecnicas, pero todo lo que escribas "
-        "en espanol (documentos, textos de interfaz, comentarios) debe llevar ortografia correcta: tildes, la letra "
-        "ene con virgulilla y signos de apertura de pregunta y exclamacion. "
-        f"AL TERMINAR, como último paso obligatorio, crea el archivo {result_file} con una sección "
+        f" REGLAS: trabaja solo dentro de {folder}. Crea y edita archivos con tus herramientas de archivos; para "
+        "leer, listar o buscar usa también tus herramientas de archivos. Los comandos de terminal se deniegan en este "
+        "modo: no los uses. No pegues el código completo en el chat. No instales paquetes globales. Escribe en "
+        "español con ortografía correcta (tildes, ñ, ¿ y ¡). Al terminar responde SOLO con una sección "
         "'## RESUMEN' de máximo 8 viñetas: lo realizado, los archivos creados o modificados y cómo probarlo."
     )
-    task = {"id": task_id, "folder": folder, "result": result_file, "model": model, "instruccion": instruccion,
-            "contexto": contexto, "target": target, "prompt": prompt, "before": _snapshot(folder),
-            "inicio": datetime.now(timezone.utc)}
-    _AGY_TASKS[task_id] = task
-    return task
-
-
-async def _agy_wait(task: dict, via: str) -> str:
-    folder, result_file, model = task["folder"], task["result"], task["model"]
-    deadline, last_size, vuelta = time.monotonic() + ANTIGRAVITY_TIMEOUT, -1, 0
-    while time.monotonic() < deadline:
-        await asyncio.sleep(2)
-        if result_file.exists():
-            size = result_file.stat().st_size
-            if size and size == last_size:  # espera a que termine de escribirse
-                break
-            last_size = size
-            continue
-        vuelta += 1
-        if vuelta % 5 == 0:  # cada ~10 s revisa si agy quedó atascado por el límite del modelo o sin red
-            tipo, msg = _agy_fallo(_agy_conversacion(folder), task["inicio"])
-            if tipo:
-                return _agy_corte(task, tipo, msg)
-    else:
-        _live("■ Timeout esperando el resultado de Antigravity")
-        conv = _agy_conversacion(folder)
-        tokens = _agy_tokens(conv, task["inicio"]) if conv else {}
-        tok_txt = (f"Tokens: {tokens['input'] + tokens['cache_read']:,} entrada ({tokens['cache_read']:,} de caché) "
-                   f"/ {tokens['output']:,} salida\n".replace(",", ".") if tokens else "")
-        task["inicio"] = datetime.now(timezone.utc)
-        return (f"Sin resultado: Antigravity no escribió {result_file.name} en {ANTIGRAVITY_TIMEOUT}s. Su terminal "
-                f"sigue abierta; revisa si espera una aprobación o si sigue trabajando.\n"
-                f"{tok_txt}"
-                + (f"conversacion_antigravity: {conv}\n" if conv else "")
-                + f"task_id: {task['id']}")
-
-    content = result_file.read_text(encoding="utf-8", errors="replace").strip()
-    result_file.unlink(missing_ok=True)
-    _AGY_TASKS.pop(task["id"], None)
-    after = _snapshot(folder)
-    changed = sorted(p for p, m in after.items() if task["before"].get(p) != m and Path(p).name != result_file.name)
-
-    log_dir = LOGS_DIR / "personal"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / f"{task['id']}.md"
-    log_file.write_text(f"# Antigravity ({model}, {via})\n\n- carpeta: {folder}\n\n## Tarea\n\n{task['instruccion']}\n\n"
-                        "## Archivos\n\n" + "\n".join(f"- {p}" for p in changed) + f"\n\n## Resultado\n\n{content}\n",
-                        encoding="utf-8")
-    m = re.search(r"##\s*RESUMEN\s*(.+)$", content, flags=re.S | re.I)
-    resumen = m.group(1).strip() if m else _tail(content, 800)
-    shown = "\n".join(f"  - {p}" for p in changed[:15]) + (f"\n  … y {len(changed) - 15} más" if len(changed) > 15 else "")
-    conv = _agy_conversacion(folder)
-    tokens = _agy_tokens(conv, task["inicio"]) if conv else {}
-    tok_txt = (f"Tokens: {tokens['input'] + tokens['cache_read']:,} entrada ({tokens['cache_read']:,} de caché) "
-               f"/ {tokens['output']:,} salida\n".replace(",", ".") if tokens else "")
-    _live(f"■ Éxito con {model} ({via}) | {len(changed)} archivos | {tok_txt.strip()} | síntesis devuelta a Claude")
-    return (f"Éxito: Antigravity ({model}, CLI oficial) completó la tarea en {folder}.\n"
-            f"Archivos creados/modificados: {len(changed)}\n{shown}\n{tok_txt}Log: {log_file}\n"
-            + (f"conversacion_antigravity: {conv} (pásala en una ronda de corrección para conservar el contexto)\n"
-               if conv else "")
-            + f"La terminal de Antigravity sigue abierta por si quieres continuar la conversación ahí.\n\n"
-            f"Síntesis:\n{_tail(resumen)}")
 
 
 def _agy_corte(task: dict, tipo: str, msg: str) -> str:
     """Resultado cuando agy se atasca: por límite del modelo (propone el siguiente de la cadena) o sin red."""
-    _AGY_TASKS.pop(task["id"], None)
     model, conv = task["model"], _agy_conversacion(task["folder"])
     tokens = _agy_tokens(conv, task["inicio"]) if conv else {}
     conv_txt = f"conversacion_antigravity: {conv}\n" if conv else ""
@@ -811,41 +666,77 @@ def _conv_valida(conv: str) -> str:
     return conv if re.fullmatch(r"[0-9a-fA-F-]{8,64}", conv or "") else ""
 
 
-async def _personal_agy_tui(instruccion: str, contexto: str, target: Path, folder: Path, model: str,
-                            conversacion: str = "") -> tuple[str, str]:
-    """Ejecuta la tarea en la TUI oficial de Antigravity (`agy -i`) en una ventana de terminal externa.
-    Si el modelo llega a su límite, relanza solo con el siguiente de ANTIGRAVITY_CADENA. Devuelve (resultado, modelo)."""
+async def _agy_una_vez(agy: str, instruccion: str, contexto: str, target: Path, folder: Path, model: str,
+                       conversacion: str, descartados: list[str]) -> str:
+    """Una ejecución de `agy -p` (sin ventana ni terminal). Devuelve el texto de resultado para _cierre_personal:
+    'Éxito: …', 'Límite: …', 'Sin conexión: …' o 'Error: …'."""
+    _agy_confiar(folder)
+    task_id = f"{_stamp()}-{_slug(instruccion, 24)}-{os.urandom(2).hex()}"
+    prompt = _agy_prompt(instruccion, contexto, target, folder)
+    inicio, before = datetime.now(timezone.utc), _snapshot(folder)
+    conv = ["--conversation", conversacion] if _conv_valida(conversacion) else []
+    cmd = [agy, *conv, "-p", prompt, "--model", model, "--mode", "accept-edits",
+           "--print-timeout", f"{ANTIGRAVITY_TIMEOUT}s"]
+    _live(f"  modelo: {model} | agy -p en {folder}")
+    code, output = await _run(cmd, folder, ANTIGRAVITY_TIMEOUT + 30, idle=ANTIGRAVITY_IDLE)
+    task = {"id": task_id, "folder": folder, "model": model, "inicio": inicio, "descartados": descartados}
+    tipo, msg = _agy_fallo(_agy_conversacion(folder), inicio)
+    if not tipo and code != 0 and _RE_LIMITE.search(output):
+        tipo, msg = "limite", output.strip()[-300:]
+    if not tipo and _RE_LIMITE.search(output) and "RESUMEN" not in output.upper():
+        tipo, msg = "limite", output.strip()[-300:]
+    if tipo:
+        return _agy_corte(task, tipo, msg)
+    if code != 0 or not output.strip():
+        return f"Error (exit {code}): Antigravity no devolvió resultado.\n{_tail(output, 600)}\ntask_id: {task_id}"
+
+    after = _snapshot(folder)
+    changed = sorted(p for p, m in after.items() if before.get(p) != m)
+    log_dir = LOGS_DIR / "personal"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / f"{task_id}.md"
+    log_file.write_text(f"# Antigravity ({model})\n\n- carpeta: {folder}\n\n## Tarea\n\n{instruccion}\n\n"
+                        "## Archivos\n\n" + "\n".join(f"- {p}" for p in changed) + f"\n\n## Resultado\n\n{output}\n",
+                        encoding="utf-8")
+    m = re.search(r"##\s*RESUMEN\s*(.+)$", output, flags=re.S | re.I)
+    resumen = m.group(1).strip() if m else _tail(output, 800)
+    shown = "\n".join(f"  - {p}" for p in changed[:15]) + (f"\n  … y {len(changed) - 15} más" if len(changed) > 15 else "")
+    conv_id = _agy_conversacion(folder)
+    tokens = _agy_tokens(conv_id, inicio) if conv_id else {}
+    tok_txt = (f"Tokens: {tokens['input'] + tokens['cache_read']:,} entrada ({tokens['cache_read']:,} de caché) "
+               f"/ {tokens['output']:,} salida\n".replace(",", ".") if tokens else "")
+    _live(f"■ Éxito con {model} | {len(changed)} archivos | {tok_txt.strip()} | síntesis devuelta a Claude")
+    return (f"Éxito: Antigravity ({model}, CLI oficial) completó la tarea en {folder}.\n"
+            f"Archivos creados/modificados: {len(changed)}\n{shown}\n{tok_txt}Log: {log_file}\n"
+            + (f"conversacion_antigravity: {conv_id} (pásala en una ronda de corrección para conservar el contexto)\n"
+               if conv_id else "")
+            + f"\nSíntesis:\n{_tail(resumen)}")
+
+
+async def _personal_agy(instruccion: str, contexto: str, target: Path, folder: Path, model: str,
+                        conversacion: str = "", descartados: list[str] | None = None) -> tuple[str, str]:
+    """Ejecuta la tarea con `agy -p`. Si el modelo llega a su límite, relanza solo con el siguiente de
+    ANTIGRAVITY_CADENA (misma conversación). Devuelve (resultado, modelo usado)."""
     agy = _agy_cmd()
     if not agy:
         return f"Error: no se encontró agy en '{ANTIGRAVITY_CLI_PATH}'. Revisa ANTIGRAVITY_CLI_PATH en .env.", model
-    descartados: list[str] = []
+    descartados = list(descartados or [])
     avisos = ""
     while True:
-        _agy_confiar(folder)
-        task = _agy_prepare(instruccion, contexto, target, folder, model)
-        task["descartados"] = descartados
-        prompt = " ".join(task["prompt"].split())
-        # Windows Terminal separa comandos con ';' y reinterpreta comillas: se neutralizan en el prompt.
-        prompt = prompt.replace(";", ",").replace('"', "'")
-        _live(f"  modelo: {model} | TUI oficial de agy en {folder}")
-        conv = ["--conversation", conversacion] if _conv_valida(conversacion) else []
-        _open_console(f"Antigravity · {model}",
-                      [agy, *conv, "-i", prompt, "--model", model, "--mode", "accept-edits"], folder)
-        res = await _agy_wait(task, "ventana externa")
+        res = await _agy_una_vez(agy, instruccion, contexto, target, folder, model, conversacion, descartados)
         sig = re.search(r"siguiente_modelo: (\S+)", res)
         if not res.startswith("Límite") or not sig or sig.group(1) == "ninguno":
             return res + ("\n" + avisos if avisos else ""), model
-        # Límite del modelo: relanza con el siguiente de la cadena y la misma conversación (conserva el contexto).
         _cierre_personal(res, "", 0, model, folder)  # registra lo gastado por el modelo que se agotó
         descartados.append(model)
-        avisos += f"⚠ {model} llegó a su límite; se relanzó con {sig.group(1)} (cierra la ventana anterior).\n"
+        avisos += f"⚠ {model} llegó a su límite; se relanzó con {sig.group(1)}.\n"
         conv_m = re.search(r"conversacion_antigravity: (\S+)", res)
         conversacion = conv_m.group(1) if conv_m else conversacion
         model = sig.group(1)
 
 
 @mcp.tool()
-async def preparar_tarea_antigravity(
+async def ejecutar_personal_antigravity(
     instruccion: str,
     contexto_adicional: str = "",
     ruta_salida_opcional: str = "",
@@ -853,65 +744,46 @@ async def preparar_tarea_antigravity(
     pedido_id: str = "",
     item: int = 0,
     conversacion: str = "",
-    modelos_descartados: str = "",
 ) -> str:
-    """SOLO EN CLAUDE CODE (terminal interna). Paso 1 de 2 para una tarea PERSONAL en Antigravity.
-    Para trabajar en paralelo, prepara varias tareas (carpetas distintas) y abre una terminal por cada una.
-    conversacion: en una RONDA DE CORRECCIÓN, la conversacion_antigravity del resultado anterior (misma carpeta):
-        Antigravity continúa con todo el contexto y solo necesita la instrucción de corrección.
-    modelos_descartados: al relanzar tras un 'Límite:', los modelos_descartados que devolvió (separados por coma),
-        para que un nuevo límite proponga un modelo que no se haya agotado ya.
+    """CONTEXTO PERSONAL (todo lo que no es D:\\workspaces). Delega la tarea a Antigravity (`agy -p`, plan Pro)
+    sin abrir ventanas ni terminales: espera a que termine y devuelve la síntesis. Edita archivos; los comandos
+    de terminal se deniegan (verifica tú con verificar_proyecto). Varias delegaciones en el mismo mensaje corren
+    en paralelo (que no compartan archivos). Si el modelo llega a su límite se reintenta solo con el siguiente.
 
-    Mismos parámetros y reglas de modelo que ejecutar_personal_antigravity. Devuelve un task_id y un comando:
-    ejecútalo tal cual con run_in_terminal (título 'Antigravity', sin cwd: el comando ya entra a la carpeta).
-    La primera vez en una carpeta, agy pide confiar en ella: avisa al usuario que confirme solo si la ruta
-    mostrada es la carpeta personal. Luego llama esperar_resultado_antigravity(task_id) para la síntesis.
+    conversacion: en una ronda de corrección, la conversacion_antigravity del resultado anterior.
+    pedido_id, item: vinculan la delegación al checklist (el ítem pasa a 'revisando').
+
+    modelo_antigravity: elige según la tarea (vacío = ANTIGRAVITY_AGY_MODEL, gemini-3.8-flash-medium):
+        'gemini-3.8-flash-low'    → simple: resúmenes, listas, reformatear, preguntas rápidas.
+        'gemini-3.8-flash-medium' → normal: código personal, planes, explicaciones.
+        'gemini-4-argon-medium'   → complejo: proyectos con varios archivos, diseño, depuración difícil.
+        'gemini-4-argon-high'     → profundo: razonamiento largo o análisis exigente (más lento).
+    instruccion: la tarea a realizar (autocontenida).
+    contexto_adicional: datos, restricciones o contexto de apoyo.
+    ruta_salida_opcional: archivo o carpeta dentro de PERSONAL_DIR, UNIVERSIDAD_DIR u OTRAS_CARPETAS. Relativa:
+        'universidad/curso/...' -> UNIVERSIDAD_DIR/curso/...; cualquier otra -> PERSONAL_DIR/...
+        Vacía -> PERSONAL_DIR/_antigravity.
     """
     target = _resolve_personal(ruta_salida_opcional or "_antigravity")
+    _live("")
+    _live(f"▶ PERSONAL → Antigravity | salida: {target}")
+    _live(f"  instrucción: {instruccion[:300]}")
     if not _inside(target, PERSONAL_DIR, UNIVERSIDAD_DIR, *OTRAS_CARPETAS):
-        return (f"Rechazado: {target} está fuera de {PERSONAL_DIR} y {UNIVERSIDAD_DIR}. Si es un proyecto de "
-                "trabajo usa preparar_vista_opencode + ejecutar_trabajo_opencode_innti.")
-    agy = _agy_cmd()
-    if not agy:
-        return f"Error: no se encontró agy en '{ANTIGRAVITY_CLI_PATH}'. Revisa ANTIGRAVITY_CLI_PATH en .env."
+        _live(f"  ✖ rechazado: ruta fuera de {PERSONAL_DIR} y {UNIVERSIDAD_DIR}")
+        return (f"Rechazado: {target} está fuera de {PERSONAL_DIR} y {UNIVERSIDAD_DIR}. Si es un "
+                "proyecto de trabajo usa ejecutar_trabajo_opencode_innti.")
+
     folder = target.parent if target.suffix else target
     folder.mkdir(parents=True, exist_ok=True)
-    model = (modelo_antigravity or ANTIGRAVITY_AGY_MODEL).strip()
-    _agy_confiar(folder)
+    principal = (modelo_antigravity or ANTIGRAVITY_AGY_MODEL).strip()
     aviso_item = ""
     if not (pedido_id and item):  # ajuste sin pedido: queda como ítem nuevo del pedido del proyecto
         pedido_id, item, aviso_item = registro.item_automatico(str(folder), instruccion)
-    task = _agy_prepare(instruccion, contexto_adicional, target, folder, model)
-    task.update(pedido_id=pedido_id, item=item,
-                descartados=[m.strip() for m in modelos_descartados.split(",") if m.strip()])
     if pedido_id and item:
-        registro.actualizar_item(pedido_id, item, "en_curso", agente="Antigravity", modelo=model)
-    _live("")
-    _live(f"▶ PERSONAL → Antigravity (terminal de Claude) | {folder} | {model}")
-    # Entra primero a la carpeta personal: agy toma el directorio actual como espacio de trabajo y pide
-    # confiar en él (sin esto pediría confiar en la carpeta de la sesión de Claude, p. ej. la de trabajo).
-    conv = ["--conversation", conversacion] if _conv_valida(conversacion) else []
-    cmd = plataforma.run_line(agy, *conv, "-i", plataforma.quote_prompt(_ascii(task["prompt"])), "--model", model,
-                              "--mode", "accept-edits", cwd=folder)
-    return (f"task_id: {task['id']}\ncarpeta: {folder}{aviso_item}\n"
-            f"comando (ejecútalo con run_in_terminal, una sola línea, sin cambios; luego muestra la pestaña con show_pane):\n{cmd}")
+        registro.actualizar_item(pedido_id, item, "en_curso", agente="Antigravity", modelo=principal)
+    res, final = await _personal_agy(instruccion, contexto_adicional, target, folder, principal, conversacion)
+    return _cierre_personal(res, pedido_id, item, final, folder) + aviso_item
 
-
-@mcp.tool()
-async def esperar_resultado_antigravity(task_id: str) -> str:
-    """SOLO EN CLAUDE CODE. Paso 2 de 2: espera a que Antigravity termine la tarea preparada y devuelve
-    la síntesis (archivos creados/modificados y resumen)."""
-    task = _AGY_TASKS.get(task_id)
-    if not task:
-        return f"Error: no hay una tarea preparada con task_id '{task_id}' en este servidor."
-    res = await _agy_wait(task, "terminal de Claude")
-    out = _cierre_personal(res, task.get("pedido_id", ""), task.get("item", 0), task["model"], task["folder"])
-    if res.startswith("Límite") and "siguiente_modelo: ninguno" not in res:
-        out += ("\nQué hacer: cierra la pestaña de Antigravity (stop_terminal_tab) y relanza el mismo ítem con "
-                "preparar_tarea_antigravity(misma instrucción, modelo_antigravity=<siguiente_modelo>, "
-                "conversacion=<conversacion_antigravity>, modelos_descartados=<modelos_descartados>, pedido_id, item). "
-                "Avisa al usuario en una línea del cambio de modelo.")
-    return out
 
 
 # ----------------------------------------------------------------------------- configuración

@@ -37,7 +37,7 @@ def main() -> None:
             max(lineas(entrada.get("old_string")), lineas(entrada.get("new_string"))) <= MAX_LINEAS:
         return  # cambio trivial permitido (debe anotarse en el ítem: "Claude corrigió: …")
     agente = ("OpenCode con Innti (ejecutar_trabajo_opencode_innti)" if dentro(ruta, TRABAJO)
-              else "Antigravity (preparar_tarea_antigravity)")
+              else "Antigravity (ejecutar_personal_antigravity)")
     motivo = (f"Bloqueado por tu regla: no editas ni creas archivos ({ruta}); solo delegas y revisas. "
               f"Delega este cambio a {agente} con pedido_id e ítem. Solo se permite un cambio trivial de hasta "
               f"{MAX_LINEAS} líneas con Edit, anotado en el ítem.")

@@ -156,7 +156,7 @@ footer { color: var(--muted); font-size: .88rem; border-top: 1px solid var(--lin
   <h2 id="h-flujo">Cómo trabaja el cerebro</h2>
   <ol class="steps">
     <li><strong>Checklist:</strong> por cada pedido, Claude crea un checklist con un ítem por entregable y por verificación (<code>iniciar_pedido</code>). Queda en <code>D:\claude\tareas</code> y, en Code, también en la lista de tareas bajo sus mensajes.</li>
-    <li><strong>Delegar:</strong> cada ítem va al subagente que corresponde, vinculado al checklist. Los ítems independientes corren en paralelo, cada uno en su pestaña de terminal.</li>
+    <li><strong>Delegar:</strong> cada ítem va al subagente que corresponde, vinculado al checklist. Los ítems independientes corren en paralelo, en segundo plano.</li>
     <li><strong>Revisar:</strong> Claude revisa el diff, corre los tests y prueba casos borde. Si algo falla, devuelve solo la corrección concreta (en OpenCode, en la misma sesión). Máximo 2 rondas por ítem; después te consulta.</li>
     <li><strong>Aprender:</strong> registra qué modelo funcionó bien o mal en cada proyecto y lo consulta antes de elegir la próxima vez.</li>
     <li><strong>Cerrar:</strong> cierra el pedido con un resumen y sincroniza el <a href="https://claude.ai/artifact/Req7satjgULss34xqDHckb">Panel del Orquestador</a>, que muestra estado, rondas y costos.</li>
@@ -165,14 +165,13 @@ footer { color: var(--muted); font-size: .88rem; border-top: 1px solid var(--lin
 </section>
 
 <section aria-labelledby="h-live">
-  <h2 id="h-live">Verlo trabajar</h2>
-  <p>En la <strong>pestaña Code</strong>, el CLI oficial corre en una pestaña del panel de terminal de Claude: el orquestador prepara la sesión o la tarea, Claude ejecuta el comando ahí y luego recoge el resumen. En la <strong>pestaña Chat</strong>, que no tiene terminal, se abre una ventana de Windows Terminal. En los dos casos Claude solo recibe el resumen final.</p>
-  <div class="note"><p>La primera vez en cada carpeta, Antigravity pregunta si confías en ella. Confirma solo si la ruta que muestra es tu carpeta personal o de universidad. Si alguna vez muestra <code>D:\workspaces</code>, elige «No, exit».</p></div>
+  <h2 id="h-live">Cómo se ejecuta</h2>
+  <p>Las tareas corren en segundo plano, sin ventanas ni terminales: el orquestador lanza el CLI, espera a que termine y entrega a Claude solo el resumen final. Para seguirlas en vivo, abre <code>logs\en-vivo.log</code>.</p>
   <div class="grid2">
-    <div class="card"><h3>Trabajo: la TUI real de OpenCode</h3><p>El orquestador mantiene un servidor de OpenCode en <code>127.0.0.1:4096</code> (se inicia solo) y la terminal muestra <code>opencode attach</code> pegado a la sesión de la tarea. Ves lo mismo que en su CLI: archivos leídos, ediciones con diff y comandos.</p></div>
-    <div class="card"><h3>Personal: el CLI oficial de Antigravity</h3><p>La tarea corre en <code>agy -i</code>, en su propia ventana: ves al agente leer, crear y editar archivos. Si pide aprobar un comando, lo apruebas ahí. Al terminar la ventana queda abierta por si quieres seguir conversando con él.</p></div>
+    <div class="card"><h3>Trabajo: OpenCode</h3><p>El orquestador mantiene un servidor de OpenCode en <code>127.0.0.1:4096</code> (se inicia solo) y ejecuta <code>opencode run</code> pegado a una sesión, que se reutiliza en las rondas de corrección. Si pasa 10 minutos sin ninguna línea de salida, la tarea se corta.</p></div>
+    <div class="card"><h3>Personal: Antigravity</h3><p>La tarea corre con <code>agy -p</code>: edita archivos pero los comandos de terminal se deniegan, así que los tests los corre Claude con <code>verificar_proyecto</code>. Si un modelo llega a su límite, se reintenta solo con el siguiente de <code>ANTIGRAVITY_CADENA</code>.</p></div>
   </div>
-  <p>Para no abrir ventanas, pon <code>MOSTRAR_CONSOLA=0</code> en el <code>.env</code>. Si cambias <code>opencode.jsonc</code>, cierra el proceso <code>opencode serve</code> para que recargue la configuración.</p>
+  <p>Si cambias <code>opencode.jsonc</code>, cierra el proceso <code>opencode serve</code> para que recargue la configuración.</p>
 </section>
 
 <section aria-labelledby="h-status">
@@ -184,7 +183,7 @@ footer { color: var(--muted); font-size: .88rem; border-top: 1px solid var(--lin
       <tbody>
         <tr><td><code>listar_modelos_innti</code></td><td>Lee los modelos del proveedor <code>litellm-proxy</code> en la config de OpenCode</td><td>Encontró los 7 modelos configurados</td><td><span class="pill ok">Funciona</span></td></tr>
         <tr><td><code>ejecutar_trabajo_opencode_innti</code></td><td>Ejecuta <code>opencode run --model litellm-proxy/&lt;modelo&gt;</code> en la carpeta del proyecto</td><td>Creó un archivo de 7 líneas con <code>innti-dev</code>; por defecto ahora usa <code>innti-dsp</code></td><td><span class="pill ok">Funciona</span></td></tr>
-        <tr><td><code>ejecutar_personal_antigravity</code></td><td>Ejecuta la tarea en el CLI oficial de Antigravity (<code>agy</code>) con tu plan Pro</td><td>Creó <code>clima.py</code> y su README con <code>gemini-3.8-flash-medium</code> en la ventana oficial</td><td><span class="pill ok">Funciona</span></td></tr>
+        <tr><td><code>ejecutar_personal_antigravity</code></td><td>Ejecuta la tarea en el CLI oficial de Antigravity (<code>agy</code>) con tu plan Pro</td><td>Creó <code>clima.py</code> y su README con <code>gemini-3.8-flash-medium</code></td><td><span class="pill ok">Funciona</span></td></tr>
       </tbody>
     </table>
   </div>
@@ -221,7 +220,7 @@ footer { color: var(--muted); font-size: .88rem; border-top: 1px solid var(--lin
 
 <section aria-labelledby="h-gemini">
   <h2 id="h-gemini">Lado personal: Antigravity Pro</h2>
-  <p>La herramienta usa <code>agy</code>, el CLI oficial de Antigravity que la propia app instala en <code>~/.gemini/bin</code>. Usa tu cuenta y tu plan Pro, no la cuota gratuita de la API. La tarea corre en la ventana del CLI: el agente crea y edita archivos solo (aprobado automáticamente) y, si necesita un comando, te lo pide ahí. Al terminar escribe un resumen que el orquestador lee y entrega a Claude.</p>
+  <p>La herramienta usa <code>agy</code>, el CLI oficial de Antigravity que la propia app instala en <code>~/.gemini/bin</code>. Usa tu cuenta y tu plan Pro, no la cuota gratuita de la API. La tarea corre sin ventana (<code>agy -p</code>): el agente crea y edita archivos solo y los comandos se deniegan. Al terminar devuelve un resumen que el orquestador entrega a Claude.</p>
   <div class="table-scroll">
     <table>
       <thead><tr><th>Tarea</th><th>Modelo que elige Claude</th><th>Nota</th></tr></thead>
@@ -318,7 +317,7 @@ D:\universidad\          estudio                     → Antigravity</pre></div>
     <div class="card"><h3>Prueba del 16 de octubre</h3><p>Trabajo: <code>innti-dsp</code> creó un módulo de dígito de verificación de NIT con 7 tests en verde. Personal: Antigravity (CLI oficial, plan Pro) creó un proyecto de lista de tareas con 3 tests en verde y un script con README desde su propia ventana. OpenCode ya no lee <code>~/.claude/CLAUDE.md</code> y tiene prohibido instalar paquetes globales.</p></div>
     <div class="card"><h3>Por qué OpenCode está en D:\claude\tools</h3><p>Tu Node es la versión 10 y no puede ejecutar el instalador de <code>opencode-ai</code>. Se instaló sin scripts y se usa el <code>.exe</code> nativo directamente. Quedaron tres archivos sueltos en <code>C:\Program Files\nodejs</code> (<code>opencode</code>, <code>.cmd</code>, <code>.ps1</code>) que se pueden borrar a mano.</p></div>
     <div class="card"><h3>Revisión y control</h3><p><code>verificar_proyecto</code> corre los tests/lint del proyecto (Maven, Gradle, npm, pytest, Go o comandos guardados con <code>configurar_verificacion</code>). Presupuesto: <code>PRESUPUESTO_DIA_USD</code> y <code>PRESUPUESTO_MES_USD</code> avisan al 80% y frenan al límite. Las correcciones reutilizan la sesión de OpenCode o la conversación de Antigravity.</p></div>
-    <div class="card"><h3>Seguridad y respaldo</h3><p>El servidor de OpenCode exige contraseña (<code>OPENCODE_SERVER_PASSWORD</code> en el <code>.env</code>, generada al azar); la pestaña se abre con <code>oc_attach.py</code> para no mostrarla. <code>D:\claude</code> es un repositorio git local (sin <code>.env</code>, logs ni checklists); hay un <code>.env.example</code> sin claves. Pruebas: <code>.venv\Scripts\python.exe -m pytest tests</code> (23 en verde).</p></div>
+    <div class="card"><h3>Seguridad y respaldo</h3><p>El servidor de OpenCode exige contraseña (<code>OPENCODE_SERVER_PASSWORD</code> en el <code>.env</code>, generada al azar); el orquestador la usa sin mostrarla. <code>D:\claude</code> es un repositorio git local (sin <code>.env</code>, logs ni checklists); hay un <code>.env.example</code> sin claves. Pruebas: <code>.venv\Scripts\python.exe -m pytest tests</code> (23 en verde).</p></div>
     <div class="card"><h3>Cambios fuera de D:\claude</h3><p>En <code>opencode.jsonc</code> el <code>shell</code> pasó de <code>zsh</code> a <code>pwsh</code>; la copia original está en <code>opencode.jsonc.bak-20261016</code>. El paquete <code>mcp</code> está fijado por debajo de la versión 2 porque la 2.x renombró FastMCP.</p></div>
   </div>
 </section>

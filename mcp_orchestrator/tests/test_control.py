@@ -168,8 +168,16 @@ def test_cierre_personal_registra_equivalente_con_cache(tmp_path, monkeypatch):
 
 
 def test_conversacion_invalida_se_ignora(tmp_dirs, monkeypatch):
+    vistos = []
+
+    async def falso(cmd, cwd, timeout, idle=0):
+        vistos.append(cmd)
+        return 0, "## RESUMEN\n- ok"
+
     monkeypatch.setattr(server, "_agy_cmd", lambda: "agy")
-    ok = run(server.preparar_tarea_antigravity("Corrige", "", "p", "m", conversacion="c78222c8-dcb8-4882-9c5c-97e052c3aba0"))
-    assert "--conversation c78222c8-dcb8-4882-9c5c-97e052c3aba0 -i" in ok
-    malo = run(server.preparar_tarea_antigravity("Corrige", "", "p2", "m", conversacion="x; rm -rf /"))
-    assert "--conversation" not in malo
+    monkeypatch.setattr(server, "_run", falso)
+    monkeypatch.setattr(server, "_agy_conversacion", lambda folder: "")
+    run(server.ejecutar_personal_antigravity("Corrige", "", "p", "m", conversacion="c78222c8-dcb8-4882-9c5c-97e052c3aba0"))
+    run(server.ejecutar_personal_antigravity("Corrige", "", "p2", "m", conversacion="x; rm -rf /"))
+    assert vistos[0][vistos[0].index("--conversation") + 1] == "c78222c8-dcb8-4882-9c5c-97e052c3aba0"
+    assert "--conversation" not in vistos[1]

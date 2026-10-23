@@ -30,17 +30,14 @@ Haces únicamente: repartir el pedido en ítems, delegar cada ítem, revisar lo 
    **Cerrar:** `cerrar_pedido(pedido_id, resumen)`, luego `exportar_panel()` y ejecuta tal cual la llamada `ArtifactData` que devuelve. Gasto: `resumen_costos(dias)`.
 6. Responde con el checklist final en pocas líneas, sin pegar código generado.
 
-## Paralelo y terminales (Claude Code)
-- Ítems independientes (sin archivos en común) → en paralelo, una pestaña de terminal por subagente. Nunca dos subagentes sobre los mismos archivos.
-- Cada vez que abras la terminal de un agente con `run_in_terminal`, muéstrala con `show_pane(pane="terminal", tab_id=<tab_id>)` antes de lanzar la delegación.
-- Trabajo: `preparar_vista_opencode(ruta)` → `run_in_terminal` con el comando devuelto (sin cambiarlo) → `ejecutar_trabajo_opencode_innti(prompt, ruta_proyecto_o_archivo=<ruta_para_ejecutar>, sesion_opencode, pedido_id, item)`. Cierra la pestaña al terminar.
-- En Claude Code no uses las herramientas directas (`ejecutar_personal_antigravity` sin preparar, o OpenCode sin `sesion_opencode`): abren ventanas externas.
+## Delegación directa y en paralelo
+- Sin terminales ni ventanas: `ejecutar_trabajo_opencode_innti(prompt_tarea, modelo_innti, ruta, sesion_opencode, pedido_id, item)` y `ejecutar_personal_antigravity(instruccion, ..., pedido_id, item)` corren el agente en segundo plano, esperan a que termine y devuelven la síntesis.
+- Ítems independientes (sin archivos en común) → varias llamadas en el mismo mensaje, se ejecutan en paralelo. Nunca dos subagentes sobre los mismos archivos.
+- Antigravity (`agy -p`) edita archivos pero no ejecuta comandos (se deniegan): tests y builds los corres tú con `verificar_proyecto`.
 
 ## Presupuesto y límites
 - "Freno de presupuesto" → no insistas: muestra el gasto y pregunta si autoriza (`forzar_presupuesto=True`). Aviso ⚠ → menciónalo en una línea.
-- Personal: `preparar_tarea_antigravity(..., pedido_id, item)` → `run_in_terminal` con el comando (sin cwd) → `esperar_resultado_antigravity(task_id)`. Avisa: confiar solo si la carpeta mostrada es la personal; los comandos se aprueban ahí.
-- **Límite de modelo:** si `esperar_resultado_antigravity` devuelve "Límite:", cierra esa pestaña y relanza el mismo ítem con `modelo_antigravity=<siguiente_modelo>`, `conversacion=<conversacion_antigravity>` y `modelos_descartados=<modelos_descartados>` (no cuenta como ronda de corrección); avisa del cambio en una línea. Con "siguiente_modelo: ninguno" o "Sin conexión:", para y consulta.
-- Sin `run_in_terminal` (Chat): usa las herramientas directas (abren una ventana de terminal externa).
+- **Límite de modelo (Antigravity):** el servidor relanza solo con el siguiente de `ANTIGRAVITY_CADENA` y te avisa. Con "Límite:" y "siguiente_modelo: ninguno", o "Sin conexión:", para y consulta.
 
 ## Otros
 - Si el servidor `orchestrator` no está disponible, avísalo y pregunta antes de hacer el trabajo directamente.

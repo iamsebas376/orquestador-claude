@@ -1,28 +1,6 @@
-"""Sintaxis de comandos y terminales en Windows / PowerShell."""
+"""Rutas y nombres por defecto (Windows) e instalador."""
 import instalar
 import plataforma
-
-
-def test_safe_prompt_ascii_y_sin_caracteres_del_shell():
-    out = plataforma.safe_prompt('Análisis de año ¿cómo? "hola" cuesta $5; ñandú `x` l\'agent')
-    assert out.isascii() and "\n" not in out
-    assert not set('"$;`') & set(out)
-    assert "Analisis de ano como" in out and "nandu" in out
-
-
-def test_quote_prompt():
-    q = plataforma.quote_prompt("hola mundo")
-    assert q == '"hola mundo"'
-
-
-def test_run_line_windows_powershell():
-    line = plataforma.run_line(r"C:\Program Files\agy.exe", "-i", '"x"', cwd=r"D:\personal\o'neil")
-    assert line == "Set-Location 'D:\\personal\\o''neil'; & 'C:\\Program Files\\agy.exe' -i \"x\""
-
-
-def test_run_line_sin_cwd():
-    line = plataforma.run_line("/bin/py", "a")
-    assert line.endswith("a") and "Set-Location" not in line
 
 
 def test_exe_y_rutas_por_defecto():
