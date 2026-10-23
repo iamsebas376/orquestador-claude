@@ -400,10 +400,10 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
     var desdeD = r.desde ? ymd(r.desde) : "", hastaD = r.hasta ? ymd(r.hasta) : "9999-12-31";
     return ((state && state.sesiones) || []).map(function (s) {
       var peds = (s.pedidos || []).map(function (id) { return porId[id]; }).filter(function (p) { return p && enRango(p, r); });
-      var cl = 0, clTok = 0, dias = [];
+      var cl = 0, clTok = 0;
       (s.por_dia || []).forEach(function (d) {
         if (d.dia < desdeD || d.dia > hastaD) return;
-        cl += d.costo_equivalente_usd; clTok += d.tokens; dias.push(d);
+        cl += d.costo_equivalente_usd; clTok += d.tokens;
       });
       var innti = 0, agy = 0;
       peds.forEach(function (p) { innti += p.costo_usd || 0; agy += p.costo_equivalente_usd || 0; });
@@ -411,9 +411,9 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
       if (iasOn.agy === false) agy = 0;
       if (iasOn.cl === false) cl = 0;
       var fin = parse(s.fin);
-      return { s: s, peds: peds, innti: innti, agy: agy, cl: cl, total: innti + agy + cl, tok: clTok, dias: dias,
+      return { s: s, peds: peds, innti: innti, agy: agy, cl: cl, total: innti + agy + cl, tok: clTok,
                visible: (!r.desde || !fin || fin >= r.desde) && (!r.hasta || !parse(s.inicio) || parse(s.inicio) <= r.hasta) };
-    }).filter(function (x) { return x.visible && (x.peds.length || x.cl > 0); });  // solo sesiones con tareas o uso de Claude en el período
+    }).filter(function (x) { return x.visible && x.peds.length; });  // solo sesiones donde intervino el orquestador (tienen tareas)
   }
 
   function rangoFechas(ini, fin) {
@@ -575,22 +575,6 @@ footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--lin
         tdi.appendChild(ul); fi.appendChild(tdi); tb.appendChild(fi);
       }
     });
-    if (!tb.children.length) {
-      // Sin tareas: se muestra el uso de Claude de cada día del período en vez de una tabla vacía.
-      (x.dias || []).forEach(function (dd) {
-        var trd = el("tr"), tdn = el("td");
-        tdn.appendChild(el("div", "nom", "Claude sin tarea · " + parse(dd.dia).toLocaleDateString("es-CO", { day: "2-digit", month: "short" })));
-        tdn.appendChild(el("div", "sub2", compacto(dd.tokens) + " tokens"));
-        trd.appendChild(tdn);
-        trd.appendChild(el("td"));
-        trd.appendChild(el("td", "mono", ((x.s.claude && x.s.claude.modelos) || []).join(", ")));
-        trd.appendChild(celda(0, "innti")); trd.appendChild(celda(0, "agy", true));
-        trd.appendChild(celda(dd.costo_equivalente_usd, "cl", true));
-        trd.appendChild(el("td", "n tot", dinero(dd.costo_equivalente_usd)));
-        trd.appendChild(el("td"));
-        tb.appendChild(trd);
-      });
-    }
     t.appendChild(tb); wrap.appendChild(t); d.appendChild(wrap);
     if (filas.length > TAM_PAG) {
       d.appendChild(crearPaginador(pagDetalle, totalPags, function (nueva) {
