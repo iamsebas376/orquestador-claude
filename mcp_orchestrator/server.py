@@ -52,11 +52,11 @@ LOGS_DIR = Path(_env("LOGS_DIR") or plataforma.DATOS_DIR / "logs").expanduser()
 OPENCODE_CLI_PATH = _env("OPENCODE_CLI_PATH", "opencode")
 OPENCODE_TIMEOUT = int(_env("OPENCODE_TIMEOUT_SECONDS", "1800"))
 # Segundos sin una sola línea de salida tras los que se corta la tarea (modelo colgado o sin red).
-OPENCODE_IDLE = int(_env("OPENCODE_IDLE_SECONDS", "600"))
+OPENCODE_IDLE = int(_env("OPENCODE_IDLE_SECONDS", "240"))
 # Servidor OpenCode persistente: las tareas corren en él y sus sesiones permiten rondas de corrección (y ver la TUI en una pestaña).
 OPENCODE_SERVER_URL = _env("OPENCODE_SERVER_URL", "http://127.0.0.1:4096").rstrip("/")
 INNTI_PROVIDER = _env("INNTI_PROVIDER", "litellm-proxy")
-INNTI_DEFAULT_MODEL = _env("INNTI_DEFAULT_MODEL", "innti-dsp")
+INNTI_DEFAULT_MODEL = _env("INNTI_DEFAULT_MODEL", "innti-dsf-last")
 
 ANTIGRAVITY_CLI_PATH = _env("ANTIGRAVITY_CLI_PATH") or plataforma.default_agy()
 ANTIGRAVITY_AGY_MODEL = _env("ANTIGRAVITY_AGY_MODEL", "gemini-3.8-flash-medium")
@@ -76,7 +76,7 @@ PANEL_URL = _env("PANEL_URL")
 SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "dist", "build", "target", ".next", "__pycache__", ".angular",
              ".pytest_cache", ".mypy_cache", ".ruff_cache", ".gradle", ".idea", ".vscode"}
 
-mcp = FastMCP("orchestrator")
+mcp =FastMCP("orchestrator")
 
 
 def _podar_logs(dias: int = 30) -> None:
@@ -369,10 +369,12 @@ async def ejecutar_trabajo_opencode_innti(
 ) -> str:
     """TRABAJO (dentro de TRABAJO_DIR): delega la tarea a OpenCode con un modelo Innti, en segundo plano, y devuelve
     un resumen con archivos tocados, tokens y costo.
-    prompt_tarea: instrucción autocontenida. modelo_innti: vacío = innti-dsp; innti-dsf-last explorar/mecánico,
+    prompt_tarea: instrucción autocontenida. modelo_innti: vacío = innti-dsf-last (rápido y barato: mecánico, explorar, referencias concretas); innti-dsp solo lógica compleja/revisión,
     innti-dev documentación, innti-gpt planificar/imágenes, innti-terra arquitectura (caro).
     sesion_opencode: la de preparar_vista_opencode, o la del resultado anterior en rondas de corrección. pedido_id, item: ítem del checklist.
-    forzar_presupuesto: solo con autorización del usuario."""
+    forzar_presupuesto: solo con autorización del usuario.
+    Para ir rápido: da en el prompt las rutas exactas de los archivos (si no, el agente explora el repo y tarda/gasta
+    millones de tokens) y parte las tareas grandes en varias delegaciones (p. ej. ts/html y luego i18n/integración)."""
     target = _resolve_under(TRABAJO_DIR, ruta_proyecto_o_archivo)
     _live("")
     _live(f"▶ TRABAJO → OpenCode | ruta: {target}")
@@ -410,6 +412,9 @@ async def ejecutar_trabajo_opencode_innti(
         prompt = f"Archivo objetivo: {target}\n\n{prompt_tarea}"
     prompt += ("\n\nNo instales paquetes globales ni cambies la configuración del sistema; si falta una "
                "dependencia, usa la del proyecto o indícalo en el resumen."
+               "\nSé rápido: trabaja solo con las rutas que te indico, sin explorar el repo para ubicar archivos "
+               "(nunca node_modules, .nx ni dist); escribe los archivos grandes por partes; no lances comandos que pasen de 2 minutos "
+               "(servidores, builds completos, instalaciones); si hace falta uno, dilo en el resumen."
                "\nEscribe los cambios directamente en disco. Al final responde SOLO con un "
                "resumen breve (máx. 10 líneas) de lo realizado y los archivos tocados.")
 
@@ -461,6 +466,10 @@ async def ejecutar_trabajo_opencode_innti(
     revisar = f"Revisa con: git -C \"{cwd}\" diff" if checkpoint else "Revisa los archivos listados."
     _, presupuesto = control.estado_presupuesto()
     alerta = f"\n{presupuesto}" if presupuesto.startswith(("⚠", "⛔")) else ""
+    if len(prompt_tarea) > 3000:
+        alerta += "\n⚠ Prompt muy largo: parte la tarea en varias delegaciones (ts/html, luego i18n/integración) para evitar el timeout del proxy."
+    if not target.suffix and not re.search(r"[\w-]+\.\w{1,5}\b|[A-Za-z]:\\", prompt_tarea):
+        alerta += "\n⚠ El prompt no traía rutas de archivo: el agente tuvo que explorar. La próxima vez da las rutas exactas."
     return (
         f"{estado}: OpenCode usando el modelo {modelo} de Innti en {target}.\n"
         f"Archivos modificados: {len(changed)} | Líneas procesadas: {lineas} | Tokens: {tok_txt}\n"

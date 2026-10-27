@@ -294,7 +294,6 @@ footer { color: var(--muted); font-size: .88rem; border-top: 1px solid var(--lin
   <div class="code"><pre class="tree">D:\orquestador-claude\
 ├─ mcp_orchestrator\     código del servidor: server.py · pedidos.py · costos.py · panel_datos.py · control.py · tests\ · .env · precios.json · setup.ps1 · .venv\
 ├─ config\               reglas de ejemplo (CLAUDE.example.md, PROJECT_INSTRUCTIONS.md) · panel.html · orquestador.html (esta guía)
-├─ hooks\                bloquear_edicion.py (opcional: impide que Claude edite archivos)
 ├─ tools\opencode\       OpenCode (binario nativo opencode.exe)
 └─ datos\                lo que genera el orquestador (no va a git): tareas\ · logs\ · aprendizajes.jsonl · verificacion.json
 
@@ -355,7 +354,7 @@ D:\universidad\          estudio                     → Antigravity</pre></div>
 }</pre>
   </div>
   <h3>Pestaña Code (todas las sesiones)</h3>
-  <p>Claude Code lee otra configuración. El instalador registra el servidor en <code>~/.claude.json</code> (con copia previa) y las reglas van en <code>~/.claude/CLAUDE.md</code> (copia de <code>config/CLAUDE.example.md</code>), que se carga en cada sesión. En Code, Claude solo delega y revisa: reparte el pedido en ítems, delega cada uno, revisa con <code>verificar_proyecto</code> y registra; los cambios los hacen los subagentes. El hook opcional <code>hooks/bloquear_edicion.py</code> lo hace cumplir (solo permite cambios triviales de hasta 3 líneas).</p>
+  <p>Claude Code lee otra configuración. El instalador registra el servidor en <code>~/.claude.json</code> (con copia previa) y las reglas van en <code>~/.claude/CLAUDE.md</code> (copia de <code>config/CLAUDE.example.md</code>), que se carga en cada sesión. En Code, Claude solo delega y revisa: reparte el pedido en ítems, delega cada uno, revisa con <code>verificar_proyecto</code> y registra; los cambios los hacen los subagentes.</p>
 </section>
 
 <section aria-labelledby="h-ops">
@@ -380,7 +379,7 @@ D:\universidad\          estudio                     → Antigravity</pre></div>
     <div class="card"><h3>Por qué OpenCode está en tools\opencode</h3><p>Tu Node es la versión 10 y no puede ejecutar el instalador de <code>opencode-ai</code>. Se instaló sin scripts y se usa el <code>.exe</code> nativo directamente. </p></div>
     <div class="card"><h3>Revisión y control</h3><p><code>verificar_proyecto</code> corre los tests/lint del proyecto (Maven, Gradle, npm, pytest, Go o comandos guardados con <code>configurar_verificacion</code>). Presupuesto: <code>PRESUPUESTO_DIA_USD</code> y <code>PRESUPUESTO_MES_USD</code> avisan al 80% y frenan al límite. Las correcciones reutilizan la sesión de OpenCode o la conversación de Antigravity.</p></div>
     <div class="card"><h3>Seguridad y respaldo</h3><p>OpenCode, que trabaja en código de la empresa, no puede borrar archivos ni correr git destructivo: su <code>opencode.jsonc</code> niega <code>rm</code>, <code>del</code>, <code>Remove-Item</code>, <code>git reset --hard</code>, <code>git clean</code> y <code>git push</code>, y fuera de la carpeta del proyecto se rechaza solo. Si una tarea necesita borrar, lo haces tú. El servidor de OpenCode exige contraseña (<code>OPENCODE_SERVER_PASSWORD</code> en el <code>.env</code>, generada al azar); el orquestador la usa sin mostrarla. El repositorio git no incluye el <code>.env</code>, los precios ni la carpeta <code>datos\</code>; hay un <code>.env.example</code> sin claves. Antes de cada tarea de OpenCode se anota el commit actual para poder deshacer lo que cambie el agente.</p></div>
-    <div class="card"><h3>Cambios fuera del proyecto</h3><p>En <code>opencode.jsonc</code> el <code>shell</code> pasó de <code>zsh</code> a <code>pwsh</code>. El paquete <code>mcp</code> está fijado por debajo de la versión 2 porque la 2.x renombró FastMCP. Si mueves el proyecto de carpeta, vuelve a correr el instalador y actualiza <code>OPENCODE_CLI_PATH</code> y la ruta del hook.</p></div>
+    <div class="card"><h3>Cambios fuera del proyecto</h3><p>En <code>opencode.jsonc</code> el <code>shell</code> pasó de <code>zsh</code> a <code>pwsh</code>. El paquete <code>mcp</code> está fijado por debajo de la versión 2 porque la 2.x renombró FastMCP. Si mueves el proyecto de carpeta, vuelve a correr el instalador y actualiza <code>OPENCODE_CLI_PATH</code>.</p></div>
   </div>
 </section>
 

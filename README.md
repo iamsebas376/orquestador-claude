@@ -44,7 +44,7 @@ El instalador crea el entorno virtual, el `.env` (con una contraseña aleatoria 
 3. Copia `config/CLAUDE.example.md` a `~/.claude/CLAUDE.md` (reglas para Claude Code) y pega `config/PROJECT_INSTRUCTIONS.md` en las instrucciones de un Proyecto (Chat).
 4. Reinicia Claude Desktop.
 
-Si mueves la carpeta del proyecto, vuelve a correr el instalador (registra la nueva ruta) y actualiza `OPENCODE_CLI_PATH` en el `.env` y la ruta del hook en `~/.claude/settings.json`.
+Si mueves la carpeta del proyecto, vuelve a correr el instalador (registra la nueva ruta) y actualiza `OPENCODE_CLI_PATH` en el `.env`.
 
 ## Configuración (`mcp_orchestrator/.env`)
 
@@ -71,7 +71,7 @@ Publica `config/panel.html` como artefacto en claude.ai con la capacidad `db` (p
 - **Filtros:** por período (hoy, 7 y 30 días, todo o fechas) y por IA. El período usa la fecha de la última actividad real (gasto registrado), no la de la última edición.
 - **Datos:** se leen de los transcripts de Claude Code y de los archivos de la app de Claude (`CLAUDE_APP_DIR`, por defecto `%LOCALAPPDATA%\Claude-Data`).
 
-## Hooks opcionales (Claude Code)
+## Hook opcional (Claude Code)
 
 En `~/.claude/settings.json`:
 
@@ -85,21 +85,12 @@ En `~/.claude/settings.json`:
         "command": "echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"Pedido cerrado: ahora llama mcp__orchestrator__exportar_panel y ejecuta tal cual la llamada ArtifactData batch que devuelve, para sincronizar el panel de control.\"}}'",
         "timeout": 10
       }]
-    }],
-    "PreToolUse": [{
-      "matcher": "Edit|Write|MultiEdit|NotebookEdit",
-      "hooks": [{
-        "type": "command",
-        "command": "python \"<ruta del repo>/hooks/bloquear_edicion.py\"",
-        "timeout": 10
-      }]
     }]
   }
 }
 ```
 
 - **`PostToolUse`:** recuerda a Claude sincronizar el panel al cerrar un pedido.
-- **`PreToolUse` (`hooks/bloquear_edicion.py`):** impide que Claude edite o cree archivos; solo delega y revisa. Permite cambios triviales de hasta 3 líneas, su memoria y la carpeta temporal.
 
 ## Herramientas MCP
 
@@ -116,7 +107,6 @@ En `~/.claude/settings.json`:
 ```
 mcp_orchestrator/   código del servidor (server.py, pedidos.py, costos.py, panel_datos.py, control.py), tests/ y .env
 config/             reglas de ejemplo para Claude, panel.html y la guía orquestador.html
-hooks/              hook opcional que impide a Claude editar archivos
 tools/opencode/     OpenCode instalado localmente
 datos/              lo que genera el orquestador: tareas/, logs/, aprendizajes.jsonl, verificacion.json (no va a git)
 ```
