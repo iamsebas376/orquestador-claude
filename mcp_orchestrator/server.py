@@ -180,6 +180,9 @@ def _opencode_cmd() -> str | None:
 # Incluye OPENCODE_SERVER_PASSWORD (cargada del .env): serve exige la contraseña y run/attach la envían.
 OPENCODE_ENV = {**os.environ, "OPENCODE_DISABLE_CLAUDE_CODE_PROMPT": "1"}
 
+_OC_CLIENT: httpx.AsyncClient | None = None
+_OC_CLIENT_KEY: tuple | None = None
+
 
 def _oc_auth() -> tuple[str, str] | None:
     """Basic auth para la API del servidor OpenCode (usuario por defecto 'opencode')."""
@@ -187,35 +190,53 @@ def _oc_auth() -> tuple[str, str] | None:
     return (os.getenv("OPENCODE_SERVER_USERNAME") or "opencode", pwd) if pwd else None
 
 
+def _oc_client() -> httpx.AsyncClient:
+    """Cliente HTTP persistente hacia `opencode serve` (reutiliza conexiones TCP en el loop activo)."""
+    global _OC_CLIENT, _OC_CLIENT_KEY
+    try:
+        loop_id = id(asyncio.get_running_loop())
+    except RuntimeError:
+        loop_id = 0
+    key = (OPENCODE_SERVER_URL, _oc_auth(), loop_id)
+    if _OC_CLIENT is None or _OC_CLIENT.is_closed or _OC_CLIENT_KEY != key:
+        _OC_CLIENT = httpx.AsyncClient(
+            base_url=OPENCODE_SERVER_URL,
+            auth=_oc_auth(),
+            timeout=httpx.Timeout(30.0, connect=5.0),
+        )
+        _OC_CLIENT_KEY = key
+    return _OC_CLIENT
+
+
 async def _ensure_opencode_server(cli: str) -> bool:
     """Arranca `opencode serve` en segundo plano si no responde. Devuelve True si queda disponible."""
-    async with httpx.AsyncClient(timeout=2, auth=_oc_auth()) as c:
-        for intento in range(30):
-            try:
-                if (await c.get(f"{OPENCODE_SERVER_URL}/project")).status_code < 500:
-                    return True
-            except httpx.HTTPError:
-                pass
-            if intento == 0:
-                port = OPENCODE_SERVER_URL.rsplit(":", 1)[-1]
-                _live(f"  iniciando servidor OpenCode en el puerto {port}…")
-                subprocess.Popen(
-                    [cli, "serve", "--port", port], cwd=str(TRABAJO_DIR), env=OPENCODE_ENV,
-                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                    creationflags=getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                )
-            await asyncio.sleep(0.5)
+    c = _oc_client()
+    for intento in range(30):
+        try:
+            if (await c.get("/project", timeout=2.0)).status_code < 500:
+                return True
+        except httpx.HTTPError:
+            pass
+        if intento == 0:
+            port = OPENCODE_SERVER_URL.rsplit(":", 1)[-1]
+            _live(f"  iniciando servidor OpenCode en 127.0.0.1:{port}…")
+            subprocess.Popen(
+                [cli, "serve", "--hostname", "127.0.0.1", "--port", port], cwd=str(TRABAJO_DIR), env=OPENCODE_ENV,
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                creationflags=getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        await asyncio.sleep(0.5)
     return False
 
 
 async def _create_session(cwd: Path, title: str) -> str | None:
     """Crea la sesión en el servidor de OpenCode. Puede tardar varios segundos con otras tareas en marcha: 2 intentos."""
+    c = _oc_client()
     for intento in (1, 2):
         try:
-            async with httpx.AsyncClient(timeout=30, auth=_oc_auth()) as c:
-                r = await c.post(f"{OPENCODE_SERVER_URL}/session", params={"directory": str(cwd)}, json={"title": title})
-                r.raise_for_status()
-                return r.json()["id"]
+            r = await c.post("/session", params={"directory": str(cwd)}, json={"title": title}, timeout=30.0)
+            r.raise_for_status()
+            return r.json()["id"]
         except (httpx.HTTPError, KeyError, ValueError) as e:
             _live(f"  ✖ no se pudo crear la sesión en el servidor (intento {intento}): {type(e).__name__} {e}")
     return None
@@ -299,25 +320,193 @@ def _git_checkpoint(cwd: Path) -> str:
         return ""
 
 
+def _git_cambios(cwd: Path) -> tuple[list[str], int]:
+    """Archivos modificados/nuevos y líneas tocadas según git (`status --porcelain` y `diff --numstat`)."""
+    try:
+        st = subprocess.run(["git", "-C", str(cwd), "status", "--porcelain", "-uall"],
+                            capture_output=True, text=True, timeout=10, stdin=subprocess.DEVNULL)
+        if st.returncode != 0:
+            return [], 0
+        archivos: list[str] = []
+        for line in st.stdout.splitlines():
+            if len(line) > 3:
+                rel = line[3:].strip().strip('"')
+                if " -> " in rel:
+                    rel = rel.split(" -> ", 1)[1].strip('"')
+                archivos.append(str((cwd / rel).resolve()))
+        changed = sorted(set(archivos))
+        num = subprocess.run(["git", "-C", str(cwd), "diff", "--numstat", "HEAD"],
+                             capture_output=True, text=True, timeout=10, stdin=subprocess.DEVNULL)
+        lineas = 0
+        if num.returncode == 0:
+            for line in num.stdout.splitlines():
+                parts = line.split("\t")
+                if len(parts) >= 2:
+                    lineas += (int(parts[0]) if parts[0].isdigit() else 0) + (int(parts[1]) if parts[1].isdigit() else 0)
+        if not lineas and changed:
+            lineas = _count_lines(changed)
+        return changed, lineas
+    except (OSError, subprocess.SubprocessError):
+        return [], 0
+
+
 async def _session_tokens(session_id: str, cwd: Path, desde_ms: int) -> dict:
     """Suma los tokens de los mensajes del asistente creados en esta ejecución de la sesión de OpenCode."""
+    tokens, _, _, _, _, _ = await _session_estado(session_id, cwd, desde_ms)
+    return tokens
+
+
+async def _session_estado(session_id: str, cwd: Path, desde_ms: int, incluir_diff: bool = False) -> tuple[dict, str, list[str], int, bool, str]:
+    """Lee mensajes (y opcionalmente `/diff`) de la sesión en `opencode serve`:
+    devuelve (tokens, texto_salida, archivos_diff, lineas_diff, terminado, error)."""
     tot = {"input": 0, "output": 0, "reasoning": 0, "cache_read": 0}
+    textos: list[str] = []
+    diffs_map: dict[str, int] = {}
+    terminado = False
+    error = ""
+    c = _oc_client()
     try:
-        async with httpx.AsyncClient(timeout=10, auth=_oc_auth()) as c:
-            r = await c.get(f"{OPENCODE_SERVER_URL}/session/{session_id}/message", params={"directory": str(cwd)})
-            r.raise_for_status()
-            for msg in r.json():
-                info = msg.get("info") or {}
-                if info.get("role") != "assistant" or (info.get("time") or {}).get("created", 0) < desde_ms:
-                    continue
-                t = info.get("tokens") or {}
-                tot["input"] += t.get("input", 0)
-                tot["output"] += t.get("output", 0)
-                tot["reasoning"] += t.get("reasoning", 0)
-                tot["cache_read"] += (t.get("cache") or {}).get("read", 0)
+        r = await c.get(f"/session/{session_id}/message", params={"directory": str(cwd)}, timeout=10.0)
+        r.raise_for_status()
+        msgs = r.json()
+        for msg in msgs:
+            info = msg.get("info") or {}
+            created = (info.get("time") or {}).get("created", 0)
+            if created >= desde_ms - 2000:
+                for d in ((info.get("summary") or {}).get("diffs") or []):
+                    if f := d.get("file"):
+                        p = str((cwd / f).resolve())
+                        diffs_map[p] = diffs_map.get(p, 0) + int(d.get("additions") or 0) + int(d.get("deletions") or 0)
+            if info.get("role") != "assistant" or created < desde_ms - 1000:
+                continue
+            t = info.get("tokens") or {}
+            tot["input"] += t.get("input", 0)
+            tot["output"] += t.get("output", 0)
+            tot["reasoning"] += t.get("reasoning", 0)
+            tot["cache_read"] += (t.get("cache") or {}).get("read", 0)
+            if err := info.get("error"):
+                error = str(err.get("data", {}).get("message") or err.get("name") or err) if isinstance(err, dict) else str(err)
+            for p in msg.get("parts") or []:
+                if p.get("type") == "text" and p.get("text"):
+                    textos.append(str(p["text"]).strip())
+        if msgs:
+            ult = (msgs[-1].get("info") or {})
+            if ult.get("role") == "assistant" and (ult.get("time") or {}).get("created", 0) >= desde_ms - 1000:
+                if ult.get("finish") == "stop" and (ult.get("time") or {}).get("completed"):
+                    terminado = True
     except (httpx.HTTPError, ValueError):
         pass
-    return tot
+    if incluir_diff:
+        try:
+            rd = await c.get(f"/session/{session_id}/diff", params={"directory": str(cwd)}, timeout=10.0)
+            if rd.status_code == 200:
+                for d in rd.json() or []:
+                    if isinstance(d, dict) and (f := d.get("file")):
+                        p = str((cwd / f).resolve())
+                        diffs_map.setdefault(p, int(d.get("additions") or 0) + int(d.get("deletions") or 0))
+        except (httpx.HTTPError, ValueError):
+            pass
+    archivos = sorted(diffs_map)
+    lineas = sum(diffs_map.values()) or (_count_lines(archivos) if archivos else 0)
+    return tot, "\n\n".join(t for t in textos if t), archivos, lineas, terminado, error
+
+
+async def _run_opencode_http(
+    session_id: str, cwd: Path, modelo: str, prompt: str, timeout: int, desde_ms: int, tag: str = ""
+) -> tuple[int, str, dict, list[str], int]:
+    """Envía el prompt por HTTP (`prompt_async`) a `opencode serve` y detecta el fin por SSE (`GET /event`),
+    con reconexión automática y verificación de respaldo sobre `/session/{id}/message`."""
+    prov, _, mod = modelo.partition("/")
+    body = {"model": {"providerID": prov, "modelID": mod}, "parts": [{"type": "text", "text": prompt}]}
+    fin = asyncio.Event()
+    err_sse: list[str] = []
+    vistos: set[str] = set()
+    inicio_t = ultimo_aviso = time.monotonic()
+
+    async def escuchar_sse() -> None:
+        nonlocal ultimo_aviso
+        while not fin.is_set():
+            try:
+                async with httpx.AsyncClient(base_url=OPENCODE_SERVER_URL, auth=_oc_auth(), timeout=None) as sse_client:
+                    async with sse_client.stream("GET", "/event", params={"directory": str(cwd)}) as resp:
+                        async for line in resp.aiter_lines():
+                            if fin.is_set():
+                                return
+                            if not line.startswith("data:"):
+                                continue
+                            try:
+                                ev = json.loads(line[5:].strip())
+                            except ValueError:
+                                continue
+                            tipo = ev.get("type", "")
+                            props = ev.get("properties") or {}
+                            if tipo == "message.part.updated":
+                                part = props.get("part") or {}
+                                if part.get("sessionID") == session_id and part.get("type") == "tool":
+                                    estado_t = (part.get("state") or {}).get("status", "")
+                                    clave = f"{part.get('id')}:{estado_t}"
+                                    if estado_t in ("running", "completed") and clave not in vistos:
+                                        vistos.add(clave)
+                                        _live(f"  │ {tag}tool {part.get('tool')} ({estado_t})")
+                                        ultimo_aviso = time.monotonic()
+                            elif tipo == "session.idle" and props.get("sessionID") == session_id:
+                                fin.set()
+                                return
+                            elif tipo == "session.status" and props.get("sessionID") == session_id:
+                                if (props.get("status") or {}).get("type") == "idle":
+                                    fin.set()
+                                    return
+                            elif tipo == "session.error" and props.get("sessionID") in (session_id, None, ""):
+                                err = props.get("error") or props
+                                err_sse.append(str(err.get("data", {}).get("message") or err.get("name") or err)
+                                               if isinstance(err, dict) else str(err))
+                                fin.set()
+                                return
+            except (httpx.HTTPError, asyncio.CancelledError):
+                if fin.is_set():
+                    return
+                await asyncio.sleep(1.0)
+
+    sse_task = asyncio.create_task(escuchar_sse())
+    try:
+        c = _oc_client()
+        r = await c.post(f"/session/{session_id}/prompt_async", params={"directory": str(cwd)}, json=body, timeout=30.0)
+        if r.status_code >= 400:
+            r.raise_for_status()
+        limite = inicio_t + timeout
+        while time.monotonic() < limite and not fin.is_set():
+            try:
+                await asyncio.wait_for(fin.wait(), timeout=2.5)
+                break
+            except asyncio.TimeoutError:
+                _, _, _, _, terminado, error_msg = await _session_estado(session_id, cwd, desde_ms, incluir_diff=False)
+                if error_msg:
+                    err_sse.append(error_msg)
+                    fin.set()
+                    break
+                if terminado:
+                    fin.set()
+                    break
+                ahora = time.monotonic()
+                if ahora - ultimo_aviso >= 20:
+                    _live(f"  … {tag}sigue trabajando ({int(ahora - inicio_t)} s)")
+                    ultimo_aviso = ahora
+        if not fin.is_set():
+            _live(f"  ✖ timeout tras {timeout}s")
+            tokens, out, archivos, lineas, _, _ = await _session_estado(session_id, cwd, desde_ms, incluir_diff=True)
+            return -1, (out + f"\nTimeout tras {timeout}s").strip(), tokens, archivos, lineas
+    except httpx.HTTPError as e:
+        return -1, f"Error HTTP comunicando con OpenCode: {type(e).__name__} {e}", {}, [], 0
+    finally:
+        fin.set()
+        sse_task.cancel()
+
+    tokens, out, archivos, lineas, _, error_msg = await _session_estado(session_id, cwd, desde_ms, incluir_diff=True)
+    if err_sse or error_msg:
+        detalle = err_sse[0] if err_sse else error_msg
+        _live(f"  ✖ error en sesión OpenCode: {detalle[:200]}")
+        return 1, (f"{out}\nError: {detalle}".strip() if out else f"Error: {detalle}"), tokens, archivos, lineas
+    return 0, out, tokens, archivos, lineas
 
 
 def _work_cwd(target: Path) -> Path:
@@ -333,10 +522,10 @@ def _work_cwd(target: Path) -> Path:
 
 @mcp.tool()
 async def preparar_vista_opencode(ruta_proyecto_o_archivo: str = "", titulo: str = "") -> str:
-    """Paso 1 de 2 para una tarea de TRABAJO: crea la sesión en el servidor de OpenCode y devuelve session_id,
-    ruta_para_ejecutar y el comando de su TUI. Ejecuta el comando tal cual con run_in_terminal (título 'OpenCode') y
-    muestra la pestaña con show_pane; luego llama ejecutar_trabajo_opencode_innti con sesion_opencode=<session_id> y
-    ruta_proyecto_o_archivo=<ruta_para_ejecutar>: la pestaña muestra el trabajo en vivo."""
+    """TRABAJO — Paso 1 de 3 (obligatorio antes de delegar): crea la sesión en `opencode serve` y devuelve
+    `session_id`, `ruta_para_ejecutar` y el comando TUI (`oc_attach.py`).
+    Paso 2: ejecuta el comando con `run_in_terminal` (título 'OpenCode') y muestra la pestaña con `show_pane`.
+    Paso 3: llama `ejecutar_trabajo_opencode_innti` pasando `sesion_opencode=<session_id>`."""
     target = _resolve_under(TRABAJO_DIR, ruta_proyecto_o_archivo)
     if not _inside(target, TRABAJO_DIR):
         return (f"Rechazado: {target} está fuera de {TRABAJO_DIR}. Si es un proyecto personal o de "
@@ -366,15 +555,14 @@ async def ejecutar_trabajo_opencode_innti(
     pedido_id: str = "",
     item: int = 0,
     forzar_presupuesto: bool = False,
+    sin_terminal: bool = False,
 ) -> str:
-    """TRABAJO (dentro de TRABAJO_DIR): delega la tarea a OpenCode con un modelo Innti, en segundo plano, y devuelve
-    un resumen con archivos tocados, tokens y costo.
-    prompt_tarea: instrucción autocontenida. modelo_innti: vacío = innti-dsf-last (rápido y barato: mecánico, explorar, referencias concretas); innti-dsp solo lógica compleja/revisión,
-    innti-dev documentación, innti-gpt planificar/imágenes, innti-terra arquitectura (caro).
-    sesion_opencode: la de preparar_vista_opencode, o la del resultado anterior en rondas de corrección. pedido_id, item: ítem del checklist.
-    forzar_presupuesto: solo con autorización del usuario.
-    Para ir rápido: da en el prompt las rutas exactas de los archivos (si no, el agente explora el repo y tarda/gasta
-    millones de tokens) y parte las tareas grandes en varias delegaciones (p. ej. ts/html y luego i18n/integración)."""
+    """TRABAJO — Paso 3 de 3 (dentro de TRABAJO_DIR): envía la tarea por HTTP a la `sesion_opencode` abierta en la
+    pestaña de terminal (`preparar_vista_opencode` → `run_in_terminal` + `show_pane` → `ejecutar_trabajo_opencode_innti`).
+    Rechaza llamadas sin `sesion_opencode` salvo que `sin_terminal=True` (solo en Chat sin terminal).
+    En rondas de corrección del mismo ítem, reutiliza el mismo `sesion_opencode`.
+    Modelos (`modelo_innti`): vacío = innti-dsf-last (rápido/barato); innti-dsp lógica compleja/revisión;
+    innti-dev docs/commits; innti-gpt planes/imágenes; innti-terra arquitectura. Indica rutas exactas en `prompt_tarea`."""
     target = _resolve_under(TRABAJO_DIR, ruta_proyecto_o_archivo)
     _live("")
     _live(f"▶ TRABAJO → OpenCode | ruta: {target}")
@@ -399,11 +587,22 @@ async def ejecutar_trabajo_opencode_innti(
         return (f"Freno de presupuesto: {presupuesto}\nNo se delegó nada. Pide autorización al usuario y, si la da, "
                 "repite con forzar_presupuesto=True (o ajusta PRESUPUESTO_DIA_USD / PRESUPUESTO_MES_USD en .env).")
 
+    cwd = _work_cwd(target)
+    if not sesion_opencode and not sin_terminal:
+        _live("  ✖ rechazado: falta sesion_opencode (no se preparó pestaña de terminal)")
+        return (
+            "Error: falta `sesion_opencode` (no se permite delegar a OpenCode en modo interno sin pestaña). "
+            "Ejecuta en orden:\n"
+            f"1. `preparar_vista_opencode(ruta_proyecto_o_archivo=\"{ruta_proyecto_o_archivo or cwd}\")`\n"
+            "2. `run_in_terminal` con el comando devuelto (título 'OpenCode') y `show_pane`\n"
+            "3. `ejecutar_trabajo_opencode_innti(..., sesion_opencode=<session_id>)`\n"
+            "(Solo en Claude Chat, donde no existe `run_in_terminal`, pasa explícitamente `sin_terminal=True`)."
+        )
+
     aviso_item = ""
     if not (pedido_id and item):  # ajuste sin pedido: queda como ítem nuevo del pedido del proyecto
         pedido_id, item, aviso_item = registro.item_automatico(str(target if not target.suffix else target.parent),
                                                                prompt_tarea)
-    cwd = _work_cwd(target)
     if pedido_id and item:
         registro.actualizar_item(pedido_id, item, "en_curso", agente="OpenCode", modelo=modelo.split("/")[-1])
 
@@ -418,30 +617,36 @@ async def ejecutar_trabajo_opencode_innti(
                "\nEscribe los cambios directamente en disco. Al final responde SOLO con un "
                "resumen breve (máx. 10 líneas) de lo realizado y los archivos tocados.")
 
-    _live(f"  modelo: {modelo} | ejecutando opencode run en {cwd}")
-    cmd = [cli, "run", "--model", modelo]
     titulo = f"Claude → {prompt_tarea[:60]}"
-    session_id = ""
+    session_id = sesion_opencode.strip()
     servidor = await _ensure_opencode_server(cli)
-    if servidor and sesion_opencode:
-        # Ronda de corrección: misma sesión.
-        session_id = sesion_opencode
-        cmd += ["--attach", OPENCODE_SERVER_URL, "--dir", str(cwd), "--session", session_id]
-    elif servidor and (session_id := await _create_session(cwd, titulo) or ""):
-        # Sesión nueva en el servidor: su id permite una ronda de corrección con el mismo contexto.
-        cmd += ["--attach", OPENCODE_SERVER_URL, "--dir", str(cwd), "--session", session_id]
-    else:
-        _live("  servidor OpenCode no disponible: se ejecuta sin sesión persistente")
-        cmd += ["--dir", str(cwd)]  # sin esto OpenCode trabaja en la carpeta del servidor MCP, no en la del proyecto
-    checkpoint, before = await asyncio.gather(asyncio.to_thread(_git_checkpoint, cwd),
-                                              asyncio.to_thread(_snapshot, cwd))
+    if servidor and not session_id:
+        session_id = await _create_session(cwd, titulo) or ""
+
+    checkpoint = await asyncio.to_thread(_git_checkpoint, cwd)
+    before = {} if checkpoint else await asyncio.to_thread(_snapshot, cwd)
     inicio_ms = int(time.time() * 1000)
     etiqueta = f"[OpenCode{f' #{item}' if item else ''} {modelo.split('/')[-1]}] "
-    code, output = await _run([*cmd, prompt], cwd, OPENCODE_TIMEOUT, idle=OPENCODE_IDLE, tag=etiqueta)
-    after = await asyncio.to_thread(_snapshot, cwd)
-    changed = sorted(p for p, m in after.items() if before.get(p) != m)
-    lineas = await asyncio.to_thread(_count_lines, changed)
-    tokens = await _session_tokens(session_id, cwd, inicio_ms) if session_id else {}
+
+    if servidor and session_id:
+        _live(f"  modelo: {modelo} | sesión HTTP: {session_id} en {cwd}")
+        code, output, tokens, changed, lineas = await _run_opencode_http(
+            session_id, cwd, modelo, prompt, OPENCODE_TIMEOUT, inicio_ms, tag=etiqueta
+        )
+    else:
+        _live(f"  modelo: {modelo} | fallback CLI opencode run en {cwd}")
+        cmd = [cli, "run", "--model", modelo, "--dir", str(cwd)]
+        code, output = await _run([*cmd, prompt], cwd, OPENCODE_TIMEOUT, idle=OPENCODE_IDLE, tag=etiqueta)
+        tokens = {}
+        changed, lineas = [], 0
+
+    if not changed:
+        if checkpoint:
+            changed, lineas = await asyncio.to_thread(_git_cambios, cwd)
+        else:
+            after = await asyncio.to_thread(_snapshot, cwd)
+            changed = sorted(p for p, m in after.items() if before.get(p) != m)
+            lineas = await asyncio.to_thread(_count_lines, changed)
     costo = registro.costo_innti(modelo, tokens)
     registro.registrar_costo("opencode", modelo.split("/")[-1], tokens, costo, pedido_id, item, str(cwd),
                              sesion=session_id)
@@ -737,14 +942,10 @@ async def preparar_tarea_antigravity(
     conversacion: str = "",
     modelos_descartados: str = "",
 ) -> str:
-    """PERSONAL (todo lo que no es TRABAJO_DIR). Paso 1 de 2: prepara la tarea y devuelve un task_id y el comando del
-    CLI de Antigravity. Ejecútalo tal cual con run_in_terminal (título 'Antigravity', sin cwd), muestra la pestaña
-    con show_pane y llama esperar_resultado_antigravity(task_id). Varias tareas en paralelo = una pestaña cada una.
-    instruccion: autocontenida. modelo_antigravity: gemini-3.8-flash-low simple; vacío = flash-medium; gemini-4-argon-medium
-    varios archivos/depuración difícil; gemini-4-argon-high solo si es muy exigente.
-    conversacion: la del resultado anterior, en rondas de corrección. modelos_descartados: los de un "Límite:" previo.
-    pedido_id, item: ítem del checklist. ruta_salida_opcional: carpeta o archivo dentro de PERSONAL_DIR, UNIVERSIDAD_DIR
-    u OTRAS_CARPETAS ('universidad/curso/...' o ruta absoluta); vacía = PERSONAL_DIR/_antigravity."""
+    """PERSONAL (fuera de TRABAJO_DIR) — Paso 1 de 3: prepara la tarea y devuelve `task_id` y el comando del CLI de Antigravity.
+    Paso 2: ejecútalo con `run_in_terminal` (título 'Antigravity', sin cwd) y muestra la pestaña con `show_pane`.
+    Paso 3: llama `esperar_resultado_antigravity(task_id)`. En correcciones reutiliza `conversacion`.
+    Modelos (`modelo_antigravity`): `gemini-3.8-flash-low` simple; vacío = flash-medium; `gemini-4-argon-medium` varios archivos; `gemini-4-argon-high` muy exigente."""
     target = _resolve_personal(ruta_salida_opcional or "_antigravity")
     if not _inside(target, PERSONAL_DIR, UNIVERSIDAD_DIR, *OTRAS_CARPETAS):
         return (f"Rechazado: {target} está fuera de {PERSONAL_DIR} y {UNIVERSIDAD_DIR}. Si es un proyecto de "
@@ -789,9 +990,8 @@ async def preparar_tarea_antigravity(
 
 @mcp.tool()
 async def esperar_resultado_antigravity(task_id: str) -> str:
-    """Paso 2 de 2: espera a que Antigravity termine la tarea preparada y devuelve la síntesis (archivos tocados,
-    tokens y resumen). Si responde "Límite:", relanza el mismo ítem con preparar_tarea_antigravity usando el
-    modelo_antigravity, la conversacion y los modelos_descartados que indica."""
+    """PERSONAL — Paso 3 de 3: espera a que Antigravity termine la tarea preparada y devuelve la síntesis.
+    Si responde 'Límite:', relanza el ítem con `preparar_tarea_antigravity` usando `siguiente_modelo`, `conversacion` y `modelos_descartados`."""
     task = _AGY_TASKS.get(task_id)
     if not task:
         return f"Error: no hay una tarea preparada con task_id '{task_id}' en este servidor."
@@ -817,7 +1017,7 @@ async def esperar_resultado_antigravity(task_id: str) -> str:
 async def verificar_proyecto(ruta: str, comandos: list[str] | None = None) -> str:
     """Corre los tests/lint del proyecto que contiene `ruta` y devuelve VERDE/ROJO con el final de cada salida.
     Usa los comandos guardados con configurar_verificacion o los detecta (Maven, Gradle, npm, pytest, Go).
-    Úsala en cada revisión de una delegación de trabajo."""
+    Úsala solo si el usuario lo pide o el cambio es riesgoso (no por defecto en cada revisión)."""
     target = _resolve_under(TRABAJO_DIR, ruta)
     if not _inside(target, TRABAJO_DIR, PERSONAL_DIR, UNIVERSIDAD_DIR, *OTRAS_CARPETAS):
         return f"Rechazado: {target} está fuera de las carpetas configuradas."

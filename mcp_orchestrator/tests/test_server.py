@@ -54,13 +54,21 @@ def test_oc_auth_lee_la_contrasena(monkeypatch):
 def test_git_checkpoint(tmp_path):
     assert server._git_checkpoint(tmp_path) == ""
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
-    (tmp_path / "a.txt").write_text("x")
+    (tmp_path / "a.txt").write_text("x\n")
     subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
     subprocess.run(["git", "-C", str(tmp_path), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "i"],
                    check=True)
-    (tmp_path / "b.txt").write_text("y")
+    (tmp_path / "b.txt").write_text("y\nz\n")
     out = server._git_checkpoint(tmp_path)
     assert out.startswith("commit ") and "+1 cambios previos" in out
+    changed, lineas = server._git_cambios(tmp_path)
+    assert changed == [str((tmp_path / "b.txt").resolve())] and lineas == 2
+
+
+def test_trabajo_exige_sesion_opencode_salvo_sin_terminal(tmp_dirs, monkeypatch):
+    monkeypatch.setattr(server, "_opencode_cmd", lambda: "opencode")
+    err = run(server.ejecutar_trabajo_opencode_innti("x", "", str(tmp_dirs["workspaces"] / "p")))
+    assert err.startswith("Error: falta `sesion_opencode`") and "preparar_vista_opencode" in err
 
 
 def test_exportar_panel_crea_y_borra_el_anterior(tmp_registro, monkeypatch):
