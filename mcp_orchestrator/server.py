@@ -54,7 +54,7 @@ OPENCODE_TIMEOUT = int(_env("OPENCODE_TIMEOUT_SECONDS", "1800"))
 # Segundos sin una sola línea de salida tras los que se corta la tarea (modelo colgado o sin red).
 OPENCODE_IDLE = int(_env("OPENCODE_IDLE_SECONDS", "240"))
 # Servidor OpenCode persistente: las tareas corren en él y sus sesiones permiten rondas de corrección (y ver la TUI en una pestaña).
-OPENCODE_SERVER_URL = _env("OPENCODE_SERVER_URL", "http://127.0.0.1:4096").rstrip("/")
+OPENCODE_SERVER_URL = _env("OPENCODE_SERVER_URL", "http://127.0.0.1:4097").rstrip("/")
 INNTI_PROVIDER = _env("INNTI_PROVIDER", "litellm-proxy")
 INNTI_DEFAULT_MODEL = _env("INNTI_DEFAULT_MODEL", "innti-dsf-last")
 
