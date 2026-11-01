@@ -1,9 +1,11 @@
-# Instalacion del Orquestador MCP en Windows
+# Instalación del Orquestador MCP en Windows (envoltorio fino hacia instalar.py)
 # Uso (desde la carpeta del repo):
-#   powershell -ExecutionPolicy Bypass -File mcp_orchestrator\setup.ps1 [-InstallOpenCode] [-SkipRegister]
+#   powershell -ExecutionPolicy Bypass -File mcp_orchestrator\setup.ps1 [-InstallOpenCode] [-SkipRegister] [-DryRun] [-Diagnostico]
 param(
     [switch]$InstallOpenCode,   # instala OpenCode localmente en tools\ (sirve incluso con Node antiguo)
-    [switch]$SkipRegister       # no registrar en Claude Desktop / Claude Code
+    [switch]$SkipRegister,      # no registrar en Claude Desktop / Claude Code
+    [switch]$DryRun,            # modo simulación sin escribir cambios
+    [switch]$Diagnostico        # solo diagnóstico
 )
 $ErrorActionPreference = 'Stop'
 
@@ -12,44 +14,34 @@ $Root = Split-Path $App -Parent
 $Venv = Join-Path $App '.venv'
 $Py   = Join-Path $Venv 'Scripts\python.exe'
 
-Write-Host '==> Entorno virtual + dependencias' -ForegroundColor Cyan
-if (-not (Test-Path $Py)) {
-    $pyLauncher = Get-Command py -ErrorAction SilentlyContinue
-    if ($pyLauncher) { & $pyLauncher.Source -3 -m venv $Venv }
-    else { & (Get-Command python -ErrorAction Stop).Source -m venv $Venv }
+if ($InstallOpenCode -and -not $DryRun -and -not $Diagnostico) {
+    Write-Host '==> OpenCode (instalación local en tools\opencode)' -ForegroundColor Cyan
+    $OcDir = Join-Path $Root 'tools\opencode'
+    $OcExe = Join-Path $OcDir 'node_modules\opencode-ai\node_modules\opencode-windows-x64\bin\opencode.exe'
+    if (-not (Test-Path $OcExe)) {
+        New-Item -ItemType Directory -Force -Path $OcDir | Out-Null
+        npm install opencode-ai --ignore-scripts --no-save --prefix $OcDir
+    }
 }
-& $Py -m pip install --upgrade pip --quiet
-& $Py -m pip install -r (Join-Path $App 'requirements.txt') --quiet
-& $Py -c "import mcp, httpx, dotenv; print('    dependencias OK')"
 
-Write-Host '==> OpenCode' -ForegroundColor Cyan
-# Instalacion local sin postinstall: funciona con Node antiguo y sin permisos de administrador
-$OcDir = Join-Path $Root 'tools\opencode'
-$OcExe = Join-Path $OcDir 'node_modules\opencode-ai\node_modules\opencode-windows-x64\bin\opencode.exe'
-if (Get-Command opencode -ErrorAction SilentlyContinue) {
-    Write-Host "    encontrado en el PATH: $((Get-Command opencode).Source)"
-} elseif (Test-Path $OcExe) {
-    Write-Host "    encontrado: $OcExe  (pon esta ruta en OPENCODE_CLI_PATH del .env)"
-} elseif ($InstallOpenCode) {
-    New-Item -ItemType Directory -Force -Path $OcDir | Out-Null
-    npm install opencode-ai --ignore-scripts --no-save --prefix $OcDir
-    & $OcExe --version
-    Write-Host "    instalado: pon $OcExe en OPENCODE_CLI_PATH del .env" -ForegroundColor Yellow
+# Localizar Python del venv o del sistema para delegar todo a instalar.py
+if (Test-Path $Py) {
+    $Runner = $Py
+    $Extra  = @()
+} elseif (Get-Command py -ErrorAction SilentlyContinue) {
+    $Runner = (Get-Command py).Source
+    $Extra  = @('-3')
+} elseif (Get-Command python -ErrorAction SilentlyContinue) {
+    $Runner = (Get-Command python).Source
+    $Extra  = @()
 } else {
-    Write-Host '    NO encontrado. Ejecuta de nuevo con -InstallOpenCode o fija OPENCODE_CLI_PATH en .env' -ForegroundColor Yellow
+    throw 'No se encontró Python 3.10+. Instálalo desde python.org o winget install Python.Python.3.12'
 }
 
-Write-Host '==> Antigravity (agy)' -ForegroundColor Cyan
-$Agy = Join-Path $env:USERPROFILE '.gemini\bin\agy.exe'
-if (Test-Path $Agy) { Write-Host "    encontrado: $Agy" }
-else { Write-Host '    NO encontrado: instala Antigravity e inicia sesion una vez (crea ~\.gemini\bin\agy.exe)' -ForegroundColor Yellow }
-
-$installArgs = @((Join-Path $App 'instalar.py'))
+$installArgs = @() + $Extra + @((Join-Path $App 'instalar.py'))
 if ($SkipRegister) { $installArgs += '--sin-registro' }
-& $Py @installArgs
+if ($DryRun)       { $installArgs += '--dry-run' }
+if ($Diagnostico)  { $installArgs += '--solo-diagnostico' }
 
-Write-Host ''
-Write-Host 'Listo. Pendiente:' -ForegroundColor Green
-Write-Host "  1. Revisa $App\.env (carpetas, modelos, PANEL_URL)"
-Write-Host "  2. Copia config\CLAUDE.example.md a ~\.claude\CLAUDE.md (Code) y config\PROJECT_INSTRUCTIONS.md a tu Proyecto (Chat)"
-Write-Host '  3. Reinicia Claude Desktop'
+& $Runner @installArgs
+exit $LASTEXITCODE

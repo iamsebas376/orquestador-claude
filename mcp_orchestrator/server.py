@@ -39,7 +39,7 @@ def _env(name: str, default: str = "") -> str:
     return (os.getenv(name) or default).strip()
 
 
-# Por defecto ~/workspaces, ~/personal, ~/universidad (cámbialos en .env, p. ej. D:\workspaces en Windows).
+# Por defecto ~/workspaces, ~/personal, ~/universidad (cámbialos en .env si usas otra ubicación).
 TRABAJO_DIR = Path(_env("TRABAJO_DIR") or plataforma.default_dir("workspaces")).expanduser()
 PERSONAL_DIR = Path(_env("PERSONAL_DIR") or plataforma.default_dir("personal")).expanduser()
 UNIVERSIDAD_DIR = Path(_env("UNIVERSIDAD_DIR") or plataforma.default_dir("universidad")).expanduser()
@@ -134,9 +134,9 @@ def _inside(path: Path, *roots: Path) -> bool:
 
 
 def _resolve_personal(ruta: str) -> Path:
-    """Relativa: 'universidad\\...' va a UNIVERSIDAD_DIR, cualquier otra a PERSONAL_DIR."""
+    """Relativa: 'universidad/...' (o 'universidad\\...') va a UNIVERSIDAD_DIR, cualquier otra a PERSONAL_DIR."""
     if ruta and not Path(ruta).is_absolute():
-        first, _, rest = ruta.replace("/", "\\").partition("\\")
+        first, _, rest = ruta.replace("\\", "/").partition("/")
         if first.lower() == UNIVERSIDAD_DIR.name.lower():
             return UNIVERSIDAD_DIR / rest
     return _resolve_under(PERSONAL_DIR, ruta)
@@ -172,9 +172,7 @@ def _count_lines(paths: list[str]) -> int:
 
 
 def _opencode_cmd() -> str | None:
-    if Path(OPENCODE_CLI_PATH).is_file():
-        return OPENCODE_CLI_PATH
-    return shutil.which(OPENCODE_CLI_PATH)
+    return plataforma.buscar_opencode(OPENCODE_CLI_PATH)
 
 
 # Incluye OPENCODE_SERVER_PASSWORD (cargada del .env): serve exige la contraseña y run/attach la envían.
@@ -224,6 +222,7 @@ async def _ensure_opencode_server(cli: str) -> bool:
                 [cli, "serve", "--hostname", "127.0.0.1", "--port", port], cwd=str(TRABAJO_DIR), env=OPENCODE_ENV,
                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 creationflags=getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                start_new_session=not plataforma.es_windows(),
             )
         await asyncio.sleep(0.5)
     return False
@@ -962,9 +961,7 @@ def _agy_confiar(folder: Path) -> bool:
 
 
 def _agy_cmd() -> str | None:
-    if Path(ANTIGRAVITY_CLI_PATH).is_file():
-        return ANTIGRAVITY_CLI_PATH
-    return shutil.which(ANTIGRAVITY_CLI_PATH)
+    return plataforma.buscar_agy(ANTIGRAVITY_CLI_PATH)
 
 
 def _agy_prompt(instruccion: str, contexto: str, target: Path, folder: Path, resultado: Path | None = None) -> str:

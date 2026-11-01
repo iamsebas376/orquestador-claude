@@ -11,6 +11,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+import plataforma
+
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
 
@@ -19,7 +21,7 @@ ap.add_argument("--dir", required=True)
 ap.add_argument("--session", required=True)
 args = ap.parse_args()
 
-cli = os.getenv("OPENCODE_CLI_PATH", "opencode")
+cli = plataforma.buscar_opencode(os.getenv("OPENCODE_CLI_PATH", "opencode")) or os.getenv("OPENCODE_CLI_PATH", "opencode")
 url = os.getenv("OPENCODE_SERVER_URL", "http://127.0.0.1:4097")
 env = {**os.environ, "OPENCODE_DISABLE_CLAUDE_CODE_PROMPT": "1"}
 sys.exit(subprocess.call([cli, "attach", url, "--dir", args.dir, "--session", args.session], env=env))

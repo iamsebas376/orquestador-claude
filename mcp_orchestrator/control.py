@@ -344,10 +344,20 @@ def detectar_comandos(cwd: Path, tope: Path) -> tuple[Path, list[str]]:
     while True:
         cmds: list[str] = []
         if (d / "pom.xml").exists():
-            prog = ".\\mvnw.cmd" if (d / "mvnw.cmd").exists() else "mvn"
+            if plataforma.es_windows() and (d / "mvnw.cmd").exists():
+                prog = ".\\mvnw.cmd"
+            elif not plataforma.es_windows() and (d / "mvnw").exists():
+                prog = "./mvnw"
+            else:
+                prog = "mvn"
             cmds.append(prog + " -q -B test")
         elif any((d / g).exists() for g in ("build.gradle", "build.gradle.kts")):
-            prog = ".\\gradlew.bat" if (d / "gradlew.bat").exists() else "gradle"
+            if plataforma.es_windows() and (d / "gradlew.bat").exists():
+                prog = ".\\gradlew.bat"
+            elif not plataforma.es_windows() and (d / "gradlew").exists():
+                prog = "./gradlew"
+            else:
+                prog = "gradle"
             cmds.append(prog + " test -q")
         elif (d / "package.json").exists():
             try:
