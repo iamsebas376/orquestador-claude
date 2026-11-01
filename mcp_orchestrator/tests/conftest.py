@@ -5,6 +5,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import control  # noqa: E402
 import registro  # noqa: E402
 import server  # noqa: E402
 
@@ -21,6 +22,9 @@ def sin_efectos_externos(tmp_path, monkeypatch):
     monkeypatch.setattr(registro, "CLAUDE_PROJECTS_DIR", tmp_path / "claude-projects-aislado")
     monkeypatch.setattr(registro, "CLAUDE_APP_DIR", tmp_path / "claude-app-aislado")  # no lee las sesiones reales
     monkeypatch.setattr(server, "AGY_SETTINGS", tmp_path / "agy-settings-aislado.json")
+    monkeypatch.setattr(control, "VERIF_FILE", tmp_path / "verificacion-aislada.json")
+    monkeypatch.setattr(control, "REGLAS_FILE", tmp_path / "reglas-aisladas.json")
+    monkeypatch.setattr(control, "REGLAS_CANDIDATAS_FILE", tmp_path / "reglas-candidatas-aisladas.json")
 
 
 @pytest.fixture

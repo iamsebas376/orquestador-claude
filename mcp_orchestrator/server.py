@@ -350,6 +350,162 @@ def _git_cambios(cwd: Path) -> tuple[list[str], int]:
         return [], 0
 
 
+def _git_diff_resumen(cwd: Path, changed: list[str] | None = None) -> str:
+    """Resumen de `git diff --stat` (máx. 15 líneas), aviso si el diff está vacío y aviso de borrado neto > 30 líneas."""
+    stat_lines: list[str] = []
+    borrados: list[str] = []
+    try:
+        stat = subprocess.run(["git", "-C", str(cwd), "diff", "--stat", "HEAD"],
+                              capture_output=True, text=True, timeout=10, stdin=subprocess.DEVNULL)
+        if stat.returncode != 0:
+            stat = subprocess.run(["git", "-C", str(cwd), "diff", "--stat"],
+                                  capture_output=True, text=True, timeout=10, stdin=subprocess.DEVNULL)
+        if stat.returncode == 0:
+            stat_lines = [l.rstrip() for l in (stat.stdout or "").splitlines() if l.strip()]
+
+        num = subprocess.run(["git", "-C", str(cwd), "diff", "--numstat", "HEAD"],
+                             capture_output=True, text=True, timeout=10, stdin=subprocess.DEVNULL)
+        if num.returncode != 0:
+            num = subprocess.run(["git", "-C", str(cwd), "diff", "--numstat"],
+                                 capture_output=True, text=True, timeout=10, stdin=subprocess.DEVNULL)
+        if num.returncode == 0:
+            for line in (num.stdout or "").splitlines():
+                parts = line.split("\t")
+                if len(parts) >= 3 and parts[0].isdigit() and parts[1].isdigit():
+                    added, deleted, archivo = int(parts[0]), int(parts[1]), parts[2].strip()
+                    neto = deleted - added
+                    if neto > 30:
+                        borrados.append(f"⚠ BORRADO: {neto} líneas borradas en {archivo}")
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+    if not stat_lines:
+        partes = ["git diff --stat: (sin diff)", "⚠ SIN CAMBIOS: ¿ruta correcta?"]
+        if borrados:
+            partes.extend(borrados)
+        return "\n".join(partes)
+
+    if len(stat_lines) > 15:
+        resumen_stat = "\n".join(stat_lines[:14] + [f"  … ({len(stat_lines) - 15} líneas más)", stat_lines[-1]])
+    else:
+        resumen_stat = "\n".join(stat_lines)
+
+    partes = [f"git diff --stat:\n{resumen_stat}"]
+    if borrados:
+        partes.extend(borrados)
+    return "\n".join(partes)
+
+
+_RE_CAPTURA = re.compile(
+    r"\b(?:capturas?|screenshots?|im[aá]gen(?:es)?|pantallazos?|mockups?)\b|\.(?:png|jpg|jpeg|webp)\b",
+    re.I,
+)
+_RE_SENCILLA = re.compile(
+    r"\b(?:sencill[oa]s?|simples?|pequeñ[oa]s?|r[aá]pid[oa]s?|puntual(?:es)?|leves?|b[aá]sic[oa]s?)\b",
+    re.I,
+)
+_RE_TERRA = re.compile(
+    r"\b(?:arquitecturas?|arquitect[oó]nic[oa]s?|contratos?(?:\s+entre|\s+de|\s+api|\b)|"
+    r"interfa(?:z|ces)\s+entre\s+m[oó]dulos?|comunicaci[oó]n\s+entre\s+m[oó]dulos?|"
+    r"desacoplar\s+m[oó]dulos?)\b",
+    re.I,
+)
+_RE_DSP = re.compile(
+    r"\b(?:l[oó]gica\s+compleja|seguridad|vulnerabilidad(?:es)?|revisi[oó]n\s+de\s+diffs?|revisar\s+diffs?|"
+    r"refactor(?:izaci[oó]n)?\s+profund[oa]|depurar|depuraci[oó]n|bugs?\s+dif[ií]cil(?:es)?|"
+    r"bugs?\s+complej[oa]s?|autenticaci[oó]n|autorizaci[oó]n|jwt|oauth|condici[oó]n\s+de\s+carrera|"
+    r"race\s+condition)\b",
+    re.I,
+)
+_RE_GPT = re.compile(
+    r"\b(?:plan|planes|planificar|planificaci[oó]n|diseñ(?:o|ar)\s+de\s+pasos|pasos\s+a\s+seguir|"
+    r"capturas?|screenshots?|im[aá]gen(?:es)?|pantallazos?)\b",
+    re.I,
+)
+_RE_NO_COMMIT = re.compile(r"\b(?:no\s+(?:hagas|hacer|crear|realizar)\s+commits?|sin\s+commits?)\b", re.I)
+_RE_DEV = re.compile(
+    r"\b(?:documentaci[oó]n|documentar|readme(?:\.md)?|changelog(?:\.md)?|mensajes?\s+de\s+commit|commits?|"
+    r"release\s+notes|docstrings?|jsdoc)\b",
+    re.I,
+)
+
+
+def _aprendizaje_negativo_reciente(ruta: str | Path, modelo: str) -> bool:
+    """Devuelve True si el aprendizaje más reciente de ese modelo en esa ruta/proyecto fue 👎 ('mal')."""
+    if not ruta or not registro.APRENDIZAJES_FILE.exists():
+        return False
+    r_str = str(ruta)
+    proy = registro.proyecto_de(r_str) if ("\\" in r_str or "/" in r_str) else r_str
+    candidatos = {proy.lower(), Path(r_str).name.lower()} | {p.lower() for p in Path(r_str).parts if p}
+    mod_corto = modelo.split("/")[-1].lower()
+    ultimo_resultado = ""
+    try:
+        for line in registro.APRENDIZAJES_FILE.read_text(encoding="utf-8").splitlines():
+            try:
+                fila = json.loads(line)
+            except ValueError:
+                continue
+            p_fila = str(fila.get("proyecto") or "").lower()
+            m_fila = str(fila.get("modelo") or "").split("/")[-1].lower()
+            if p_fila and p_fila in candidatos and m_fila == mod_corto:
+                ultimo_resultado = str(fila.get("resultado") or "").lower()
+    except OSError:
+        return False
+    return ultimo_resultado in ("mal", "👎")
+
+
+def elegir_modelo_innti(prompt_tarea: str, ruta: str | Path = "") -> tuple[str, str]:
+    """Clasifica `prompt_tarea` por palabras clave/heurística y devuelve `(modelo, motivo)`.
+    Nunca elige `innti-k3` ni `innti-dev-nova` automáticamente. Si hay un 👎 reciente para el modelo
+    en `ruta`, baja a `innti-dsf-last` indicándolo en el motivo."""
+    texto = prompt_tarea or ""
+    texto_sin_no_commit = _RE_NO_COMMIT.sub("", texto)
+
+    if _RE_CAPTURA.search(texto) and _RE_SENCILLA.search(texto):
+        modelo, motivo = "innti-nova-flash", "tarea sencilla sobre capturas"
+    elif _RE_TERRA.search(texto):
+        modelo, motivo = "innti-terra", "arquitectura/contrato/interfaz entre módulos — ⚠ aviso: la salida es cara"
+    elif _RE_DSP.search(texto):
+        modelo, motivo = "innti-dsp", "lógica compleja/seguridad/revisión de diff/refactor profundo/depuración"
+    elif _RE_GPT.search(texto):
+        modelo, motivo = "innti-gpt", "plan/diseño de pasos o análisis de capturas/imagen"
+    elif _RE_DEV.search(texto_sin_no_commit):
+        modelo, motivo = "innti-dev", "documentación/README/changelog/commit"
+    else:
+        modelo, motivo = "innti-dsf-last", "cambios mecánicos/exploración/tests/operación (por defecto)"
+
+    if _aprendizaje_negativo_reciente(ruta, modelo):
+        anterior = modelo
+        modelo = "innti-dsf-last"
+        motivo = f"{motivo}; se evita {anterior} por 👎 reciente en esta ruta y se baja a innti-dsf-last"
+
+    return modelo, motivo
+
+
+AVISO_TIMEOUT_MSG = "⚠ Riesgo de timeout: conviene partir en ítems; build/lint corren fuera del subagente"
+_RE_VERIF_EN_PROMPT = re.compile(
+    r"\b(?:builds?|lint|eslint|tests?|pytest|jest|karma|vitest|mvn\s+test|npm\s+(?:test|run\s+(?:build|lint|test)))\b",
+    re.I,
+)
+_RE_CAMBIO_CODIGO_I18N = re.compile(
+    r"\b(?:c[oó]digos?|i18n|traducci[oó]n(?:es)?|componentes?|servicios?|m[oó]dulos?|clases?|funciones?|"
+    r"implementa\w*|modifica\w*|edita\w*|a[ñn]ad\w*|agrega\w*|crea\w*|refactor\w*|cambia\w*|actualiza\w*|"
+    r"ts|html|scss|css|js|py|java)\b|\.(?:ts|html|scss|css|json|py|java)\b",
+    re.I,
+)
+
+
+def _aviso_riesgo_timeout(prompt_tarea: str) -> str:
+    """Devuelve el aviso de riesgo de timeout si el prompt supera ~3000 caracteres o combina build/lint/test con cambios de código/i18n."""
+    texto = prompt_tarea or ""
+    if len(texto) > 3000:
+        return AVISO_TIMEOUT_MSG
+    limpio = re.sub(r"\bno\s+(?:ejecutes?|corras?|lances?)\s+(?:build|lint|tests?)[^.\n]*", "", texto, flags=re.I)
+    if _RE_VERIF_EN_PROMPT.search(limpio) and _RE_CAMBIO_CODIGO_I18N.search(limpio):
+        return AVISO_TIMEOUT_MSG
+    return ""
+
+
 async def _session_tokens(session_id: str, cwd: Path, desde_ms: int) -> dict:
     """Suma los tokens de los mensajes del asistente creados en esta ejecución de la sesión de OpenCode."""
     tokens, _, _, _, _, _ = await _session_estado(session_id, cwd, desde_ms)
@@ -558,11 +714,14 @@ async def ejecutar_trabajo_opencode_innti(
     sin_terminal: bool = False,
 ) -> str:
     """TRABAJO — Paso 3 de 3 (dentro de TRABAJO_DIR): envía la tarea por HTTP a la `sesion_opencode` abierta en la
-    pestaña de terminal (`preparar_vista_opencode` → `run_in_terminal` + `show_pane` → `ejecutar_trabajo_opencode_innti`).
+    pestaña de terminal (`preparar_vista_opencode` → `run_in_terminal` + `show_pane` → `ejecutar_trabajo_opencode_innti`,
+    o usa `delegar_rapido` para ahorrar pasos).
     Rechaza llamadas sin `sesion_opencode` salvo que `sin_terminal=True` (solo en Chat sin terminal).
     En rondas de corrección del mismo ítem, reutiliza el mismo `sesion_opencode`.
-    Modelos (`modelo_innti`): vacío = innti-dsf-last (rápido/barato); innti-dsp lógica compleja/revisión;
-    innti-dev docs/commits; innti-gpt planes/imágenes; innti-terra arquitectura. Indica rutas exactas en `prompt_tarea`."""
+    El modelo (`modelo_innti`) se elige solo automáticamente según la tarea y los aprendizajes del proyecto
+    (`innti-dsf-last`, `innti-dsp`, `innti-dev`, `innti-gpt`, `innti-terra`, `innti-nova-flash`), o puedes forzarlo
+    pasando `modelo_innti` explícito. Indica rutas exactas en `prompt_tarea`.
+    No llames a `exportar_panel` por cada ítem; `exportar_panel` solo se pide al cerrar el pedido (`cerrar_pedido`)."""
     target = _resolve_under(TRABAJO_DIR, ruta_proyecto_o_archivo)
     _live("")
     _live(f"▶ TRABAJO → OpenCode | ruta: {target}")
@@ -577,9 +736,13 @@ async def ejecutar_trabajo_opencode_innti(
         return (f"Error: no se encontró OpenCode ('{OPENCODE_CLI_PATH}'). "
                 "Instálalo (npm i -g opencode-ai) o fija OPENCODE_CLI_PATH en .env.")
 
-    modelo = (modelo_innti or INNTI_DEFAULT_MODEL).strip()
-    if "/" not in modelo:
-        modelo = f"{INNTI_PROVIDER}/{modelo}"
+    if (modelo_innti or "").strip():
+        modelo_base = modelo_innti.strip()
+        motivo_modelo = "forzado explícitamente por el usuario"
+    else:
+        modelo_base, motivo_modelo = elegir_modelo_innti(prompt_tarea, str(target))
+    modelo = modelo_base if "/" in modelo_base else f"{INNTI_PROVIDER}/{modelo_base}"
+    modelo_corto = modelo.split("/")[-1]
 
     bloqueado, presupuesto = control.estado_presupuesto()
     if bloqueado and not forzar_presupuesto:
@@ -587,29 +750,38 @@ async def ejecutar_trabajo_opencode_innti(
         return (f"Freno de presupuesto: {presupuesto}\nNo se delegó nada. Pide autorización al usuario y, si la da, "
                 "repite con forzar_presupuesto=True (o ajusta PRESUPUESTO_DIA_USD / PRESUPUESTO_MES_USD en .env).")
 
-    cwd = _work_cwd(target)
     if not sesion_opencode and not sin_terminal:
         _live("  ✖ rechazado: falta sesion_opencode (no se preparó pestaña de terminal)")
         return (
             "Error: falta `sesion_opencode` (no se permite delegar a OpenCode en modo interno sin pestaña). "
             "Ejecuta en orden:\n"
-            f"1. `preparar_vista_opencode(ruta_proyecto_o_archivo=\"{ruta_proyecto_o_archivo or cwd}\")`\n"
+            f"1. `preparar_vista_opencode(ruta_proyecto_o_archivo=\"{ruta_proyecto_o_archivo or target}\")`\n"
             "2. `run_in_terminal` con el comando devuelto (título 'OpenCode') y `show_pane`\n"
             "3. `ejecutar_trabajo_opencode_innti(..., sesion_opencode=<session_id>)`\n"
             "(Solo en Claude Chat, donde no existe `run_in_terminal`, pasa explícitamente `sin_terminal=True`)."
         )
 
+    if not target.exists():
+        _live(f"  ✖ error: la ruta no existe ({target})")
+        return f"Error: la ruta '{target}' no existe. Verifica que el proyecto o archivo exista antes de lanzar."
+
+    cwd = _work_cwd(target)
     aviso_item = ""
     if not (pedido_id and item):  # ajuste sin pedido: queda como ítem nuevo del pedido del proyecto
         pedido_id, item, aviso_item = registro.item_automatico(str(target if not target.suffix else target.parent),
                                                                prompt_tarea)
     if pedido_id and item:
-        registro.actualizar_item(pedido_id, item, "en_curso", agente="OpenCode", modelo=modelo.split("/")[-1])
+        registro.actualizar_item(pedido_id, item, "en_curso", agente="OpenCode", modelo=modelo_corto)
 
     prompt = prompt_tarea
     if target.suffix:
         prompt = f"Archivo objetivo: {target}\n\n{prompt_tarea}"
-    prompt += ("\n\nNo instales paquetes globales ni cambies la configuración del sistema; si falta una "
+    reglas_proy = control.reglas_para(target)
+    if reglas_proy:
+        bloque_reglas = "Reglas del proyecto (obligatorias):\n" + "\n".join(f"- {r}" for r in reglas_proy)
+        prompt = f"{bloque_reglas}\n\n{prompt}"
+    prompt += ("\n\nNo ejecutes build, lint ni tests; solo edita archivos."
+               "\nNo instales paquetes globales ni cambies la configuración del sistema; si falta una "
                "dependencia, usa la del proyecto o indícalo en el resumen."
                "\nSé rápido: trabaja solo con las rutas que te indico, sin explorar el repo para ubicar archivos "
                "(nunca node_modules, .nx ni dist); escribe los archivos grandes por partes; no lances comandos que pasen de 2 minutos "
@@ -626,15 +798,15 @@ async def ejecutar_trabajo_opencode_innti(
     checkpoint = await asyncio.to_thread(_git_checkpoint, cwd)
     before = {} if checkpoint else await asyncio.to_thread(_snapshot, cwd)
     inicio_ms = int(time.time() * 1000)
-    etiqueta = f"[OpenCode{f' #{item}' if item else ''} {modelo.split('/')[-1]}] "
+    etiqueta = f"[OpenCode{f' #{item}' if item else ''} {modelo_corto}] "
 
     if servidor and session_id:
-        _live(f"  modelo: {modelo} | sesión HTTP: {session_id} en {cwd}")
+        _live(f"  modelo: {modelo} ({motivo_modelo}) | sesión HTTP: {session_id} en {cwd}")
         code, output, tokens, changed, lineas = await _run_opencode_http(
             session_id, cwd, modelo, prompt, OPENCODE_TIMEOUT, inicio_ms, tag=etiqueta
         )
     else:
-        _live(f"  modelo: {modelo} | fallback CLI opencode run en {cwd}")
+        _live(f"  modelo: {modelo} ({motivo_modelo}) | fallback CLI opencode run en {cwd}")
         cmd = [cli, "run", "--model", modelo, "--dir", str(cwd)]
         code, output = await _run([*cmd, prompt], cwd, OPENCODE_TIMEOUT, idle=OPENCODE_IDLE, tag=etiqueta)
         tokens = {}
@@ -647,8 +819,9 @@ async def ejecutar_trabajo_opencode_innti(
             after = await asyncio.to_thread(_snapshot, cwd)
             changed = sorted(p for p, m in after.items() if before.get(p) != m)
             lineas = await asyncio.to_thread(_count_lines, changed)
+    diff_resumen = await asyncio.to_thread(_git_diff_resumen, cwd, changed)
     costo = registro.costo_innti(modelo, tokens)
-    registro.registrar_costo("opencode", modelo.split("/")[-1], tokens, costo, pedido_id, item, str(cwd),
+    registro.registrar_costo("opencode", modelo_corto, tokens, costo, pedido_id, item, str(cwd),
                              sesion=session_id)
 
     log_dir = LOGS_DIR / "trabajo"
@@ -666,23 +839,75 @@ async def ejecutar_trabajo_opencode_innti(
     tok_txt = (f"{tokens.get('input', 0) + tokens.get('cache_read', 0):,} entrada · "
                f"{tokens.get('output', 0) + tokens.get('reasoning', 0):,} salida · ≈ US$ {costo:.4f}").replace(",", ".")
     _live(f"■ {estado} | {len(changed)} archivos | {tok_txt} | resumen devuelto a Claude")
-    vinculo = registro.vincular_delegacion(pedido_id, item, "OpenCode", modelo.split("/")[-1], costo, estado)
+    vinculo = registro.vincular_delegacion(pedido_id, item, "OpenCode", modelo_corto, costo, estado)
     vinculo += aviso_item
     revisar = f"Revisa con: git -C \"{cwd}\" diff" if checkpoint else "Revisa los archivos listados."
     _, presupuesto = control.estado_presupuesto()
     alerta = f"\n{presupuesto}" if presupuesto.startswith(("⚠", "⛔")) else ""
-    if len(prompt_tarea) > 3000:
-        alerta += "\n⚠ Prompt muy largo: parte la tarea en varias delegaciones (ts/html, luego i18n/integración) para evitar el timeout del proxy."
+    if aviso_to := _aviso_riesgo_timeout(prompt_tarea):
+        alerta += f"\n{aviso_to}"
     if not target.suffix and not re.search(r"[\w-]+\.\w{1,5}\b|[A-Za-z]:\\", prompt_tarea):
         alerta += "\n⚠ El prompt no traía rutas de archivo: el agente tuvo que explorar. La próxima vez da las rutas exactas."
     return (
         f"{estado}: OpenCode usando el modelo {modelo} de Innti en {target}.\n"
+        f"Modelo elegido: {modelo_corto} ({motivo_modelo})\n"
         f"Archivos modificados: {len(changed)} | Líneas procesadas: {lineas} | Tokens: {tok_txt}\n"
         f"{shown}\n"
+        f"{diff_resumen}\n"
         + (f"sesion_opencode: {session_id} (pásala en una ronda de corrección para conservar el contexto)\n"
            if session_id else "")
         + (f"Punto de retorno: {checkpoint}\n" if checkpoint else "")
         + f"{revisar}\nLog completo: {log_file}{vinculo}{alerta}\n\nResumen de OpenCode:\n{_tail(output)}"
+    )
+
+
+@mcp.tool()
+async def delegar_rapido(
+    prompt_tarea: str,
+    ruta_proyecto_o_archivo: str,
+    pedido_id: str = "",
+    item: int = 0,
+    modelo_innti: str = "",
+    sesion_opencode: str = "",
+) -> str:
+    """TRABAJO (TRABAJO_DIR) — Delegación rápida a OpenCode reduciendo viajes:
+    - Si `sesion_opencode` está vacío: prepara internamente la sesión (`preparar_vista_opencode`) y devuelve en un
+      único resultado `session_id` + comando de terminal (`ejecuta este comando con run_in_terminal y vuelve a llamar
+      delegar_rapido con la sesion_opencode`).
+    - Si ya pasas `sesion_opencode`: ejecuta directamente la tarea como `ejecutar_trabajo_opencode_innti` (anteponiendo
+      las reglas obligatorias del proyecto).
+    El modelo (`modelo_innti`) se elige solo automáticamente según la tarea y los aprendizajes del proyecto, o puedes
+    forzarlo pasando `modelo_innti`. Nota: `exportar_panel` solo se pide al cerrar el pedido (`cerrar_pedido`), no por ítem."""
+    target = _resolve_under(TRABAJO_DIR, ruta_proyecto_o_archivo)
+    if not _inside(target, TRABAJO_DIR):
+        return (f"Rechazado: {target} está fuera de {TRABAJO_DIR}. Si es un proyecto personal o de "
+                "universidad usa preparar_tarea_antigravity.")
+    if not target.exists():
+        return f"Error: la ruta '{target}' no existe. Verifica que el proyecto o archivo exista antes de lanzar."
+
+    if not sesion_opencode.strip():
+        vista = await preparar_vista_opencode(ruta_proyecto_o_archivo, titulo=prompt_tarea[:60])
+        if vista.startswith(("Rechazado:", "Error:")):
+            return vista
+        if (modelo_innti or "").strip():
+            mod_elegido, motivo = modelo_innti.strip().split("/")[-1], "forzado explícitamente por el usuario"
+        else:
+            mod_elegido, motivo = elegir_modelo_innti(prompt_tarea, str(target))
+        aviso_to = _aviso_riesgo_timeout(prompt_tarea)
+        extra = f"\n{aviso_to}" if aviso_to else ""
+        return (
+            f"{vista}\n"
+            f"Modelo elegido: {mod_elegido} ({motivo}){extra}\n"
+            "Siguiente paso: ejecuta este comando con run_in_terminal y vuelve a llamar delegar_rapido con la sesion_opencode."
+        )
+
+    return await ejecutar_trabajo_opencode_innti(
+        prompt_tarea=prompt_tarea,
+        modelo_innti=modelo_innti,
+        ruta_proyecto_o_archivo=ruta_proyecto_o_archivo,
+        sesion_opencode=sesion_opencode,
+        pedido_id=pedido_id,
+        item=item,
     )
 
 
@@ -905,10 +1130,11 @@ async def _agy_esperar(resultado: Path, folder: Path, inicio: datetime) -> tuple
 
 
 async def _agy_resultado(task: dict, texto: str) -> str:
-    """Resumen de una tarea terminada: archivos tocados, tokens, log y síntesis."""
+    """Resumen de una tarea terminada: archivos tocados, diff git, tokens, log y síntesis."""
     folder, model = task["folder"], task["model"]
     after = await asyncio.to_thread(_snapshot, folder)
     changed = sorted(p for p, m in after.items() if task["before"].get(p) != m and Path(p).name != task["resultado"].name)
+    diff_resumen = await asyncio.to_thread(_git_diff_resumen, folder, changed)
     log_dir = LOGS_DIR / "personal"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / f"{task['id']}.md"
@@ -924,7 +1150,7 @@ async def _agy_resultado(task: dict, texto: str) -> str:
                f"/ {tokens['output']:,} salida\n".replace(",", ".") if tokens else "")
     _live(f"■ Éxito con {model} | {len(changed)} archivos | {tok_txt.strip()} | síntesis devuelta a Claude")
     return (f"Éxito: Antigravity ({model}, CLI oficial) completó la tarea en {folder}.\n"
-            f"Archivos creados/modificados: {len(changed)}\n{shown}\n{tok_txt}Log: {log_file}\n"
+            f"Archivos creados/modificados: {len(changed)}\n{shown}\n{diff_resumen}\n{tok_txt}Log: {log_file}\n"
             + (f"conversacion_antigravity: {conv_id} (pásala en una ronda de corrección para conservar el contexto)\n"
                if conv_id else "")
             + "La pestaña de Antigravity sigue abierta por si quieres continuar la conversación ahí.\n"
@@ -1011,7 +1237,7 @@ async def esperar_resultado_antigravity(task_id: str) -> str:
     return out
 
 
-# ----------------------------------------------------------------------------- verificación
+# ----------------------------------------------------------------------------- verificación y reglas
 
 @mcp.tool()
 async def verificar_proyecto(ruta: str, comandos: list[str] | None = None) -> str:
@@ -1033,6 +1259,51 @@ def configurar_verificacion(proyecto: str, comandos: list[str]) -> str:
     """Guarda cómo se verifica un proyecto (nombre de la carpeta de primer nivel o ruta absoluta), p. ej.
     configurar_verificacion('ssdd-back', ['mvn -q -B test']). Lista vacía = quitar la configuración."""
     return control.guardar_verificacion(proyecto, comandos)
+
+
+@mcp.tool()
+def definir_reglas_proyecto(proyecto: str, reglas: list[str]) -> str:
+    """Guarda las reglas obligatorias de un proyecto (nombre de la carpeta de primer nivel o ruta absoluta),
+    que `ejecutar_trabajo_opencode_innti` y `delegar_rapido` anteponen automáticamente al prompt como
+    'Reglas del proyecto (obligatorias):'. Lista vacía = quitar las reglas."""
+    return control.guardar_reglas(proyecto, reglas)
+
+
+@mcp.tool()
+def recordar_regla(proyecto: str, regla: str) -> str:
+    """Llámala cuando el usuario repita o dé una instrucción reutilizable de un proyecto (estilo, alcance, qué no tocar). Con 2 repeticiones pasa sola a reglas fijas; no guardes tareas puntuales ni secretos"""
+    return control.recordar_regla(proyecto, regla)
+
+
+@mcp.tool()
+def listar_reglas_proyecto(proyecto: str = "") -> str:
+    """Muestra reglas fijas y candidatas (todas si no se pasa proyecto)."""
+    return control.listar_reglas(proyecto)
+
+
+@mcp.tool()
+def olvidar_regla(proyecto: str, texto: str) -> str:
+    """Borra una regla fija o candidata por coincidencia de similitud, para que el usuario pueda corregir la memoria."""
+    return control.olvidar_regla(proyecto, texto)
+
+
+@mcp.tool()
+def verificar_en_segundo_plano(proyecto: str) -> str:
+    """Lanza los comandos de verificación del proyecto (`configurar_verificacion` o detectados) en un hilo/proceso
+    aparte sin bloquear y devuelve un `id` para consultarlo después con `resultado_verificacion(id)`."""
+    target = _resolve_under(TRABAJO_DIR, proyecto)
+    if not _inside(target, TRABAJO_DIR, PERSONAL_DIR, UNIVERSIDAD_DIR, *OTRAS_CARPETAS):
+        return f"Rechazado: {target} está fuera de las carpetas configuradas."
+    tope = next((b for b in (TRABAJO_DIR, PERSONAL_DIR, UNIVERSIDAD_DIR) if _inside(target, b)), TRABAJO_DIR)
+    _live(f"▶ VERIFICACIÓN EN SEGUNDO PLANO en {target}")
+    _, msg = control.iniciar_verificacion_segundo_plano(target, tope, LOGS_DIR / "verificacion", proyecto=proyecto)
+    return msg
+
+
+@mcp.tool()
+def resultado_verificacion(id: str) -> str:
+    """Consulta el estado o resultado final (VERDE/ROJO) de una verificación lanzada con `verificar_en_segundo_plano`."""
+    return control.consultar_verificacion_segundo_plano(id)
 
 
 # ----------------------------------------------------------------------------- checklist, costos y aprendizajes
@@ -1063,7 +1334,8 @@ def agregar_items(pedido_id: str, items: list[str]) -> str:
 
 @mcp.tool()
 def cerrar_pedido(pedido_id: str, resumen: str, estado: str = "cerrado") -> str:
-    """Cierra el pedido con un resumen final (estado: cerrado | cancelado | bloqueado)."""
+    """Cierra el pedido con un resumen final (estado: cerrado | cancelado | bloqueado).
+    Solo al cerrar el pedido debes llamar después a `exportar_panel()` (no por cada ítem)."""
     return registro.cerrar_pedido(pedido_id, resumen, estado)
 
 
@@ -1101,7 +1373,8 @@ def consultar_aprendizajes(ruta_o_proyecto: str = "") -> str:
 @mcp.tool()
 def exportar_panel() -> str:
     """Prepara la sincronización del panel de control (artefacto). Devuelve la llamada ArtifactData 'batch'
-    exacta a ejecutar: crea un documento de estado nuevo y borra el anterior (sin leer nada antes)."""
+    exacta a ejecutar: crea un documento de estado nuevo y borra el anterior (sin leer nada antes).
+    Úsala únicamente al cerrar el pedido (`cerrar_pedido`), sin llamarla por cada ítem individual."""
     data = registro.datos_panel()
     doc_id = f"s-{datetime.now():%Y%m%d%H%M%S}"
     sync_dir = registro.TAREAS_DIR / "panel"

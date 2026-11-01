@@ -86,11 +86,13 @@ def test_exportar_panel_crea_y_borra_el_anterior(tmp_registro, monkeypatch):
 
 def test_todas_las_herramientas_registradas():
     nombres = {t.name for t in run(server.mcp.list_tools())}
-    esperadas = {"preparar_vista_opencode", "ejecutar_trabajo_opencode_innti", "preparar_tarea_antigravity",
-                 "esperar_resultado_antigravity",
+    esperadas = {"preparar_vista_opencode", "ejecutar_trabajo_opencode_innti", "delegar_rapido",
+                 "preparar_tarea_antigravity", "esperar_resultado_antigravity",
                  "iniciar_pedido", "actualizar_item", "agregar_items", "cerrar_pedido", "ver_pedido",
                  "listar_pedidos", "resumen_costos", "registrar_aprendizaje", "consultar_aprendizajes",
-                 "exportar_panel", "verificar_proyecto", "configurar_verificacion"}
+                 "exportar_panel", "verificar_proyecto", "configurar_verificacion", "definir_reglas_proyecto",
+                 "verificar_en_segundo_plano", "resultado_verificacion",
+                 "recordar_regla", "listar_reglas_proyecto", "olvidar_regla"}
     assert nombres == esperadas
 
 
@@ -228,3 +230,124 @@ def test_run_corta_por_inactividad(tmp_path):
     code, out = run(server._run([sys.executable, "-c", "import time; print('a', flush=True); time.sleep(30)"],
                                 tmp_path, 60, idle=1))
     assert code == -1 and "Sin salida durante 1s" in out and out.startswith("a")
+
+
+# ----------------------------------------------------------------------------- clasificador de modelos Innti
+
+def test_elegir_modelo_innti_clasificador(tmp_registro):
+    # 1. documentación / README / changelog / mensaje de commit -> innti-dev
+    m1, mot1 = server.elegir_modelo_innti("Actualiza la documentación en README.md y prepara el mensaje de commit")
+    assert m1 == "innti-dev" and "documentación" in mot1
+
+    # 2. plan / planificar / diseño de pasos -> innti-gpt
+    m2, mot2 = server.elegir_modelo_innti("Planificar el diseño de pasos para migrar el módulo de clientes")
+    assert m2 == "innti-gpt" and "plan" in mot2
+
+    # 3. capturas / imagen / screenshot descrito (no sencillo) -> innti-gpt
+    m3, mot3 = server.elegir_modelo_innti("Maquetar pantalla completa según el screenshot descrito y las capturas")
+    assert m3 == "innti-gpt"
+
+    # 4. arquitectura / contrato / interfaz entre módulos -> innti-terra (avisa que la salida es cara)
+    m4, mot4 = server.elegir_modelo_innti("Definir la arquitectura y el contrato e interfaz entre módulos")
+    assert m4 == "innti-terra" and "cara" in mot4
+
+    # 5. lógica compleja / seguridad / revisión de diff / refactor profundo / depurar / bug difícil / autenticación -> innti-dsp
+    m5, mot5 = server.elegir_modelo_innti("Depurar bug difícil de autenticación y hacer revisión de diff de seguridad")
+    assert m5 == "innti-dsp"
+
+    # 6. tarea sencilla sobre capturas -> innti-nova-flash
+    m6, mot6 = server.elegir_modelo_innti("Tarea sencilla sobre capturas: cambiar el texto del título de la imagen")
+    assert m6 == "innti-nova-flash" and "sencilla" in mot6
+
+    # 7. cambios mecánicos, buscar/explorar/resumir, renombrar, tests simples, sonar/lint, git pull/stash, deps, builds -> innti-dsf-last
+    m7, mot7 = server.elegir_modelo_innti("Renombrar variable, correr tests simples, sonar/lint y hacer git pull")
+    assert m7 == "innti-dsf-last"
+
+    # 8. "No hagas commit" no debe disparar innti-dev; nunca elegir innti-k3 ni innti-dev-nova
+    m8, _ = server.elegir_modelo_innti("Explorar y resumir el repositorio e instalar deps. No hagas commit.")
+    assert m8 == "innti-dsf-last"
+    assert m8 not in ("innti-k3", "innti-dev-nova")
+
+    # 9. aprendizaje negativo (👎 / 'mal') reciente en esa ruta evita el modelo y baja a innti-dsf-last
+    ruta_proy = r"D:\workspaces\ssdd-back\src"
+    registro.registrar_aprendizaje(ruta_proy, "OpenCode", "innti-dsp", "mal", "rompió autenticación")
+    m9, mot9 = server.elegir_modelo_innti("Refactor profundo de seguridad y lógica compleja", ruta_proy)
+    assert m9 == "innti-dsf-last" and "👎" in mot9 and "innti-dsp" in mot9
+
+
+# ----------------------------------------------------------------------------- delegar_rapido, git diff, reglas y avisos
+
+def test_delegar_rapido_valida_ruta_y_reduce_viajes(tmp_dirs, tmp_registro, monkeypatch):
+    async def ok(_cli):
+        return True
+
+    async def sesion(_cwd, _t):
+        return "ses_rapida"
+
+    monkeypatch.setattr(server, "_opencode_cmd", lambda: "opencode")
+    monkeypatch.setattr(server, "_ensure_opencode_server", ok)
+    monkeypatch.setattr(server, "_create_session", sesion)
+
+    # Ruta inexistente devuelve error claro antes de lanzar
+    err = run(server.delegar_rapido("Explorar", "no-existe", "p1", 1))
+    assert err.startswith("Error:") and "no existe" in err
+
+    proy = tmp_dirs["workspaces"] / "ssdd-corporativo-mf"
+    proy.mkdir()
+    server.definir_reglas_proyecto(
+        "ssdd-corporativo-mf",
+        [
+            "El .ts del equipo NO se toca salvo añadir líneas; solo template/scss",
+            "Diff mínimo: comparar con HEAD y verificar con git diff --stat que no se borran líneas",
+        ],
+    )
+    # Sin sesion_opencode: prepara vista y devuelve comando + session_id + instrucción clara
+    paso1 = run(server.delegar_rapido("Refactor profundo de seguridad", "ssdd-corporativo-mf", "p1", 1))
+    assert "session_id: ses_rapida" in paso1
+    assert "ejecuta este comando con run_in_terminal y vuelve a llamar delegar_rapido con la sesion_opencode" in paso1
+    assert "Modelo elegido: innti-dsp" in paso1
+
+    # Con sesion_opencode: ejecuta como ejecutar_trabajo_opencode_innti, anteponiendo reglas y instrucción fija
+    prompts_enviados = []
+
+    async def fake_http(session_id, cwd, modelo, prompt, timeout, desde_ms, tag=""):
+        prompts_enviados.append((modelo, prompt))
+        return 0, "Listo", {"input": 100, "output": 20}, [], 0
+
+    monkeypatch.setattr(server, "_run_opencode_http", fake_http)
+    paso2 = run(server.delegar_rapido(
+        "Modifica el componente y corre npm run build",
+        "ssdd-corporativo-mf",
+        pedido_id="p1",
+        item=1,
+        modelo_innti="innti-dev",
+        sesion_opencode="ses_rapida",
+    ))
+    assert len(prompts_enviados) == 1
+    mod_env, prompt_env = prompts_enviados[0]
+    assert mod_env.endswith("/innti-dev")
+    assert prompt_env.startswith("Reglas del proyecto (obligatorias):")
+    assert "El .ts del equipo NO se toca salvo añadir líneas; solo template/scss" in prompt_env
+    assert "No ejecutes build, lint ni tests; solo edita archivos" in prompt_env
+    assert "Modelo elegido: innti-dev" in paso2
+    assert "⚠ SIN CAMBIOS: ¿ruta correcta?" in paso2
+    assert "⚠ Riesgo de timeout: conviene partir en ítems; build/lint corren fuera del subagente" in paso2
+
+
+def test_git_diff_resumen_stat_vacio_y_borrado_neto(tmp_path):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    archivo = tmp_path / "grande.ts"
+    archivo.write_text("".join(f"linea {i}\n" for i in range(50)), encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"],
+                   check=True)
+
+    # Sin cambios -> aviso SIN CAMBIOS
+    vacio = server._git_diff_resumen(tmp_path)
+    assert "⚠ SIN CAMBIOS: ¿ruta correcta?" in vacio
+
+    # Borrado de 40 líneas netas (> 30) -> aviso BORRADO + git diff --stat
+    archivo.write_text("".join(f"linea {i}\n" for i in range(10)), encoding="utf-8")
+    con_borrado = server._git_diff_resumen(tmp_path)
+    assert "git diff --stat:" in con_borrado and "grande.ts" in con_borrado
+    assert "⚠ BORRADO: 40 líneas borradas en grande.ts" in con_borrado

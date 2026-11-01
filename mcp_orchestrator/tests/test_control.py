@@ -18,6 +18,8 @@ def run(coro):
 @pytest.fixture
 def tmp_control(tmp_path, monkeypatch):
     monkeypatch.setattr(control, "VERIF_FILE", tmp_path / "verificacion.json")
+    monkeypatch.setattr(control, "REGLAS_FILE", tmp_path / "reglas.json")
+    monkeypatch.setattr(control, "REGLAS_CANDIDATAS_FILE", tmp_path / "reglas_candidatas.json")
     monkeypatch.setattr(registro, "COSTOS_FILE", tmp_path / "costos.jsonl")
     for v in ("PRESUPUESTO_DIA_USD", "PRESUPUESTO_MES_USD", "PRESUPUESTO_AVISO_PCT"):
         monkeypatch.delenv(v, raising=False)
@@ -173,3 +175,170 @@ def test_conversacion_invalida_se_ignora(tmp_dirs, monkeypatch):
     assert "--conversation c78222c8-dcb8-4882-9c5c-97e052c3aba0 -i" in ok
     malo = run(server.preparar_tarea_antigravity("Corrige", "", "p2", "m", conversacion="x; rm -rf /"))
     assert "--conversation" not in malo
+
+
+# ----------------------------------------------------------------------------- reglas por proyecto y verificación en segundo plano
+
+def test_sin_reglas_por_defecto_y_definir_reglas_proyecto(tmp_control):
+    # Por defecto no hay reglas para ningún proyecto
+    assert control.reglas_para("ssdd-corporativo-mf") == []
+
+    # Definir reglas nuevas
+    out = server.definir_reglas_proyecto("mi-proy", ["Regla 1", "Regla 2"])
+    assert "guardadas (2)" in out
+    assert control.reglas_para("mi-proy") == ["Regla 1", "Regla 2"]
+
+    # Lista vacía = quitar las reglas
+    out_del = server.definir_reglas_proyecto("mi-proy", [])
+    assert "eliminadas" in out_del
+    assert control.reglas_para("mi-proy") == []
+
+
+def test_verificar_en_segundo_plano_y_resultado(tmp_control, tmp_dirs):
+    proy = tmp_dirs["workspaces"] / "bg-proy"
+    proy.mkdir()
+    cmd_ok = f'"{sys.executable}" -c "print(\'todo ok\')"'
+    server.configurar_verificacion("bg-proy", [cmd_ok])
+
+    inicio = server.verificar_en_segundo_plano("bg-proy")
+    assert inicio.startswith("verificacion_id: ")
+    vid = inicio.splitlines()[0].split(": ", 1)[1].strip()
+
+    info = control._VERIF_BG[vid]
+    info["thread"].join(timeout=10)
+    res = server.resultado_verificacion(vid)
+    assert res.startswith("Verificación VERDE") and "✅" in res
+    assert server.resultado_verificacion("no-existe").startswith("Error:")
+
+
+# ----------------------------------------------------------------------------- memoria automática de reglas
+
+def test_recordar_regla_conteo_y_rechazo_largo(tmp_control):
+    # Rechaza si supera 160 caracteres
+    larga = "x" * 161
+    res_larga = server.recordar_regla("mi-proy", larga)
+    assert "supera el límite de 160 caracteres" in res_larga
+
+    # Primer registro: candidata 1/2
+    res = server.recordar_regla("mi-proy", "Usar siempre pytest para los tests")
+    assert res == "candidata 1/2"
+
+    # No está aún en reglas fijas
+    assert control.reglas_para("mi-proy") == []
+
+    # Está en candidatas con conteo 1 y fecha ISO
+    cand_data = control._leer_candidatas()
+    assert "mi-proy" in cand_data
+    assert len(cand_data["mi-proy"]) == 1
+    assert cand_data["mi-proy"][0]["veces"] == 1
+    assert "T" in cand_data["mi-proy"][0]["ultima"]
+
+
+def test_recordar_regla_similitud_y_redaccion_corta(tmp_control):
+    # Call 1: redacción más larga
+    res1 = server.recordar_regla("mi-proy", "Usar siempre pytest para los tests")
+    assert res1 == "candidata 1/2"
+
+    # Call 2: redacción más corta con similitud Jaccard >= 0.7 (diferencias de acentos/signos/palabras vacías)
+    res2 = server.recordar_regla("mi-proy", "¡Usar pytest en tests!")
+    assert res2 == "promovida a regla fija de mi-proy"
+
+    # Verifica que promovió conservando la redacción más corta
+    fijas = control.reglas_para("mi-proy")
+    assert fijas == ["¡Usar pytest en tests!"]
+
+    # Ya no está en candidatas
+    cand_data = control._leer_candidatas()
+    assert "mi-proy" not in cand_data
+
+    # Call 3 con regla similar: detecta que ya existía
+    res3 = server.recordar_regla("mi-proy", "usar pytest para tests")
+    assert res3 == "ya existía"
+    assert control.reglas_para("mi-proy") == ["¡Usar pytest en tests!"]
+
+
+def test_recordar_regla_tope_15(tmp_control):
+    # Llenamos con 15 reglas fijas
+    iniciales = [f"Regla fija número {i}" for i in range(1, 16)]
+    server.definir_reglas_proyecto("mi-proy", iniciales)
+    assert len(control.reglas_para("mi-proy")) == 15
+
+    # Registramos una candidata nueva
+    res1 = server.recordar_regla("mi-proy", "Nueva regla especial")
+    assert res1 == "candidata 1/2"
+
+    # Segundo registro: debería promover pero choca con el tope de 15
+    res2 = server.recordar_regla("mi-proy", "Nueva regla especial")
+    assert "Tope alcanzado" in res2 and "15 reglas" in res2
+    assert "No se promovió" in res2
+
+    # Verifica que reglas fijas siguen siendo 15
+    assert len(control.reglas_para("mi-proy")) == 15
+
+    # Permanece en candidatas
+    cands = control._leer_candidatas()
+    assert len(cands["mi-proy"]) == 1
+    assert cands["mi-proy"][0]["veces"] == 2
+
+
+def test_olvidar_regla_fija_y_candidata(tmp_control):
+    # Creamos una fija y una candidata
+    server.definir_reglas_proyecto("mi-proy", ["No tocar templates de scss"])
+    server.recordar_regla("mi-proy", "Usar typing estricto en python")
+
+    assert len(control.reglas_para("mi-proy")) == 1
+    assert len(control._leer_candidatas().get("mi-proy", [])) == 1
+
+    # Olvidar candidata por similitud
+    res_olv_cand = server.olvidar_regla("mi-proy", "usar typing estricto python")
+    assert "Regla olvidada" in res_olv_cand and "candidatas" in res_olv_cand
+    assert len(control._leer_candidatas().get("mi-proy", [])) == 0
+
+    # Olvidar fija por similitud
+    res_olv_fija = server.olvidar_regla("mi-proy", "no tocar templates scss")
+    assert "Regla olvidada" in res_olv_fija and "fijas" in res_olv_fija
+    assert len(control.reglas_para("mi-proy")) == 0
+
+    # Olvidar algo que no existe
+    res_nada = server.olvidar_regla("mi-proy", "regla totalmente desconocida")
+    assert "No se encontró" in res_nada
+
+
+def test_archivo_ausente_o_corrupto(tmp_control, tmp_path):
+    # Archivos no existen inicialmente -> lectura devuelve dict vacío
+    assert control._leer_reglas() == {}
+    assert control._leer_candidatas() == {}
+
+    # Corrompemos el archivo de reglas y el de candidatas
+    (tmp_path / "reglas.json").write_text("{corrupto: json invalid!!!", encoding="utf-8")
+    (tmp_path / "reglas_candidatas.json").write_text("--- no es json ---", encoding="utf-8")
+
+    assert control._leer_reglas() == {}
+    assert control._leer_candidatas() == {}
+
+    # recordar_regla funciona limpiamente a pesar de archivos corruptos
+    res1 = server.recordar_regla("mi-proy", "Regla de prueba")
+    assert res1 == "candidata 1/2"
+
+    res2 = server.recordar_regla("mi-proy", "Regla de prueba")
+    assert res2 == "promovida a regla fija de mi-proy"
+    assert control.reglas_para("mi-proy") == ["Regla de prueba"]
+
+
+def test_listar_reglas_proyecto(tmp_control):
+    # Sin reglas
+    assert "Sin reglas fijas ni candidatas" in server.listar_reglas_proyecto()
+    assert "Sin reglas fijas ni candidatas para 'p1'" in server.listar_reglas_proyecto("p1")
+
+    # Agregamos una fija y una candidata
+    server.definir_reglas_proyecto("p1", ["Regla fija A"])
+    server.recordar_regla("p1", "Regla candidata B")
+
+    out_p1 = server.listar_reglas_proyecto("p1")
+    assert "Reglas fijas:" in out_p1 and "Regla fija A" in out_p1
+    assert "Reglas candidatas:" in out_p1 and "Regla candidata B" in out_p1
+
+    out_todos = server.listar_reglas_proyecto()
+    assert "Proyecto 'p1':" in out_todos
+    assert "Regla fija A" in out_todos
+    assert "Regla candidata B" in out_todos
